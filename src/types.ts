@@ -126,16 +126,7 @@ export interface AppUser {
     timestamp: Date;
     moderator: string;
   };
-  roles?: {
-    support: boolean;
-    moderation: boolean;
-    spam: boolean;
-    pro: boolean;
-    verification: boolean;
-    recovery: boolean;
-    feed_moderator: boolean;
-    [key: string]: boolean;
-  };
+  roles?: any;
   role?: string;
   roleList?: string[];
   isEmployee?: boolean;

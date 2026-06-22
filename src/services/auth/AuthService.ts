@@ -23,40 +23,53 @@ function toEmail(login: string): string {
 }
 
 function mapProfileAndRolesToAppUser(profile: any, roles: string[]): AppUser {
-  const isSuperAdmin = roles.includes('super_admin');
-  const isAdmin = roles.includes('admin') || isSuperAdmin;
-  const isModerator = roles.includes('moderator');
-  const isSupport = roles.includes('support');
+  const profileRole = profile.role || 'user';
+
+  // Rule 7: Computed permissions
+  let permissions: string[] = [];
+  if (profileRole === 'super_admin') {
+    permissions = ['admin', 'moderation', 'support'];
+  } else if (profileRole === 'admin') {
+    permissions = ['admin', 'moderation'];
+  } else if (profileRole === 'moderator' || profileRole === 'moderation') {
+    permissions = ['moderation'];
+  } else if (profileRole === 'support') {
+    permissions = ['support'];
+  } else {
+    permissions = [];
+  }
+
+  const isSuperAdmin = profileRole === 'super_admin';
+  const isAdmin = profileRole === 'admin' || isSuperAdmin;
+  const isModerator = profileRole === 'moderator' || profileRole === 'moderation' || isSuperAdmin;
+  const isSupport = profileRole === 'support' || isSuperAdmin;
   const isEmployee = isAdmin || isModerator || isSupport;
 
-  // Primary fallback role
-  let primaryRole = 'user';
-  if (isSuperAdmin) primaryRole = 'super_admin';
-  else if (isAdmin) primaryRole = 'admin';
-  else if (isModerator) primaryRole = 'moderator';
-  else if (isSupport) primaryRole = 'support';
+  // Rule 6: roles list [profile.role] as a hybrid array with enumerable properties
+  const rolesArray: any = [profileRole];
+  rolesArray.support = isSupport;
+  rolesArray.moderation = isModerator;
+  rolesArray.spam = isModerator;
+  rolesArray.pro = isEmployee;
+  rolesArray.verification = isAdmin;
+  rolesArray.recovery = isAdmin;
+  rolesArray.feed_moderator = isModerator;
 
-  return {
+  const appUser: AppUser = {
     id: profile.id,
     name: profile.display_name || profile.username,
     login: profile.username,
     avatar: profile.avatar_url || 'paw-prints-emoji-clipart-md.png',
     trustLevel: 1.0,
     isVerified: isAdmin || isModerator,
-    isBlocked: false,
+    isBlocked: !!profile.blocked,
     regDate: profile.created_at ? new Date(profile.created_at).toLocaleDateString() : new Date().toLocaleDateString(),
-    role: primaryRole,
-    roleList: roles,
+    role: profileRole,
+    roleList: [profileRole],
+    roles: rolesArray,
     isEmployee: isEmployee,
-    roles: {
-      support: isSupport || isAdmin || isSuperAdmin,
-      moderation: isModerator || isAdmin || isSuperAdmin,
-      spam: isModerator || isAdmin || isSuperAdmin,
-      pro: isEmployee,
-      verification: isAdmin || isSuperAdmin,
-      recovery: isAdmin || isSuperAdmin,
-      feed_moderator: isModerator || isAdmin || isSuperAdmin
-    },
+    onboardingCompleted: !!profile.onboarding_completed,
+    status: profile.status || '',
     friendsCount: 0,
     followersCount: 0,
     photosCount: 0,
@@ -64,13 +77,20 @@ function mapProfileAndRolesToAppUser(profile: any, roles: string[]): AppUser {
       id: true,
       block: isEmployee,
       card: true,
-      verify: isAdmin || isSuperAdmin,
+      verify: isAdmin,
       info: true,
       complaints: true,
-      delete: isAdmin || isSuperAdmin,
+      delete: isAdmin,
       mark: isEmployee
     }
   };
+
+  // Rule 8: Required logs
+  console.log('PROFILE_ROLE', profileRole);
+  console.log('APP_USER', appUser);
+  console.log('PERMISSIONS', permissions);
+
+  return appUser;
 }
 
 class AuthServiceImpl implements AuthService {
@@ -100,6 +120,10 @@ class AuthServiceImpl implements AuthService {
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
       username: login,
+      display_name: name || login,
+      role: 'user',
+      onboarding_completed: false,
+      blocked: false,
       created_at: data.user.created_at
     });
 
@@ -110,6 +134,10 @@ class AuthServiceImpl implements AuthService {
     return mapProfileAndRolesToAppUser({
       id: data.user.id,
       username: login,
+      display_name: name || login,
+      role: 'user',
+      onboarding_completed: false,
+      blocked: false,
       created_at: data.user.created_at
     }, []);
   }
@@ -151,7 +179,10 @@ class AuthServiceImpl implements AuthService {
           id: data.user.id,
           username,
           display_name,
-          avatar_url: 'paw-prints-emoji-clipart-md.png'
+          avatar_url: 'paw-prints-emoji-clipart-md.png',
+          role: 'user',
+          onboarding_completed: false,
+          blocked: false
         })
         .select()
         .single();
@@ -164,6 +195,9 @@ class AuthServiceImpl implements AuthService {
           username,
           display_name,
           avatar_url: 'paw-prints-emoji-clipart-md.png',
+          role: 'user',
+          onboarding_completed: false,
+          blocked: false,
           created_at: data.user.created_at
         };
       }
@@ -206,7 +240,10 @@ class AuthServiceImpl implements AuthService {
           id: user.id,
           username,
           display_name,
-          avatar_url: 'paw-prints-emoji-clipart-md.png'
+          avatar_url: 'paw-prints-emoji-clipart-md.png',
+          role: 'user',
+          onboarding_completed: false,
+          blocked: false
         })
         .select()
         .single();
@@ -216,6 +253,9 @@ class AuthServiceImpl implements AuthService {
         username,
         display_name,
         avatar_url: 'paw-prints-emoji-clipart-md.png',
+        role: 'user',
+        onboarding_completed: false,
+        blocked: false,
         created_at: user.created_at
       };
     }

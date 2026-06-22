@@ -324,7 +324,7 @@ const SUPPORT_DESCRIPTIONS = [
 ];
 
 export default function App() {
-  const { user: authUser, loading: authLoading, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles } = useAuth();
+  const { user: authUser, loading: authLoading, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles, completeOnboarding } = useAuth();
 
   // activeTab state is now dynamically derived from React Router path below.
   const [supportTab, setSupportTab] = useState('my-questions');
@@ -17646,13 +17646,16 @@ export default function App() {
           mySubscribedDiscussions={mySubscribedDiscussions}
           setMySubscribedDiscussions={setMySubscribedDiscussions}
           addNotification={addNotification}
-          onComplete={(selectedInterests) => {
+          onComplete={async (selectedInterests) => {
+            if (completeOnboarding) {
+              await completeOnboarding(selectedInterests);
+            }
             const updatedUser = { 
               ...currentUser, 
               onboardingCompleted: true, 
               interests: selectedInterests 
             };
-            setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+            setUsers(prev => prev.map(u => u.id === currentUser?.id ? updatedUser : u));
             setCurrentUser(updatedUser);
             addNotification('Настройка завершена', 'Ваш профиль настроен и лента персонализирована!');
           }}

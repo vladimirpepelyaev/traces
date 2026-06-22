@@ -6,6 +6,12 @@ export const SYSTEM_ROLES = {
   MODERATOR: 'moderator',
   SUPPORT: 'support',
   USER: 'user',
+  MODERATION: 'moderation',
+  SPAM: 'spam',
+  PRO: 'pro',
+  VERIFICATION: 'verification',
+  FEED_MODERATOR: 'feed_moderator',
+  REQUESTS: 'requests'
 };
 
 export interface PermissionService {
@@ -29,19 +35,54 @@ class PermissionServiceImpl implements PermissionService {
       return false; // Если роль неизвестна → отказ.
     }
 
-    // Role-based resolution
-    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
+    const profileRole = user.role || 'user';
 
-    if (role === SYSTEM_ROLES.ADMIN) {
-      return rolesList.includes('admin') || rolesList.includes('super_admin');
+    // Rule 7 computed permissions mapping
+    let permissions: string[] = [];
+    if (profileRole === 'super_admin') {
+      permissions = ['admin', 'moderation', 'support'];
+    } else if (profileRole === 'admin') {
+      permissions = ['admin', 'moderation'];
+    } else if (profileRole === 'moderator' || profileRole === 'moderation') {
+      permissions = ['moderation'];
+    } else if (profileRole === 'support') {
+      permissions = ['support'];
+    } else {
+      permissions = [];
     }
 
-    if (role === SYSTEM_ROLES.MODERATOR) {
-      return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator');
+    const isEmployee = ['super_admin', 'admin', 'moderator', 'moderation', 'support'].includes(profileRole);
+
+    if (role === SYSTEM_ROLES.ADMIN) {
+      return permissions.includes('admin');
+    }
+
+    if (role === SYSTEM_ROLES.MODERATOR || role === SYSTEM_ROLES.MODERATION) {
+      return permissions.includes('moderation');
     }
 
     if (role === SYSTEM_ROLES.SUPPORT) {
-      return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator') || rolesList.includes('support');
+      return permissions.includes('support');
+    }
+
+    if (role === SYSTEM_ROLES.SPAM) {
+      return permissions.includes('moderation');
+    }
+
+    if (role === SYSTEM_ROLES.FEED_MODERATOR) {
+      return permissions.includes('moderation');
+    }
+
+    if (role === SYSTEM_ROLES.VERIFICATION) {
+      return permissions.includes('admin');
+    }
+
+    if (role === SYSTEM_ROLES.REQUESTS) {
+      return permissions.includes('admin');
+    }
+
+    if (role === SYSTEM_ROLES.PRO) {
+      return isEmployee;
     }
 
     if (role === SYSTEM_ROLES.USER) {
@@ -56,8 +97,8 @@ class PermissionServiceImpl implements PermissionService {
    */
   canModerate(user: AppUser | null): boolean {
     if (!user) return false;
-    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
-    return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator');
+    const profileRole = user.role || 'user';
+    return ['super_admin', 'admin', 'moderator', 'moderation'].includes(profileRole);
   }
 
   /**
@@ -65,8 +106,8 @@ class PermissionServiceImpl implements PermissionService {
    */
   isAdmin(user: AppUser | null): boolean {
     if (!user) return false;
-    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
-    return rolesList.includes('admin') || rolesList.includes('super_admin');
+    const profileRole = user.role || 'user';
+    return ['super_admin', 'admin'].includes(profileRole);
   }
 }
 

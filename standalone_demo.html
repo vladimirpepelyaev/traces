@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VK Admin & Support Panel - Standalone</title>
+    
+    <!-- Стили Tailwind (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'vk-blue': '#5181b8',
+                        'vk-header': '#4a76a8',
+                        'vk-bg': '#edeef0',
+                        'vk-white': '#ffffff',
+                        'vk-text': '#000000',
+                        'vk-text-secondary': '#656565',
+                        'vk-separator': '#dce1e6',
+                        'vk-menu-hover': '#e1e5eb',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body { 
+            font-family: 'Inter', -apple-system, system-ui, Roboto, sans-serif; 
+            background-color: #edeef0; 
+            color: #000;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Убираем скроллбар в некоторых местах */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Кастомные кнопки в стиле ВК */
+        .btn-vk-primary {
+            background-color: #5181b8;
+            color: #fff;
+            padding: 7px 16px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background-color 0.15s ease;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-vk-primary:hover { background-color: #5b88bd; }
+
+        .btn-vk-secondary {
+            background-color: #e5ebf1;
+            color: #55677d;
+            padding: 7px 16px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background-color 0.15s ease;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-vk-secondary:hover { background-color: #dfe6ed; }
+
+        .fade-in {
+            animation: fadeIn 0.2s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(2px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Фикс для иконок Lucide */
+        .lucide { display: inline-block; vertical-align: middle; stroke-width: 2px; }
+        
+        /* Стили чекбокса */
+        input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Загрузка React и Babel (для JSX в реальном времени) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        const { 
+            User, ShieldAlert, LifeBuoy, BadgeCheck, Bell, Music, 
+            ImageIcon, MessageSquare, MoreHorizontal, ChevronLeft, 
+            ChevronRight, X, LayoutGrid, Search
+        } = LucideReact;
+
+        const ImagePlaceholder = ({ className = "" }) => (
+            <div className={`bg-[#dae2ea] flex items-center justify-center text-[#656565]/30 overflow-hidden relative ${className}`}>
+                <ImageIcon size={className.includes('w-8') ? 16 : 32} />
+            </div>
+        );
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('profile');
+            const [complaints, setComplaints] = useState([
+                { id: 1, user: 'Олег Пепеляев', type: 'Оскорбление', content: 'Этот пользователь ведет себя крайне неадекватно в комментариях.', rating: 0.95, selected: false, image: true },
+                { id: 2, user: 'Мария Козлова', type: 'Спам', content: 'Присылает странные ссылки в ЛС каждые 5 минут.', rating: 0.88, selected: false, image: false },
+                { id: 3, user: 'Дмитрий Волков', type: 'Фейк', content: 'Использует мои фотографии на своей странице.', rating: 0.72, selected: false, image: true },
+                { id: 4, user: 'Елена Морозова', type: 'Насилие', content: 'Постит запрещенный контент в группе.', rating: 0.99, selected: false, image: false }
+            ]);
+            
+            const [tickets, setTickets] = useState([
+                { id: 't1', user: 'Александр', title: 'Не могу войти в аккаунт', status: 'new' },
+                { id: 't2', user: 'Евгений', title: 'Проблема с платежом', status: 'new' }
+            ]);
+
+            const [verifications, setVerifications] = useState([
+                { id: 'v1', user: 'Иван Золо', text: 'Я блогер-миллионник, подтвердите личность' },
+                { id: 'v2', user: 'Секретный Агент', text: 'Нужна галочка для работы' }
+            ]);
+
+            const [isBlocked, setIsBlocked] = useState(false);
+            const [isVerified, setIsVerified] = useState(false);
+            const [blockModal, setBlockModal] = useState(false);
+            const [blockReason, setBlockReason] = useState('Оскорбление');
+            const [blockDuration, setBlockDuration] = useState('1 час');
+            const [notifications, setNotifications] = useState([]);
+
+            const addNotif = (title, text) => {
+                const id = Date.now();
+                setNotifications(prev => [...prev, { id, title, text }]);
+                setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 3000);
+            };
+
+            const handleModAction = (id, action) => {
+                setComplaints(prev => prev.filter(c => c.id !== id));
+                addNotif('Готово', 'Жалоба обработана');
+            };
+
+            const confirmBlock = () => {
+                setIsBlocked(true);
+                setBlockModal(false);
+                addNotif('Блокировка', `Профиль заблокирован на ${blockDuration}`);
+            };
+
+            const renderProfile = () => (
+                <div className="space-y-4 fade-in">
+                    <div className="bg-white p-5 border border-vk-separator flex gap-6">
+                        <div className="w-[150px] h-[150px] shrink-0">
+                            <ImagePlaceholder className="w-full h-full border border-vk-separator" />
+                        </div>
+                        <div className="grow">
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-[19px] font-semibold">Олег Пепеляев</h1>
+                                {isVerified && <BadgeCheck size={18} className="text-vk-blue fill-vk-blue text-white" />}
+                            </div>
+                            <div className="text-vk-text-secondary text-[12.5px] mt-1 italic">
+                                {isBlocked ? <span className="text-red-500">Заблокирован навсегда</span> : 'был в сети недавно'}
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-vk-separator text-[12.5px] space-y-2">
+                                <div className="flex"><span className="text-vk-text-secondary w-32 shrink-0">Город:</span> Санкт-Петербург</div>
+                                <div className="flex"><span className="text-vk-text-secondary w-32 shrink-0">Статус:</span> В работе над ТЗ...</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-4">
+                        <div className="grow space-y-4">
+                            <div className="bg-white p-4 border border-vk-separator flex items-center gap-3">
+                                <div className="w-7 h-7 rounded-full overflow-hidden shrink-0"><ImagePlaceholder className="w-full h-full" /></div>
+                                <div className="bg-[#f0f2f5] h-8 grow rounded-[4px] px-3 flex items-center text-vk-text-secondary text-[13px] border border-[#dce1e6]">Что у Вас нового?</div>
+                            </div>
+                            <article className="bg-white p-4 border border-vk-separator">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-8 h-8 rounded-full overflow-hidden shrink-0"><ImagePlaceholder className="w-full h-full" /></div>
+                                    <div className="grow">
+                                        <div className="text-[12.5px] font-semibold text-[#285473]">Олег Пепеляев</div>
+                                        <div className="text-[11px] text-vk-text-secondary">Сегодня в 14:20</div>
+                                    </div>
+                                </div>
+                                <p className="text-[13px] mb-3">Всё работает!</p>
+                                <ImagePlaceholder className="h-48 w-full border border-vk-separator" />
+                            </article>
+                        </div>
+                        <div className="w-[230px] shrink-0 space-y-3">
+                            <div className="bg-white p-4 border border-vk-separator space-y-2">
+                                {isBlocked ? (
+                                    <button onClick={() => { setIsBlocked(false); addNotif('Система', 'Профиль разблокирован'); }} className="w-full btn-vk-primary !bg-green-600">Разблокировать</button>
+                                ) : (
+                                    <button onClick={() => setBlockModal(true)} className="w-full btn-vk-primary !bg-red-500">Заблокировать</button>
+                                )}
+                                <button onClick={() => { setIsVerified(!isVerified); }} className={`w-full ${isVerified ? 'btn-vk-primary' : 'btn-vk-secondary'}`}>{isVerified ? 'Убрать галочку' : 'Верифицировать'}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderModeration = () => (
+                <div className="space-y-4 fade-in">
+                    <div className="bg-white p-4 border border-vk-separator flex justify-between items-center">
+                        <h2 className="text-[17px] font-semibold">Модерация</h2>
+                        <div className="text-[12px] text-vk-blue font-semibold">Ожидают: {complaints.length}</div>
+                    </div>
+                    {complaints.map(c => (
+                        <div key={c.id} className="bg-white p-5 border border-vk-separator relative">
+                            <div className="flex items-start gap-4 mb-3">
+                                <input type="checkbox" checked={c.selected} onChange={() => setComplaints(prev => prev.map(item => item.id === c.id ? {...item, selected: !item.selected} : item))} className="mt-1 accent-vk-blue" />
+                                <div className="w-9 h-9 rounded-full overflow-hidden shrink-0"><ImagePlaceholder className="w-full h-full" /></div>
+                                <div className="grow">
+                                    <div className="text-[13px] font-semibold text-[#285473]">{c.user}</div>
+                                    <div className="text-[12px] text-vk-blue mt-0.5">{c.type}</div>
+                                </div>
+                            </div>
+                            <div className="ml-8 pl-1">
+                                <div className="text-[13px] text-vk-text-secondary bg-[#f5f7f8] p-3 border border-vk-separator italic mb-3">«{c.content}»</div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleModAction(c.id, 'ban')} className="btn-vk-primary">Бан</button>
+                                    <button onClick={() => handleModAction(c.id, 'skip')} className="btn-vk-secondary">Пропустить</button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen">
+                    <header className="bg-vk-header h-12 sticky top-0 z-50 flex items-center px-4 border-b border-[#3c5d81]">
+                        <div className="max-w-[960px] w-full mx-auto flex justify-between items-center text-white">
+                            <div className="font-bold text-[21px] cursor-pointer">вконтакте</div>
+                            <div className="flex items-center gap-6"><Bell size={18}/><Music size={18}/><div className="w-7 h-7 bg-white/20 rounded-full"></div></div>
+                        </div>
+                    </header>
+                    <main className="max-w-[960px] mx-auto mt-4 px-4 flex gap-6">
+                        <aside className="w-[150px] shrink-0 sticky top-16 h-fit">
+                            <nav className="flex flex-col gap-0.5">
+                                {[{id:'profile', icon:User, label:'Моя страница'}, {id:'moderation', icon:ShieldAlert, label:'Модерация', count:complaints.length}].map(item => (
+                                    <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex items-center gap-2.5 px-2 py-1 rounded-[4px] text-left transition-all ${activeTab === item.id ? 'bg-[#dae2ea] text-[#285473] font-semibold' : 'text-[#285473] hover:bg-[#e1e5eb]'}`}>
+                                        <item.icon size={18}/><span className="text-[12.5px] grow">{item.label}</span>{item.count > 0 && <span className="bg-[#7196bf] text-white text-[9px] px-1.5 py-0.5 rounded-full ml-1">{item.count}</span>}
+                                    </button>
+                                ))}
+                            </nav>
+                        </aside>
+                        <div className="grow">{activeTab === 'profile' ? renderProfile() : renderModeration()}</div>
+                    </main>
+                    {blockModal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+                            <div className="bg-white w-full max-w-sm rounded-[4px] p-5 shadow-2xl border border-vk-separator fade-in">
+                                <h3 className="text-[14px] font-semibold text-[#285473] mb-4">Блокировка</h3>
+                                <div className="space-y-4">
+                                    <select className="w-full border border-vk-separator rounded-[4px] p-2 text-[13px]"><option>Оскорбление</option><option>Спам</option></select>
+                                    <div className="flex gap-2"><button onClick={confirmBlock} className="grow btn-vk-primary !bg-red-500">Заблокировать</button><button onClick={() => setBlockModal(false)} className="grow btn-vk-secondary">Отмена</button></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <div className="fixed bottom-6 left-6 flex flex-col gap-2">
+                        {notifications.map(n => (<div key={n.id} className="bg-[#2c2d2e] text-white p-3 rounded-[4px] shadow-xl min-w-[220px] fade-in"><div className="text-[12.5px] font-semibold">{n.title}</div><div className="text-[11px] opacity-80">{n.text}</div></div>))}
+                    </div>
+                </div>
+            );
+        }
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

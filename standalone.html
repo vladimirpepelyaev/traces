@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VK Admin & Support Panel - Standalone</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'vk-blue': '#5181b8',
+                        'vk-header': '#4a76a8',
+                        'vk-bg': '#edeef0',
+                        'vk-white': '#ffffff',
+                        'vk-text': '#000000',
+                        'vk-text-secondary': '#656565',
+                        'vk-separator': '#dce1e6',
+                        'vk-menu-hover': '#e1e5eb',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', -apple-system, system-ui, Roboto, sans-serif; background-color: #edeef0; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+    <!-- React & Lucide -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/javascript">
+        const { useState, useMemo, useEffect, createElement } = React;
+        const { 
+            User, ShieldAlert, LifeBuoy, UserPlus, BadgeCheck, Search, Bell, Music, ChevronDown, 
+            ImageIcon, ShieldCheck, HelpCircle, MessageSquare, BarChart3, Settings, 
+            ChevronRight, ChevronLeft, MoreHorizontal, History, X, Clock, Check, BarChart2
+        } = LucideReact;
+        const { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } = Recharts;
+
+        const NAMES = ['Александр Иванов', 'Мария Соколова', 'Дмитрий Волков', 'Елена Кузнецова', 'Никита Морозов', 'Анна Павлова', 'Иван Сергеев', 'Ольга Петрова'];
+        const LAST_NAMES = ['Пушкин', 'Толстой', 'Достоевский', 'Чехов', 'Пепеляев', 'Козлов', 'Лебедев', 'Морозов'];
+        const COMPLAINT_TYPES = ['Оскорбление', 'Рассылка спама', 'Пропаганда насилия', 'Нецензурная лексика', 'Введение в заблуждение', 'Рекламная страница', 'Клонирование профиля'];
+        const COMPLAINT_CONTENTS = [
+            'Пользователь прислал подозрительную ссылку в личном сообщении.',
+            'В комментариях под записью обнаружены грубые высказывания.',
+            'Данный аккаунт занимается массовой рассылкой приглашений в группы.',
+            'Размещение контента, нарушающего авторские права.',
+            'Агрессивное поведение и угрозы в сторону других участников.'
+        ];
+        const SUPPORT_QUESTIONS = ['Как сменить пароль?', 'Проблема с доступом к странице', 'Не грузятся фотографии', 'Как получить галочку?', 'Меня взломали, что делать?'];
+        const BLOCK_REASONS = ['Оскорбление', 'Спам', 'Фейк', 'Опасный контент', 'Другое'];
+        const BLOCK_DURATIONS = ['1 час', '1 день', '1 неделя', 'Навсегда'];
+
+        const ImagePlaceholder = ({ className = "" }) => (
+            React.createElement('div', { className: `bg-[#dae2ea] flex items-center justify-center text-[#656565]/50 overflow-hidden relative ${className}` },
+                React.createElement(ImageIcon, { size: 24, className: "opacity-20" })
+            )
+        );
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('profile');
+            const [supportTab, setSupportTab] = useState('my-questions');
+            const [complaints, setComplaints] = useState([]);
+            const [tickets, setTickets] = useState([]);
+            const [verificationRequests, setVerificationRequests] = useState([]);
+            const [notifications, setNotifications] = useState([]);
+            const [isModerationStarted, setIsModerationStarted] = useState(false);
+            const [isSupportStarted, setIsSupportStarted] = useState(false);
+            const [isVerificationStarted, setIsVerificationStarted] = useState(false);
+            const [processedCount, setProcessedCount] = useState(0);
+            
+            // Profile States
+            const [isProfileBlocked, setIsProfileBlocked] = useState(false);
+            const [isProfileVerified, setIsProfileVerified] = useState(false);
+            const [profileBlockInfo, setProfileBlockInfo] = useState({ duration: '', reason: '' });
+            
+            // Modals
+            const [blockingComplaint, setBlockingComplaint] = useState(null);
+            const [activeTicket, setActiveTicket] = useState(null);
+            const [replyText, setReplyText] = useState('');
+            const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+            const [blockReason, setBlockReason] = useState('Оскорбление');
+            const [blockDuration, setBlockDuration] = useState('1 час');
+
+            useEffect(() => {
+                const initialComplaints = Array.from({ length: 12 }).map((_, i) => ({
+                    id: `c-${i}`,
+                    userName: NAMES[i % NAMES.length] + ' ' + LAST_NAMES[i % LAST_NAMES.length],
+                    type: COMPLAINT_TYPES[i % COMPLAINT_TYPES.length],
+                    content: COMPLAINT_CONTENTS[i % COMPLAINT_CONTENTS.length],
+                    rating: (Math.random() * 0.99).toFixed(2),
+                    selected: false
+                }));
+                setComplaints(initialComplaints);
+
+                const initialTickets = Array.from({ length: 5 }).map((_, i) => ({
+                    id: `t-${i}`,
+                    userName: NAMES[i % NAMES.length],
+                    title: SUPPORT_QUESTIONS[i % SUPPORT_QUESTIONS.length],
+                    status: 'new',
+                    messages: [{ sender: 'user', text: 'Помогите разобраться с проблемой!', time: '10:00' }]
+                }));
+                setTickets(initialTickets);
+
+                const initialVerifications = Array.from({ length: 3 }).map((_, i) => ({
+                    id: `v-${i}`,
+                    userName: NAMES[(i + 3) % NAMES.length],
+                    text: 'Я известный блогер, мне нужна галочка.',
+                    profileLink: 'vk.com/id' + i
+                }));
+                setVerificationRequests(initialVerifications);
+            }, []);
+
+            const addNotification = (title, message) => {
+                const id = Date.now();
+                setNotifications(prev => [...prev, { id, title, message }]);
+                setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 3000);
+            };
+
+            const handleModerationAction = (id, action) => {
+                if (action === 'block' || action === 'block_delete') {
+                    setBlockingComplaint(complaints.find(c => c.id === id));
+                    return;
+                }
+                setComplaints(prev => prev.filter(c => c.id !== id));
+                setProcessedCount(prev => prev + 1);
+                addNotification('Успешно', 'Жалоба обработана');
+            };
+
+            const confirmBlock = () => {
+                if (blockingComplaint) {
+                    setComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+                    setProcessedCount(prev => prev + 1);
+                    addNotification('Заблокирован', `Пользователь на ${blockDuration}`);
+                    setBlockingComplaint(null);
+                }
+            };
+
+            const handleSendReply = () => {
+                if (!activeTicket || !replyText) return;
+                setTickets(prev => prev.map(t => t.id === activeTicket.id ? { ...t, status: 'answered' } : t));
+                setReplyText('');
+                setActiveTicket(null);
+                addNotification('Сообщение', 'Ответ отправлен');
+            };
+
+            const renderProfile = () => (
+                React.createElement('div', { className: "space-y-4" },
+                    React.createElement('section', { className: "bg-vk-white p-5 border border-vk-separator flex gap-6" },
+                        React.createElement('div', { className: "w-[150px] h-[150px] border border-vk-separator shrink-0" },
+                            React.createElement(ImagePlaceholder, { className: "w-full h-full" })
+                        ),
+                        React.createElement('div', { className: "grow" },
+                            React.createElement('div', { className: "flex items-center gap-2" },
+                                React.createElement('h1', { className: "text-lg font-medium" }, 'Александр Пушкин'),
+                                isProfileVerified && React.createElement(BadgeCheck, { size: 18, className: "text-vk-blue" })
+                            ),
+                            isProfileBlocked && React.createElement('div', { className: "text-red-500 text-xs mt-1" }, `Заблокирован (${profileBlockInfo.duration}) - ${profileBlockInfo.reason}`),
+                            React.createElement('div', { className: "text-vk-text-secondary text-xs mt-1" }, 'был в сети недавно'),
+                            React.createElement('div', { className: "mt-4 pt-4 border-t border-vk-separator text-xs space-y-1" },
+                                React.createElement('div', null, React.createElement('span', { className: "text-vk-text-secondary w-24 inline-block" }, 'Город:'), 'Санкт-Петербург'),
+                                React.createElement('div', null, React.createElement('span', { className: "text-vk-text-secondary w-24 inline-block" }, 'День рождения:'), '11 мая')
+                            )
+                        )
+                    ),
+                    React.createElement('div', { className: "flex gap-4" },
+                        React.createElement('div', { className: "grow space-y-4" },
+                            React.createElement('div', { className: "bg-vk-white p-4 border border-vk-separator flex items-center gap-3" },
+                                React.createElement('div', { className: "w-7 h-7 rounded-full overflow-hidden border" }, React.createElement(ImagePlaceholder, { className: "w-full h-full" })),
+                                React.createElement('div', { className: "bg-[#f2f3f5] h-7 grow rounded-[2px] px-3 flex items-center text-xs text-vk-text-secondary border border-vk-separator" }, 'Что у Вас нового?')
+                            ),
+                            React.createElement('article', { className: "bg-vk-white p-4 border border-vk-separator space-y-3" },
+                                React.createElement('div', { className: "flex items-center gap-3" },
+                                    React.createElement('div', { className: "w-7 h-7 rounded-full overflow-hidden border" }, React.createElement(ImagePlaceholder, { className: "w-full h-full" })),
+                                    React.createElement('div', null,
+                                        React.createElement('div', { className: "text-xs font-semibold text-[#285473]" }, 'Александр Пушкин'),
+                                        React.createElement('div', { className: "text-[10px] text-vk-text-secondary" }, 'Сегодня в 12:00')
+                                    )
+                                ),
+                                React.createElement('p', { className: "text-xs" }, 'Привет, а вот и я! Мой первый пост вstandalone версии.'),
+                                React.createElement('div', { className: "h-64 border border-vk-separator overflow-hidden" }, React.createElement(ImagePlaceholder, { className: "w-full h-full text-xs" })),
+                                React.createElement('div', { className: "flex items-center gap-4 pt-2 border-t border-vk-bg text-[#656565] font-bold text-[11px]" },
+                                    React.createElement('div', { className: "flex items-center gap-1 cursor-pointer" }, '❤️ 45'),
+                                    React.createElement('div', { className: "flex items-center gap-1 cursor-pointer" }, React.createElement(MessageSquare, { size: 14 }), ' 12')
+                                )
+                            )
+                        ),
+                        React.createElement('div', { className: "w-[230px] space-y-3" },
+                            React.createElement('div', { className: "bg-vk-white p-3 border border-vk-separator space-y-2" },
+                                isProfileBlocked 
+                                    ? React.createElement('button', { onClick: () => setIsProfileBlocked(false), className: "w-full py-1.5 bg-green-500 text-white text-xs font-medium rounded-[2px]" }, 'Разблокировать')
+                                    : React.createElement('button', { onClick: () => setIsBlockModalOpen(true), className: "w-full py-1.5 bg-red-500 text-white text-xs font-medium rounded-[2px]" }, 'Заблокировать'),
+                                React.createElement('button', { onClick: () => { setIsProfileVerified(!isProfileVerified); addNotification('Верификация', isProfileVerified ? 'Снята' : 'Установлена'); }, className: `w-full py-1.5 text-xs font-medium rounded-[2px] border ${isProfileVerified ? 'bg-vk-blue text-white border-vk-blue' : 'bg-[#e5ebf1] text-[#55677d] border-transparent'}` }, isProfileVerified ? 'Убрать верификацию' : 'Верифицировать')
+                            )
+                        )
+                    )
+                )
+            );
+
+            const renderModeration = () => (
+                React.createElement('div', { className: "space-y-4" },
+                    React.createElement('div', { className: "bg-vk-white p-4 border border-vk-separator flex justify-between items-center" },
+                        React.createElement('div', null,
+                            React.createElement('h2', { className: "text-lg font-medium" }, 'Модерация'),
+                            React.createElement('div', { className: "text-xs text-vk-text-secondary" }, isModerationStarted ? 'В работе' : React.createElement('span', { onClick: () => setIsModerationStarted(true), className: "text-vk-blue cursor-pointer underline" }, 'Начать работу'))
+                        ),
+                        React.createElement('div', { className: "text-right" },
+                            React.createElement('div', { className: "text-xs text-vk-text-secondary" }, `Ожидают: ${complaints.length}`),
+                            React.createElement('div', { className: "text-xs font-medium text-vk-blue" }, `Обработано: ${processedCount}`)
+                        )
+                    ),
+                    isModerationStarted ? React.createElement('div', { className: "space-y-3" },
+                        complaints.map(c => React.createElement('div', { key: c.id, className: "bg-vk-white p-4 border border-vk-separator" },
+                            React.createElement('div', { className: "flex items-start justify-between mb-3" },
+                                React.createElement('div', { className: "flex items-center gap-3" },
+                                    React.createElement('input', { type: "checkbox", className: "accent-vk-blue" }),
+                                    React.createElement('div', { className: "w-8 h-8 rounded-full overflow-hidden border" }, React.createElement(ImagePlaceholder, { className: "w-full h-full" })),
+                                    React.createElement('div', null,
+                                        React.createElement('div', { className: "text-xs font-semibold text-[#285473]" }, c.userName),
+                                        React.createElement('div', { className: "text-[10px] text-vk-text-secondary" }, `Тип: ${c.type}`)
+                                    )
+                                ),
+                                React.createElement('div', { className: "text-[10px] font-bold bg-vk-bg px-1.5 py-0.5" }, `Рейтинг: ${c.rating}`)
+                            ),
+                            React.createElement('div', { className: "pl-11" },
+                                React.createElement('div', { className: "text-xs mb-3 italic bg-vk-bg p-2 border border-vk-separator" }, `«${c.content}»`),
+                                React.createElement('div', { className: "flex gap-1.5" },
+                                    React.createElement('button', { onClick: () => handleModerationAction(c.id, 'block'), className: "bg-vk-blue text-white px-3 py-1 text-[11px] rounded-[2px]" }, 'Бан'),
+                                    React.createElement('button', { onClick: () => handleModerationAction(c.id, 'delete'), className: "bg-vk-blue text-white px-3 py-1 text-[11px] rounded-[2px]" }, 'Удалить'),
+                                    React.createElement('button', { onClick: () => handleModerationAction(c.id, 'skip'), className: "bg-[#e5ebf1] text-[#55677d] px-3 py-1 text-[11px] rounded-[2px]" }, 'Скип')
+                                )
+                            )
+                        ))
+                    ) : React.createElement('div', { className: "bg-vk-white p-20 text-center border border-vk-separator text-vk-text-secondary text-sm" }, 'Нажмите «Начать работу» сверху')
+                )
+            );
+
+            return React.createElement('div', { className: "min-h-screen pb-20" },
+                React.createElement('header', { className: "bg-vk-header h-10 border-b border-[#3c5d81] sticky top-0 z-50 flex items-center px-4" },
+                    React.createElement('div', { className: "max-w-[960px] w-full mx-auto flex items-center justify-between" },
+                        React.createElement('div', { className: "flex items-center gap-4" },
+                            React.createElement('div', { onClick: () => setActiveTab('profile'), className: "text-white font-bold text-lg cursor-pointer" }, 'вконтакте'),
+                            React.createElement('div', { className: "relative" },
+                                React.createElement('input', { type: "text", placeholder: "Поиск", className: "bg-[#365d8d] h-7 px-4 rounded-[2px] text-xs w-[230px] text-white placeholder:text-[#c2d1e2] focus:outline-none focus:bg-white focus:text-black" })
+                            )
+                        ),
+                        React.createElement('div', { className: "flex items-center gap-5 text-[#c2d1e2]" },
+                            React.createElement(Bell, { size: 18 }),
+                            React.createElement(Music, { size: 18 }),
+                            React.createElement('div', { className: "w-7 h-7 rounded-full overflow-hidden" }, React.createElement(ImagePlaceholder, { className: "w-full h-full" }))
+                        )
+                    )
+                ),
+                React.createElement('main', { className: "max-w-[960px] mx-auto mt-4 px-4 flex gap-6" },
+                    React.createElement('aside', { className: "w-[150px] shrink-0" },
+                        React.createElement('nav', { className: "space-y-0.5" },
+                            [
+                                { id: 'profile', icon: User, label: 'Профиль' },
+                                { id: 'moderation', icon: ShieldAlert, label: 'Модерация', count: complaints.length },
+                                { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.length },
+                                { id: 'verification', icon: BadgeCheck, label: 'Верификация', count: verificationRequests.length }
+                            ].map(item => React.createElement('button', {
+                                key: item.id,
+                                onClick: () => setActiveTab(item.id),
+                                className: `w-full flex items-center gap-2.5 px-2 py-1 text-left rounded-[2px] ${activeTab === item.id ? 'bg-[#dae2ea] font-medium' : 'hover:bg-[#e1e5eb]'} text-[#285473]`
+                            },
+                                React.createElement(item.icon, { size: 18, className: "opacity-60" }),
+                                React.createElement('span', { className: "text-xs flex-grow" }, item.label),
+                                item.count > 0 && React.createElement('span', { className: "bg-[#7196bf] text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold" }, item.count)
+                            ))
+                        )
+                    ),
+                    React.createElement('div', { className: "grow min-w-0" },
+                        activeTab === 'profile' ? renderProfile() : 
+                        activeTab === 'moderation' ? renderModeration() :
+                        React.createElement('div', { className: "bg-vk-white p-20 border border-vk-separator text-center text-vk-text-secondary text-sm" }, 'В разработке для standalone')
+                    )
+                ),
+                // Blocking Modal
+                (blockingComplaint || isBlockModalOpen) && React.createElement('div', { className: "fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50" },
+                    React.createElement('div', { className: "bg-white w-full max-w-sm border border-vk-separator shadow-2xl rounded-[2px]" },
+                        React.createElement('div', { className: "p-4 bg-[#fafbfc] border-b font-bold text-sm text-[#285473]" }, 'Блокировка'),
+                        React.createElement('div', { className: "p-4 space-y-4" },
+                            React.createElement('div', null,
+                                React.createElement('label', { className: "text-[10px] font-bold text-vk-text-secondary uppercase block mb-1" }, 'Причина'),
+                                React.createElement('select', { value: blockReason, onChange: (e) => setBlockReason(e.target.value), className: "w-full border p-2 text-xs" },
+                                    BLOCK_REASONS.map(r => React.createElement('option', { key: r, value: r }, r))
+                                )
+                            ),
+                            React.createElement('div', null,
+                                React.createElement('label', { className: "text-[10px] font-bold text-vk-text-secondary uppercase block mb-1" }, 'Срок'),
+                                React.createElement('select', { value: blockDuration, onChange: (e) => setBlockDuration(e.target.value), className: "w-full border p-2 text-xs" },
+                                    BLOCK_DURATIONS.map(d => React.createElement('option', { key: d, value: d }, d))
+                                )
+                            ),
+                            React.createElement('div', { className: "flex gap-2 pt-2" },
+                                React.createElement('button', { onClick: () => { if (blockingComplaint) confirmBlock(); else { setIsProfileBlocked(true); setIsBlockModalOpen(false); setProfileBlockInfo({ duration: blockDuration, reason: blockReason }); addNotification('Успешно', 'Профиль заблокирован'); } }, className: "grow py-1.5 bg-vk-blue text-white text-xs font-medium" }, 'Подтвердить'),
+                                React.createElement('button', { onClick: () => { setBlockingComplaint(null); setIsBlockModalOpen(false); }, className: "grow py-1.5 bg-vk-bg text-xs font-medium" }, 'Отмена')
+                            )
+                        )
+                    )
+                ),
+                // Notifications
+                React.createElement('div', { className: "fixed bottom-6 left-6 flex flex-col gap-2 z-[2000]" },
+                    notifications.map(n => React.createElement('div', { key: n.id, className: "bg-[#2c2d2e] text-white p-3 rounded-[2px] min-w-[200px]" },
+                        React.createElement('div', { className: "text-xs font-bold" }, n.title),
+                        React.createElement('div', { className: "text-[10px] opacity-70" }, n.message)
+                    ))
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>

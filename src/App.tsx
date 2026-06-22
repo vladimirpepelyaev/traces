@@ -1,0 +1,17607 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { Icon16WorkOutline, Icon24HammerOutline, Icon16Block } from '@vkontakte/icons';
+import { authService } from './services/auth/AuthService';
+import { permissionService } from './services/permission/PermissionService';
+import { RealtimeService } from './services/realtime/RealtimeService';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  SpamDecision, Complaint, Ticket, FeedPost, ComplaintHistoryItem, AppUser, 
+  VerificationRequest, ModeratorAction, ToastNotification, DialogMessage, DialogComplaint 
+} from './types';
+import { Wiki } from './components/Wiki';
+import { Security } from './components/Security';
+import { Monitoring } from './components/Monitoring';
+import { ActionLogs } from './components/ActionLogs';
+import { Statistics } from './components/Statistics';
+import { Tasks } from './components/Tasks';
+import { Translations } from './components/Translations';
+import { Onboarding, getPostTopic } from './components/Onboarding';
+import { FeedModeSelector, FeedMode } from './features/feed-modes/FeedModeSelector';
+import { PostComposer } from './features/post-context/PostComposer';
+import { QuietReactionsBar } from './features/quiet-reactions/QuietReactionsBar';
+import { DiscussionComments } from './features/discussions/DiscussionComments';
+import { DiscussedNow } from './features/discussions/DiscussedNow';
+import { AboutUserBlock } from './features/profile-contribution/AboutUserBlock';
+import { ContributionDataSources } from './features/profile-contribution/contributionTypes';
+import { NotificationCenter } from './features/notifications/NotificationCenter';
+import { NotificationsPage } from './features/notifications/NotificationsPage';
+import { NotificationService } from './features/notifications/NotificationService';
+import { isServiceProfileUser, SERVICE_PROFILE_DISCLAIMER, shouldShowServiceMessageButton } from './features/service-profile/serviceProfileHelpers';
+import { PostFormatBadge } from './features/post-format/PostFormatBadge';
+import { PostFormatFilter } from './features/post-format/PostFormatFilter';
+import { POST_FORMATS } from './features/post-format/postFormatTypes';
+import { TopicScoreService, BASE_TOPICS, TopicScore } from './features/topic-score/topicScoreService';
+import {
+  appendStaffMessageToServiceTicket,
+  appendUserMessageToServiceTicket,
+  buildStaffChatReplyMessage,
+  createServiceProfileChatTicket,
+  findServiceProfileChatTicket,
+} from './features/service-profile/serviceProfileSupport';
+import {
+  buildAuthorPostNotification,
+  buildCommentReplyNotification,
+  buildDirectMessageNotification,
+  buildDiscussionActivityNotification,
+  buildMentionNotifications,
+  buildSupportReplyNotification,
+  buildVerificationDeniedNotification,
+  buildVerificationTempNotification,
+  buildRecoveryApprovedNotification,
+  buildAccessRestrictedNotification,
+  dispatchNotifications,
+  navigateFromNotification,
+} from './features/notifications/notificationHelpers';
+import { PlatformNotification } from './features/notifications/notificationTypes';
+import { 
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
+} from 'recharts';
+import { 
+  User, 
+  LayoutGrid, 
+  MessageCircle, 
+  Phone, 
+  Users, 
+  Ghost, 
+  EyeOff, 
+  Music,
+  Search,
+  Bell,
+  ChevronDown,
+  ChevronUp,
+  Camera,
+  MapPin,
+  Cake,
+  Info,
+  MoreHorizontal,
+  Home,
+  ShieldAlert,
+  LifeBuoy,
+  MailX,
+  UserPlus,
+  BadgeCheck,
+  Check,
+  X,
+  ShieldCheck,
+  MessageSquare,
+  BarChart2,
+  Settings,
+  HelpCircle,
+  Play,
+  Send,
+  History,
+  AlertCircle,
+  Trophy,
+  BarChart3,
+  Settings2,
+  ArrowUpRight,
+  Hammer,
+  Clock,
+  ChevronRight,
+  ChevronLeft,
+  Key,
+  FileText,
+  Image as ImageIcon,
+  Heart,
+  LogOut,
+  Megaphone,
+  Globe,
+  Activity,
+  Mail,
+  FileSearch,
+  Lock,
+  Database,
+  Shield,
+  PieChart,
+  BookOpen,
+  Filter,
+  Download,
+  Gavel,
+  CheckCircle,
+  PenLine,
+  Terminal,
+  Edit3,
+  FileWarning,
+  Archive,
+  Trash2,
+  MailWarning,
+  Reply,
+  Paperclip,
+  LogIn,
+  Zap,
+  Cpu,
+  Star,
+  GraduationCap,
+  Quote,
+  RefreshCcw,
+  ListTodo,
+  ExternalLink,
+  MessageCircleOff,
+  History as HistoryIcon,
+  CreditCard,
+  Sparkles,
+  Footprints,
+  Gift,
+  AlertTriangle,
+  Flag,
+  Flame,
+} from 'lucide-react';
+
+import { 
+  PublicProfileSettings, 
+  DEFAULT_PUBLIC_SETTINGS, 
+  getRenderedUser,
+  ProfileMode
+} from './features/public-identity/publicIdentityTypes';
+import { PrivacySettingsModal } from './features/profile-privacy/PrivacySettingsModal';
+import { ProfilePreviewStatus } from './features/profile-preview/ProfilePreviewStatus';
+
+const SupportAgentAvatar = ({ className = "w-[44px] h-[44px]", src }: { className?: string; src?: string }) => {
+  const avatarSrc = src || (window as any)._operatorAvatar || "images.png";
+  return (
+    <div className={`${className} shrink-0 rounded-full overflow-hidden border border-[#d3e2f0] bg-[#ffffff]`} style={{ borderRadius: '50%' }}>
+      <img src={avatarSrc} alt="Агент поддержки" className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" />
+    </div>
+  );
+};
+
+const isWorker = (user: any) => {
+  if (!user) return false;
+  return permissionService.canModerate(user) || permissionService.isAdmin(user);
+};
+
+const VerifiedBadge = ({ size = 15, className = "" }: { size?: number, className?: string }) => {
+  return (
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      xmlns="http://www.w3.org/2000/svg" 
+      className={`shrink-0 inline-block align-middle select-none text-[#5181b8] ${className}`}
+      title="Верифицированный аккаунт"
+      style={{ verticalAlign: 'middle', display: 'inline-block' }}
+    >
+      {/* Scalloped badge background resembling vintage VKontakte gear/starburst badge */}
+      <path 
+        d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" 
+        fill="currentColor"
+      />
+      {/* High-contrast crisp checkmark */}
+      <path 
+        d="M9 12.5l2 2 4.5-4.5" 
+        stroke="white" 
+        strokeWidth="3.2" 
+        strokeLinecap="round" 
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+const UserAvatar = ({ 
+  user, 
+  avatarUrl, 
+  className = "w-9 h-9", 
+  forceGrayscale = false 
+}: { 
+  user?: any, 
+  avatarUrl?: string, 
+  className?: string, 
+  forceGrayscale?: boolean 
+}) => {
+  if (avatarUrl === '' || user?.avatar === '') {
+    return (
+      <div 
+        className={`bg-[#e1e5eb] text-[#818c99] flex items-center justify-center shrink-0 border border-[#dce1e6] ${className}`}
+        style={{ borderRadius: '50%' }}
+      >
+        <span className="opacity-80">👤</span>
+      </div>
+    );
+  }
+
+  const isEmployee = isWorker(user);
+
+  if (isEmployee) {
+    return <SupportAgentAvatar className={className} src={avatarUrl || user?.avatar} />;
+  }
+
+  const seed = useMemo(() => {
+    const key = user?.id || user?.name || avatarUrl || "default";
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = key.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash) % 5000;
+  }, [user, avatarUrl]);
+
+  return (
+    <div 
+      className={`bg-vk-separator/20 flex items-center justify-center overflow-hidden relative rounded-full shrink-0 ${className} ${forceGrayscale ? 'grayscale contrast-[0.8]' : ''}`}
+      style={{ borderRadius: '50%' }}
+    >
+      <img 
+        src={avatarUrl || (user?.avatar) || `https://picsum.photos/seed/${seed}/400/400`} 
+        alt="avatar" 
+        className="w-full h-full object-cover rounded-full"
+        referrerPolicy="no-referrer"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${seed}/400/400`;
+        }}
+      />
+    </div>
+  );
+};
+
+const ImagePlaceholder = ({ className = "", forceGrayscale = false }: { className?: string, forceGrayscale?: boolean }) => {
+  const seed = useMemo(() => Math.floor(Math.random() * 5000), []);
+  return (
+    <div className={`bg-vk-separator/20 flex items-center justify-center overflow-hidden relative ${className} ${forceGrayscale ? 'grayscale contrast-[0.8]' : ''}`}>
+      <img 
+        src={`https://picsum.photos/seed/${seed}/400/400`} 
+        alt="placeholder" 
+        className="w-full h-full object-cover"
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  );
+};
+
+// --- Constants ---
+const COMPLAINT_TYPES = ['Оскорбление', 'Рассылка спама', 'Пропаганда насилия', 'Нецензурная лексика', 'Введение в заблуждение', 'Рекламная страница', 'Клонирование профиля'];
+const DEPARTMENTS = ['Спам', 'Про'];
+const BLOCK_REASONS = ['Оскорбление', 'Спам', 'Фейк', 'Опасный контент', 'Другое'];
+const BLOCK_DURATIONS = ['1 час', '1 день', '1 неделя', 'Навсегда'];
+const NAMES = ['Александр', 'Мария', 'Дмитрий', 'Елена', 'Никита', 'Анна', 'Иван', 'Ольга'];
+const LAST_NAMES = ['Иванов', 'Соколова', 'Волков', 'Кузнецова', 'Морозов', 'Павлова', 'Сергеев', 'Петрова'];
+const COMPLAINT_CONTENTS = [
+  'Пользователь прислал подозрительную ссылку в личном сообщении.',
+  'В комментариях под записью обнаружены грубые высказывания.',
+  'Данный аккаунт занимается массовой рассылкой приглашений в группы.',
+  'Размещение контента, нарушающего авторские права.',
+  'Агрессивное поведение и угрозы в сторону других участников.',
+  'Публикация заведомо ложной информации о текущих событиях.'
+];
+
+const SUPPORT_QUESTIONS = [
+  'Как сменить пароль на более сложный?',
+  'Проблема с доступом к странице после сброса',
+  'Не грузятся видео и аудиозаписи',
+  'Как получить синюю галочку верификации?',
+  'Меня взломали и рассылают спам, помогите!',
+  'Вопрос по рекламному кабинету и оплате',
+  'Почему мой комментарий был удален?',
+  'Как скрыть список друзей от посторонних?',
+  'Восстановление старого удаленного профиля',
+  'Не приходит СМС-код для подтверждения',
+  'Ошибка при загрузке документов в приложении',
+  'Как настроить двухфакторную аутентификацию?',
+  'Подозрительные уведомления о входе',
+  'Пропали голоса после оплаты через телефон',
+  'Как отключить автоматическое продление подписки?',
+  'Не отображаются стикеры в сообщениях',
+  'Вопрос по модерации моей группы',
+  'Как удалить историю поиска навсегда?',
+  'Проблема с отображением ленты новостей',
+  'Не работает микрофон в звонках через браузер'
+];
+
+const SUPPORT_DESCRIPTIONS = [
+  'Я пытаюсь войти в свой аккаунт, но система пишет, что пароль неверный. Я пробовал сбросить его через почту, но код не приходит уже второй час. Помогите восстановить доступ как можно скорее.',
+  'У меня возникла проблема с загрузкой фотографий в альбомы. При попытке загрузить изображение появляется ошибка "Сервер временно недоступен". Пробовал с разных браузеров, результат один и тот же.',
+  'Хочу узнать подробнее о программе верификации для авторов контента. Какие критерии сейчас актуальны и сколько времени обычно занимает рассмотрение заявки?',
+  'Заметил подозрительную активность на своей странице. Похоже, кто-то заходил из другого города. Я сменил пароль, но хочу проверить, не были ли изменены мои личные данные.',
+  'Платёж за рекламу прошел, деньги списались с карты, но в кабинете баланс не пополнился. Куда мне прислать чек об оплате для подтверждения транзакции?',
+  'После последнего обновления приложения у меня перестали открываться сообщения. При нажатии на вкладку всё зависает. Телефон перезагружал, кэш чистил — не помогает.',
+  'Мне кажется, мой аккаунт был заблокирован ошибочно. Я не рассылал спам и не нарушал правила. Прошу пересмотреть решение и вернуть доступ к профилю.',
+  'Пытаюсь отправить подарок другу, но кнопка не нажимается. Баланс достаточен. Подскажите, есть ли какие-то ограничения на количество отправлений в день?',
+  'Моя страница была взломана вчера вечером. Злоумышленники изменили привязанный номер телефона. У меня есть доступ к старой сим-карте и почте. Что делать?',
+  'Почему мой охват в группе резко упал? Раньше посты видели тысячи человек, а теперь только несколько сотен. Алгоритмы изменились или на меня наложены санкции?'
+];
+
+export default function App() {
+  // activeTab state is now dynamically derived from React Router path below.
+  const [supportTab, setSupportTab] = useState('my-questions');
+  const [ticketRatings, setTicketRatings] = useState<Record<string, 'positive' | 'negative'>>({});
+  
+  const [mySubscriptions, setMySubscriptions] = useState<string[]>([]);
+  const [myFriends, setMyFriends] = useState<string[]>([]);
+  const [whoSubscribedToMe, setWhoSubscribedToMe] = useState<Record<string, boolean>>(() => {
+    return {
+      '2': true,
+      '1001': true,
+      '1002': true
+    };
+  });
+
+  const handleToggleSubscribe = (uid: string) => {
+    const isSubscribed = mySubscriptions.includes(uid) || myFriends.includes(uid);
+    const myId = currentUser?.id || '1';
+
+    if (isSubscribed) {
+      setMySubscriptions(prev => prev.filter(id => id !== uid));
+      setMyFriends(prev => prev.filter(id => id !== uid));
+      addNotification('Подписка', 'Вы успешно отписались');
+      
+      setUserSubscribers(prev => {
+        const list = prev[uid] || [];
+        return {
+          ...prev,
+          [uid]: list.filter(id => id !== myId)
+        };
+      });
+    } else {
+      if (whoSubscribedToMe[uid]) {
+        setMyFriends(prev => [...prev, uid]);
+        addNotification('Дружба', 'Взаимная подписка! Пользователь добавлен в друзья!');
+      } else {
+        setMySubscriptions(prev => [...prev, uid]);
+        addNotification('Подписка', 'Вы подписались на пользователя');
+      }
+
+      setUserSubscribers(prev => {
+        const list = prev[uid] || [];
+        return {
+          ...prev,
+          [uid]: list.includes(myId) ? list : [...list, myId]
+        };
+      });
+    }
+  };
+
+  const handleToggleServiceProfile = (user: AppUser) => {
+    const newState = !user.isServiceProfile;
+    const updatedUser = {
+      ...user,
+      isServiceProfile: newState,
+      showServiceMessageButton: newState ? user.showServiceMessageButton : false,
+    };
+    setUsers(prev => prev.map(u => (u.id === user.id ? updatedUser : u)));
+    if (selectedUserData?.id === user.id) setSelectedUserData(updatedUser);
+    if (currentUser?.id === user.id) setCurrentUser(updatedUser);
+    setInfoUser(prev => (prev && prev.id === user.id ? updatedUser : prev));
+    addModeratorLog({
+      type: 'system',
+      action: newState ? 'Служебный профиль включён' : 'Служебный профиль отключён',
+      message: newState
+        ? `Профиль ${user.name} переведён в служебный режим`
+        : `Профиль ${user.name} возвращён в обычный режим`,
+      targetId: user.id,
+      targetName: user.name,
+    });
+    addNotification(
+      'Служебный профиль',
+      newState ? 'Профиль отмечен как служебный' : 'Служебный режим профиля отключён'
+    );
+  };
+
+  const handleToggleServiceMessageButton = (user: AppUser) => {
+    const newState = !user.showServiceMessageButton;
+    const updatedUser = {
+      ...user,
+      showServiceMessageButton: newState,
+      serviceSupportCategory: user.serviceSupportCategory || 'Поддержка',
+    };
+    setUsers(prev => prev.map(u => (u.id === user.id ? updatedUser : u)));
+    if (selectedUserData?.id === user.id) setSelectedUserData(updatedUser);
+    if (currentUser?.id === user.id) setCurrentUser(updatedUser);
+    setInfoUser(prev => (prev && prev.id === user.id ? updatedUser : prev));
+    addNotification(
+      'Служебный профиль',
+      newState
+        ? 'Кнопка «Написать сообщение» включена на профиле'
+        : 'Кнопка «Написать сообщение» скрыта'
+    );
+  };
+
+  const handleUpdateServiceSupportCategory = (user: AppUser, category: string) => {
+    const updatedUser = { ...user, serviceSupportCategory: category };
+    setUsers(prev => prev.map(u => (u.id === user.id ? updatedUser : u)));
+    if (selectedUserData?.id === user.id) setSelectedUserData(updatedUser);
+    setInfoUser(prev => (prev && prev.id === user.id ? updatedUser : prev));
+  };
+
+  const syncStaffReplyToServiceChat = (ticket: Ticket, replyText: string) => {
+    if (ticket.source !== 'service_profile_chat' || !ticket.serviceProfileId) return;
+
+    const serviceProfile =
+      users.find(u => u.id === ticket.serviceProfileId) ||
+      ({
+        id: ticket.serviceProfileId,
+        name: ticket.serviceProfileName || 'Поддержка',
+        avatar: ticket.serviceProfileAvatar || '',
+      } as AppUser);
+
+    const chatMsg = buildStaffChatReplyMessage(ticket, replyText, serviceProfile);
+    setMessengerMessages(prev => [...prev, chatMsg]);
+  };
+
+  const handleComplainAboutProfile = (user: any) => {
+    const newComplaint = {
+      id: `cmpl-profile-${Date.now()}`,
+      userId: user.id,
+      userName: user.name,
+      userAvatar: user.avatar,
+      type: 'Жалоба на страницу',
+      content: `Создана жалоба на аккаунт пользователя ${user.name} в раздел «Модерация профилей»`,
+      rating: 'Высокий риск',
+      timestamp: new Date()
+    };
+    setPageComplaints(prev => [newComplaint, ...prev]);
+    addNotification('Жалоба отправлена', `Жалоба на аккаунт ${user.name} успешно передана модераторам профилей`);
+  };
+
+  const handlePostCardClickWithAlt = (e: React.MouseEvent, text: string, type: 'post' | 'name' | 'status' = 'post') => {
+    if (e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const hasSpamRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'spam');
+      if (!hasSpamRole) {
+        return;
+      }
+      setSpamSearchQuery(text || '');
+      setSpamSearchAppliedQuery(text || '');
+      setSelectedSpamPostIds([]);
+      setActiveTab('spam');
+      setSpamActiveSubTab('search');
+      
+      let typeText = 'Текст публикации';
+      if (type === 'name') typeText = 'Имя пользователя';
+      else if (type === 'status') typeText = 'Статус пользователя';
+      
+      addNotification('Поиск спама', `${typeText} перенесен в поисковый фильтр спама`);
+    }
+  };
+  
+  // Logged complaint actions history type and state
+  interface LoggedComplaintAction {
+    id: string;
+    complaint: Complaint;
+    actionType: 'delete' | 'ignore' | 'block' | 'block_delete' | 'forward' | 'mass_delete' | 'mass_block' | 'mass_forward' | 'mass_multi';
+    actionName: string;
+    source: 'main' | 'spam' | 'page_moderation';
+    timestamp: string;
+    details?: string;
+    operatorName: string;
+  }
+
+  // State
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [spamComplaints, setSpamComplaints] = useState<Complaint[]>([]);
+
+  const [dialogComplaints, setDialogComplaints] = useState<DialogComplaint[]>([
+    {
+      id: 'dc-1',
+      offenderId: 'u-volkov',
+      offenderName: 'Сергей Волков',
+      offenderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop',
+      offenderTrust: 0.15,
+      offenderRisk: 0.85,
+      violationType: 'Угроза',
+      source: 'Жалобы пользователя',
+      reporterId: 'u-kravtsov',
+      reporterName: 'Иван Кравцов',
+      reporterAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop',
+      participants: {
+        userA: { name: 'Иван Кравцов', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', isOffender: false },
+        userB: { name: 'Сергей Волков', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', isOffender: true }
+      },
+      previewMessages: [
+        { id: 'm1-1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Привет, ты когда вернешь долг? Сроки вышли еще вчера', timestamp: 'Вчера, 18:20' },
+        { id: 'm1-2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Какой долг? Я тебе ничего не должен. Отъебись', timestamp: 'Вчера, 18:22' },
+        { id: 'm1-3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Мы же договаривались, у меня есть расписка и скрины', timestamp: 'Вчера, 18:24' },
+        { id: 'm1-4', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Мне похуй на твои скрины. Еще раз напишешь — пожалеешь.', timestamp: 'Вчера, 18:25', isViolation: true },
+        { id: 'm1-5', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Я тебя из-под земли достану и найду, понял?', timestamp: 'Вчера, 18:26', isViolation: true }
+      ],
+      contextBeforeMessages: [
+        { id: 'm1-b1', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай завтра спишемся, я занят.', timestamp: 'Вчера, 15:10' },
+        { id: 'm1-b2', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Окей, жду звонка.', timestamp: 'Вчера, 15:15' },
+        { id: 'm1-b3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты тут?', timestamp: 'Вчера, 18:00' }
+      ],
+      contextAfterMessages: [
+        { id: 'm1-a1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты в своем уме? Я пишу заявление в полицию!', timestamp: 'Вчера, 18:30' },
+        { id: 'm1-a2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай пиши, сыкло, тебе никто не поможет.', timestamp: 'Вчера, 18:31' },
+         { id: 'm1-a3', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Дорогу домой лучше оглядывайся.', timestamp: 'Вчера, 18:32' }
+      ],
+      fullDialogueMessages: [
+        { id: 'm1-b1', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай завтра спишемся, я занят.', timestamp: 'Вчера, 15:10' },
+        { id: 'm1-b2', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Окей, жду звонка.', timestamp: 'Вчера, 15:15' },
+        { id: 'm1-b3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты тут?', timestamp: 'Вчера, 18:00' },
+        { id: 'm1-1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Привет, ты когда вернешь долг? Сроки вышли еще вчера', timestamp: 'Вчера, 18:20' },
+        { id: 'm1-2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Какой долг? Я тебе ничего не должен. Отъебись', timestamp: 'Вчера, 18:22' },
+        { id: 'm1-3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Мы же договаривались, у меня есть расписка и скрины', timestamp: 'Вчера, 18:24' },
+        { id: 'm1-4', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Мне похуй на твои скрины. Еще раз напишешь — пожалеешь.', timestamp: 'Вчера, 18:25', isViolation: true },
+        { id: 'm1-5', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Я тебя из-под земли достану и найду, понял?', timestamp: 'Вчера, 18:26', isViolation: true },
+        { id: 'm1-a1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты в своем уме? Я пишу заявление в полицию!', timestamp: 'Вчера, 18:30' },
+        { id: 'm1-a2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай пиши, сыкло, тебе никто не поможет.', timestamp: 'Вчера, 18:31' },
+        { id: 'm1-a3', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Дорогу домой лучше оглядывайся.', timestamp: 'Вчера, 18:32' }
+      ],
+      aiAnalysis: { threat: 92, toxicity: 81, insult: 44, spam: 0, scam: 5, riskLevel: 'CRITICAL' },
+      violationHistory: { violationsCount: 14, warningsCount: 5, blocksCount: 2, lastViolationDate: '3 дня назад', lastViolationReason: 'Угрозы' },
+      hasCounterComplaint: true,
+      counterComplaintText: 'Домогательство / вымогательство (Иван вымогает долг, угрожая полицией и связями)'
+    },
+    {
+      id: 'dc-2',
+      offenderId: 'u-smirnova',
+      offenderName: 'Елена Смирнова',
+      offenderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop',
+      offenderTrust: 0.42,
+      offenderRisk: 0.65,
+      violationType: 'Домогательство',
+      source: 'Автофлаг',
+      reporterId: 'u-orlov',
+      reporterName: 'Дмитрий Орлов',
+      reporterAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop',
+      participants: {
+        userA: { name: 'Дмитрий Орлов', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', isOffender: false },
+        userB: { name: 'Елена Смирнова', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', isOffender: true }
+      },
+      previewMessages: [
+        { id: 'm2-1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Приветик! Ты свободен сегодня вечером? ;)', timestamp: 'Сегодня, 11:10' },
+        { id: 'm2-2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Привет. Нет, извини, я занят.', timestamp: 'Сегодня, 11:15' },
+        { id: 'm2-3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ну почему ты меня избегаешь? Я же вижу, как ты смотришь.', timestamp: 'Сегодня, 11:20' },
+        { id: 'm2-4', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Давай встретимся, я не принимаю отказов. Будет горячо', timestamp: 'Сегодня, 11:21', isViolation: true },
+        { id: 'm2-5', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Если не придешь, я расскажу всем в офисе твои секреты', timestamp: 'Сегодня, 11:22', isViolation: true }
+      ],
+      contextBeforeMessages: [
+         { id: 'm2-b1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Классная презентация сегодня была!', timestamp: 'Сегодня, 09:30' },
+         { id: 'm2-b2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Спасибо большое.', timestamp: 'Сегодня, 09:35' },
+         { id: 'm2-b3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Обожаю умных парней.', timestamp: 'Сегодня, 09:40' }
+      ],
+      contextAfterMessages: [
+        { id: 'm2-a1', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Пожалуйста, перестань мне писать на личные темы.', timestamp: 'Сегодня, 11:25' },
+        { id: 'm2-a2', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ха-ха, ладно тебе ломаться! Секретики сами себя не расскажут.', timestamp: 'Сегодня, 11:27' }
+      ],
+      fullDialogueMessages: [
+        { id: 'm2-b1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Классная презентация сегодня была!', timestamp: 'Сегодня, 09:30' },
+        { id: 'm2-b2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Спасибо большое.', timestamp: 'Сегодня, 09:35' },
+        { id: 'm2-b3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Обожаю умных парней.', timestamp: 'Сегодня, 09:40' },
+        { id: 'm2-1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Приветик! Ты свободен сегодня вечером? ;)', timestamp: 'Сегодня, 11:10' },
+        { id: 'm2-2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Привет. Нет, извини, я занят.', timestamp: 'Сегодня, 11:15' },
+        { id: 'm2-3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ну почему ты меня избегаешь? Я же вижу, как ты смотришь.', timestamp: 'Сегодня, 11:20' },
+        { id: 'm2-4', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Давай встретимся, я не принимаю отказов. Будет горячо', timestamp: 'Сегодня, 11:21', isViolation: true },
+        { id: 'm2-5', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Если не придешь, я расскажу всем в офисе твои секреты', timestamp: 'Сегодня, 11:22', isViolation: true },
+        { id: 'm2-a1', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Пожалуйста, перестань мне писать на личные темы.', timestamp: 'Сегодня, 11:25' },
+        { id: 'm2-a2', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ха-ха, ладно тебе ломаться! Секретики сами себя не расскажут.', timestamp: 'Сегодня, 11:27' }
+      ],
+      aiAnalysis: { threat: 15, toxicity: 58, insult: 20, spam: 10, scam: 40, riskLevel: 'MEDIUM' },
+      violationHistory: { violationsCount: 0, warningsCount: 0, blocksCount: 0, lastViolationDate: 'Вчера', lastViolationReason: 'Предупреждение за флуд' },
+      hasCounterComplaint: false
+    },
+    {
+      id: 'dc-3',
+      offenderId: 'u-kuznetsov',
+      offenderName: 'Николай Кузнецов',
+      offenderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop',
+      offenderTrust: 0.05,
+      offenderRisk: 0.98,
+      violationType: 'Мошенничество',
+      source: 'Автофлаг',
+      reporterId: 'u-alex',
+      reporterName: 'Алексей Петров',
+      reporterAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop',
+      participants: {
+        userA: { name: 'Алексей Петров', avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', isOffender: false },
+        userB: { name: 'Николай Кузнецов', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', isOffender: true }
+      },
+      previewMessages: [
+        { id: 'm3-1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Здравствуйте, я по поводу объявления о продаже видеокарты RTX 4090.', timestamp: 'Вчера, 12:00' },
+        { id: 'm3-2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, еще продаю. Состояние идеальное, новая.', timestamp: 'Вчера, 12:05' },
+        { id: 'm3-3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Можно приехать проверить и забрать?', timestamp: 'Вчера, 12:10' },
+        { id: 'm3-4', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'К сожалению, я сейчас в другом городе. Давайте вы мне скинете предоплату 10 000 руб на карту, а я отправлю доставкой?', timestamp: 'Вчера, 12:15', isViolation: true },
+        { id: 'm3-5', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Вот ссылка на оплату брони: sber-pay-transfers-ref94.ru/pay', timestamp: 'Вчера, 12:16', isViolation: true }
+      ],
+      contextBeforeMessages: [
+         { id: 'm3-b1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Напишите ваш номер телефона пожалуйста.', timestamp: 'Вчера, 11:45' },
+         { id: 'm3-b2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, конечно: +7-999-123-4567.', timestamp: 'Вчера, 11:50' },
+         { id: 'm3-b3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'А коробка осталась?', timestamp: 'Вчера, 11:55' }
+      ],
+      contextAfterMessages: [
+        { id: 'm3-a1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Это странная ссылка, домен не официальный.', timestamp: 'Вчера, 12:20' },
+        { id: 'm3-a2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да вы что, это обычный безопасный шлюз Сбера. Либо оплачиваете сейчас, либо я продаю другому, желающих полно.', timestamp: 'Вчера, 12:22' }
+      ],
+      fullDialogueMessages: [
+        { id: 'm3-b1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Напишите ваш номер телефона пожалуйста.', timestamp: 'Вчера, 11:45' },
+        { id: 'm3-b2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, конечно: +7-999-123-4567.', timestamp: 'Вчера, 11:50' },
+        { id: 'm3-b3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'А коробка осталась?', timestamp: 'Вчера, 11:55' },
+        { id: 'm3-1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Здравствуйте, я по поводу объявления о продаже видеокарты RTX 4090.', timestamp: 'Вчера, 12:00' },
+        { id: 'm3-2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, еще продаю. Состояние идеальное, новая.', timestamp: 'Вчера, 12:05' },
+        { id: 'm3-3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Можно приехать проверить и забрать?', timestamp: 'Вчера, 12:10' },
+        { id: 'm3-4', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'К сожалению, я сейчас в другом городе. Давайте вы мне скинете предоплату 10 000 руб на карту, а я отправлю доставкой?', timestamp: 'Вчера, 12:15', isViolation: true },
+        { id: 'm3-5', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Вот ссылка на оплату брони: sber-pay-transfers-ref94.ru/pay', timestamp: 'Вчера, 12:16', isViolation: true },
+        { id: 'm3-a1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Это странная ссылка, домен не официальный.', timestamp: 'Вчера, 12:20' },
+        { id: 'm3-a2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да вы что, это обычный безопасный шлюз Сбера. Либо оплачиваете сейчас, либо я продаю другому, желающих полно.', timestamp: 'Вчера, 12:22' }
+      ],
+      aiAnalysis: { threat: 0, toxicity: 5, insult: 0, spam: 65, scam: 98, riskLevel: 'CRITICAL' },
+      violationHistory: { violationsCount: 12, warningsCount: 8, blocksCount: 4, lastViolationDate: '1 день назад', lastViolationReason: 'Подозрительные ссылки' },
+      hasCounterComplaint: false
+    }
+  ]);
+
+  const [selectedDialogMessageIds, setSelectedDialogMessageIds] = useState<Record<string, string[]>>({
+    'dc-1': ['m1-4', 'm1-5'],
+    'dc-2': ['m2-4', 'm2-5'],
+    'dc-3': ['m3-4', 'm3-5'],
+  });
+  const [expandedContextComplaintIds, setExpandedContextComplaintIds] = useState<string[]>([]);
+  const [activeFullDialogueComplaint, setActiveFullDialogueComplaint] = useState<DialogComplaint | null>(null);
+  const [expandedViolationHistoryIds, setExpandedViolationHistoryIds] = useState<string[]>([]);
+  const [checkedCounterComplaintIds, setCheckedCounterComplaintIds] = useState<string[]>([]);
+  const [moderatorResolutionNotes, setModeratorResolutionNotes] = useState<Record<string, string>>({});
+  const [pmRestrictions, setPmRestrictions] = useState<Record<string, { durationMs: number; startedAt: number; reason?: string }>>({});
+  
+  const [complaintActionsLog, setComplaintActionsLog] = useState<LoggedComplaintAction[]>([
+    {
+      id: 'cal-1',
+      complaint: {
+        id: 'c-old-1',
+        userId: 'u-101',
+        userName: 'Иван Петров',
+        userAvatar: 'https://i.pravatar.cc/150?u=u-old-1',
+        type: 'Мошенничество',
+        content: 'Переведи 100 рублей на QIWI, срочно нужно!',
+        rating: '0.85'
+      },
+      actionType: 'block_delete',
+      actionName: 'Заблокировать и удалить',
+      source: 'main',
+      timestamp: new Date(Date.now() - 3600000).toLocaleString(),
+      details: 'Причина: Спам/Мошенничество',
+      operatorName: 'Агент Поддержки'
+    },
+    {
+      id: 'cal-2',
+      complaint: {
+        id: 'c-old-2',
+        userId: 'u-102',
+        userName: 'Анна Сидорова',
+        userAvatar: 'https://i.pravatar.cc/150?u=u-old-2',
+        type: 'Оскорбление',
+        content: 'Вы все дураки и не лечитесь',
+        rating: '0.45'
+      },
+      actionType: 'ignore',
+      actionName: 'Игнорировать',
+      source: 'spam',
+      timestamp: new Date(Date.now() - 7200000).toLocaleString(),
+      details: 'Причина: Не выявлено нарушений правил',
+      operatorName: 'Агент Поддержки'
+    }
+  ]);
+
+  const [selectedActionLog, setSelectedActionLog] = useState<LoggedComplaintAction | null>(null);
+  const [reviewingComplaintLog, setReviewingComplaintLog] = useState<LoggedComplaintAction | null>(null);
+
+  // Column search filters for history log
+  const [logFilterTime, setLogFilterTime] = useState<string>('');
+  const [logFilterModerator, setLogFilterModerator] = useState<string>('');
+  const [logFilterUser, setLogFilterUser] = useState<string>('');
+  const [logFilterDecision, setLogFilterDecision] = useState<string>('');
+  const [logFilterContent, setLogFilterContent] = useState<string>('');
+
+  const logComplaintAction = (complaint: Complaint, actionType: any, actionName: string, source: 'main' | 'spam' | 'page_moderation', details?: string) => {
+    const logItem: LoggedComplaintAction = {
+      id: `cal-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      complaint: { ...complaint },
+      actionType,
+      actionName,
+      source,
+      timestamp: new Date().toLocaleString(),
+      details,
+      operatorName: operatorName
+    };
+    setComplaintActionsLog(prev => [logItem, ...prev]);
+  };
+
+  const [spamDecisions, setSpamDecisions] = useState<SpamDecision[]>([
+    {
+      id: 'sd-1',
+      postText: 'Предлагаем легкий заработок онлайн без опыта. До 5000 рублей в час!',
+      authorName: 'Дмитрий Смирнов',
+      moderatorName: 'Агент Поддержки #2',
+      timestamp: 'Вчера, 14:20',
+      source: 'Spam'
+    },
+    {
+      id: 'sd-2',
+      postText: 'Пройди опрос и получи гарантированный приз 50 000 рублей прямо сейчас',
+      authorName: 'Опрос2026_Бот',
+      moderatorName: 'Агент Поддержки #1',
+      timestamp: 'Сегодня, 09:15',
+      source: 'Модерация ленты'
+    }
+  ]);
+  const [spamActiveSubTab, setSpamActiveSubTab] = useState<'content-complaints' | 'profile-complaints' | 'complaints' | 'actions' | 'search' | 'decisions' | 'triggers' | 'settings'>('content-complaints');
+  const [ignoredTriggerPostIds, setIgnoredTriggerPostIds] = useState<string[]>([]);
+  const [spamSearchQuery, setSpamSearchQuery] = useState('');
+  const [spamSearchAppliedQuery, setSpamSearchAppliedQuery] = useState('');
+  const [spamSearchFilterPost, setSpamSearchFilterPost] = useState(true);
+  const [spamSearchFilterStatus, setSpamSearchFilterStatus] = useState(true);
+  const [spamSearchFilterName, setSpamSearchFilterName] = useState(true);
+  const [selectedSpamPostIds, setSelectedSpamPostIds] = useState<string[]>([]);
+  const [minSpamCopies, setMinSpamCopies] = useState<number>(2);
+  const [spamInspectClusterKey, setSpamInspectClusterKey] = useState<string | null>(null);
+  const [newExemplarText, setNewExemplarText] = useState('');
+  const [newExemplarAuthor, setNewExemplarAuthor] = useState('');
+  const [isAddingExemplar, setIsAddingExemplar] = useState(false);
+  const [exemplarSearchQuery, setExemplarSearchQuery] = useState('');
+  const [ruleSearchQuery, setRuleSearchQuery] = useState('');
+  const [pageComplaints, setPageComplaints] = useState<Complaint[]>([
+    {
+      id: 'cmpl-page-1',
+      userId: '1001',
+      userName: 'Алексей Романов',
+      userAvatar: 'https://i.pravatar.cc/150?u=1001',
+      type: 'Жалоба на страницу',
+      content: 'Подозрительная активность, массовая рассылка спама в ЛС участникам группы.',
+      rating: 'Высокий риск',
+      timestamp: new Date()
+    },
+    {
+      id: 'cmpl-page-2',
+      userId: '1002',
+      userName: 'Дмитрий Волков',
+      userAvatar: 'https://i.pravatar.cc/150?u=1002',
+      type: 'Жалоба на заголовок',
+      content: 'Использование оскорбительных слов в статусе и на стене профиля.',
+      rating: 'Средний риск',
+      timestamp: new Date()
+    }
+  ]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [notifications, setNotifications] = useState<ToastNotification[]>([]);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [isModerationStarted, setIsModerationStarted] = useState(false);
+  const [isSpamStarted, setIsSpamStarted] = useState(false);
+  const [isProStarted, setIsProStarted] = useState(false);
+  const [isPageModerationStarted, setIsPageModerationStarted] = useState(true);
+  const [isSupportStarted, setIsSupportStarted] = useState(true);
+  const [isVerificationStarted, setIsVerificationStarted] = useState(false);
+  const [expandedProIds, setExpandedProIds] = useState<string[]>([]);
+  const [openUserMenuId, setOpenUserMenuId] = useState<string | null>(null);
+  const [selectedUserData, setSelectedUserData] = useState<AppUser | null>(null);
+  const [complaintsModalUser, setComplaintsModalUser] = useState<AppUser | null>(null);
+  const [complaintsModalTab, setComplaintsModalTab] = useState<'incoming' | 'outgoing'>('incoming');
+  
+  // Management State
+  const [visibleTabs, setVisibleTabs] = useState<string[]>([
+    'profile', 'feed', 'discussed-now', 'notifications', 'support', 'moderation', 'spam', 'page_moderation', 
+    'verification', 'requests', 'users', 'management', 'statistics', 
+    'announcements', 'wiki', 'security', 'action-logs', 'monitoring', 
+    'quality-control', 'personnel', 'appeals', 'academy', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout'
+  ]);
+  const [grantedAccess, setGrantedAccess] = useState<string[]>([]);
+
+  // --- Academy & Automoderator States ---
+  const [automodRules, setAutomodRules] = useState<any[]>([
+    { 
+      id: '1', 
+      name: 'Крипто-скам и лёгкий заработок', 
+      keywords: ['битки', 'крипта', 'пассивный доход', 'telegram-канал', 'заработок', 'крипто'], 
+      action: 'delete_ban', 
+      isActive: true, 
+      matchCount: 142,
+      author: 'Ольга Модератор (ст. оператор)',
+      createdDate: '12.04.2026',
+      sections: ['posts'],
+      parameter: 'delete_ban',
+      depth: ['match', 'similar']
+    },
+    { 
+      id: '2', 
+      name: 'Оскорбления и мат', 
+      keywords: ['уебок', 'долбоеб', 'нищеброд', 'сука', 'блять', 'нахуй'], 
+      action: 'flag_pro', 
+      isActive: true, 
+      matchCount: 89,
+      author: 'Дмитрий Администратор',
+      createdDate: '15.04.2026',
+      sections: ['posts', 'status'],
+      parameter: 'flag_pro',
+      depth: ['match']
+    },
+    { 
+      id: '3', 
+      name: 'Накрутки и сомнительные ссылки', 
+      keywords: ['накрут', 'vk.cc/promo', 'cheat-vk', 'fastmoney'], 
+      action: 'flag_spam', 
+      isActive: true, 
+      matchCount: 56,
+      author: 'Кирилл Аналитик',
+      createdDate: '18.04.2026',
+      sections: ['posts', 'name'],
+      parameter: 'flag_spam',
+      depth: ['match', 'similar']
+    }
+  ]);
+  const [sandboxText, setSandboxText] = useState('');
+  
+  // Custom form states for the new structured Automoderator templates
+  const [ruleFormName, setRuleFormName] = useState('');
+  const [ruleFormTrigger, setRuleFormTrigger] = useState('');
+  const [ruleFormSections, setRuleFormSections] = useState<string[]>(['posts']); // 'name', 'status', 'posts'
+  const [ruleFormParameter, setRuleFormParameter] = useState<string>('delete'); // 'delete', 'delete_ban', 'block', 'flag_pro'
+  const [ruleFormDepth, setRuleFormDepth] = useState<string[]>(['match', 'similar']); // 'match', 'similar'
+  const [ruleSearchResults, setRuleSearchResults] = useState<any | null>(null);
+  const [ruleToViewSettings, setRuleToViewSettings] = useState<any | null>(null);
+  const [automodPreviewTab, setAutomodPreviewTab] = useState<'users' | 'posts'>('users');
+
+  const [academyActiveTest, setAcademyActiveTest] = useState<any | null>(null);
+  const [academyAnswers, setAcademyAnswers] = useState<Record<number, number>>({});
+  const [academyScore, setAcademyScore] = useState<number | null>(null);
+
+  // Custom states inside profile
+  const [profileBioText, setProfileBioText] = useState('');
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [customStatusInput, setCustomStatusInput] = useState('');
+  const [isEditingCustomStatus, setIsEditingCustomStatus] = useState(false);
+  const [customAvatarUrl, setCustomAvatarUrl] = useState('');
+  const [isEditingAvatarUrl, setIsEditingAvatarUrl] = useState(false);
+
+  // New State
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
+  const [moderatorHistory, setModeratorHistory] = useState<ModeratorAction[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [operatorId, setOperatorId] = useState('2');
+  const [operatorName, setOperatorName] = useState('Агент Поддержки');
+  const [operatorAvatar, setOperatorAvatarState] = useState('dog2.jpeg');
+
+  const setOperatorAvatar = (url: string) => {
+    setOperatorAvatarState(url);
+    (window as any)._operatorAvatar = url;
+    setUsers(prev => prev.map(u => {
+      if (u.id === '2' || isWorker(u)) {
+        return { ...u, avatar: url };
+      }
+      return u;
+    }));
+    setSelectedUserData(prev => {
+      if (prev && (prev.id === '2' || isWorker(prev))) {
+        return { ...prev, avatar: url };
+      }
+      return prev;
+    });
+    setCurrentUser(prev => {
+      if (prev && (prev.id === '2' || isWorker(prev))) {
+        return { ...prev, avatar: url };
+      }
+      return prev;
+    });
+  };
+
+  // Keep window global in sync on any render:
+  if (typeof window !== 'undefined') {
+    (window as any)._operatorAvatar = operatorAvatar;
+  }
+
+  const hasRightMenuAccess = (action: 'id' | 'block' | 'card' | 'verify' | 'info' | 'complaints' | 'delete' | 'mark') => {
+    if (isAdminMode) return true;
+    if (currentUser?.isEmployee || isWorker(currentUser)) {
+      const access = currentUser.rightMenuAccess;
+      if (!access) return true;
+      return access[action] !== false;
+    }
+    return false;
+  };
+  const [hasSupportAccess, setHasSupportAccess] = useState(false);
+  const [supportLimitsActive, setSupportLimitsActive] = useState(false);
+  const [isEditingOperator, setIsEditingOperator] = useState(false);
+  const [newOperatorText, setNewOperatorText] = useState('');
+
+  const [openedTicket, setOpenedTicket] = useState<Ticket | null>(null);
+  const [activeSupportTickets, setActiveSupportTickets] = useState<Ticket[]>([]);
+  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  const [allTopics, setAllTopics] = useState<string[]>(BASE_TOPICS);
+  const [expandedPostTopicIds, setExpandedPostTopicIds] = useState<Record<string, boolean>>({});
+  const [topicScoreEditPost, setTopicScoreEditPost] = useState<FeedPost | null>(null);
+  const [editingPost, setEditingPost] = useState<FeedPost | null>(null);
+  const [topicScoreExplainPost, setTopicScoreExplainPost] = useState<FeedPost | null>(null);
+  const [topicScoreExplainUserVal, setTopicScoreExplainUserVal] = useState<AppUser | null>(null);
+  const [activeUserExpandedTopic, setActiveUserExpandedTopic] = useState<string | null>(null);
+  const [visiblePostsCount, setVisiblePostsCount] = useState(30);
+  const [editingPostTopics, setEditingPostTopics] = useState<{ topic: string; score: number }[]>([]);
+  const [showAddTopicDropdown, setShowAddTopicDropdown] = useState(false);
+  const [newGlobalTopicName, setNewGlobalTopicName] = useState('');
+  const [showNewGlobalTopicInput, setShowNewGlobalTopicInput] = useState(false);
+
+  useEffect(() => {
+    if (topicScoreEditPost) {
+      setEditingPostTopics(topicScoreEditPost.topicScores || []);
+    } else {
+      setEditingPostTopics([]);
+    }
+  }, [topicScoreEditPost]);
+
+  // --- Shift Focus Product Layer States ---
+  const [feedMode, setFeedMode] = useState<FeedMode>('all');
+  const [enableFeedModes, setEnableFeedModes] = useState<boolean>(true);
+  const [feedFormatFilter, setFeedFormatFilter] = useState<'ALL' | 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION'>('ALL');
+  const [profileFormatFilter, setProfileFormatFilter] = useState<'ALL' | 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION'>('ALL');
+  const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
+  const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
+  const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState<boolean>(false);
+  const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
+  const [userActivity, setUserActivity] = useState<{ writing: number; reading: number; discussing: number }>({
+    writing: 30,
+    reading: 40,
+    discussing: 30
+  });
+
+  const recordActivity = (action: 'writing' | 'reading' | 'discussing') => {
+    setUserActivity(prev => {
+      const increment = 10;
+      let { writing, reading, discussing } = prev;
+      if (action === 'writing') writing += increment;
+      if (action === 'reading') reading += increment;
+      if (action === 'discussing') discussing += increment;
+      const total = writing + reading + discussing;
+      return {
+        writing: Math.round((writing / total) * 100),
+        reading: Math.round((reading / total) * 100),
+        discussing: Math.round((discussing / total) * 100),
+      };
+    });
+  };
+
+  const getRenderedUserWithPrivacy = (user: any) => {
+    if (!user) return null;
+    if (currentUser && user.id === currentUser.id) {
+      return getRenderedUser(currentUser, publicSettings);
+    }
+    return user;
+  };
+
+  const getRenderedAuthor = (authorName: string, authorAvatar: string) => {
+    const isCurrentUser = authorName === currentUser?.name;
+    if (isCurrentUser && currentUser) {
+      const rendered = getRenderedUser(currentUser, publicSettings);
+      return {
+        name: rendered.name,
+        avatar: rendered.avatar,
+        isCurrentUser: true
+      };
+    }
+    const authorU = users.find(u => u.name === authorName);
+    if (authorU) {
+      const rendered = getRenderedUser(authorU, authorU.publicSettings);
+      return {
+        name: rendered.name,
+        avatar: rendered.avatar,
+        isCurrentUser: false
+      };
+    }
+    return {
+      name: authorName,
+      avatar: authorAvatar,
+      isCurrentUser: false
+    };
+  };
+
+  // Registration State
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+
+  useEffect(() => {
+    const recoverSession = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        if (user) {
+          setCurrentUser(user);
+          setIsRegistered(true);
+        }
+      } catch (err) {
+        console.error('Session recovery failed', err);
+      }
+    };
+    recoverSession();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      setPublicSettings(currentUser.publicSettings || DEFAULT_PUBLIC_SETTINGS);
+    } else {
+      setPublicSettings(DEFAULT_PUBLIC_SETTINGS);
+    }
+  }, [currentUser?.id, currentUser?.publicSettings]);
+
+  const isStaff = useMemo(() => {
+    return permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser);
+  }, [currentUser]);
+  const [isRegistered, setIsRegistered] = useState(false);
+  
+  const [isAdminState, setIsAdminState] = useState(false);
+  const isAdminMode = useMemo(() => {
+    return permissionService.isAdmin(currentUser) || isAdminState;
+  }, [currentUser, isAdminState]);
+
+  const setIsAdminMode = (val: boolean) => {
+    setIsAdminState(val);
+  };
+
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [regForm, setRegForm] = useState({ name: '', login: '', password: '', status: '' });
+  const [loginRejectReason, setLoginRejectReason] = useState<string | null>(null);
+  
+  // New Modals for Users
+  const [isCreateRequestModalOpen, setIsCreateRequestModalOpen] = useState(false);
+  const [isSubscribersModalOpen, setIsSubscribersModalOpen] = useState(false);
+  const [userSubscribers, setUserSubscribers] = useState<Record<string, string[]>>({});
+
+  const currentDisplayUser = selectedUserData || currentUser;
+
+  const subscribers = useMemo(() => {
+    if (!currentDisplayUser?.id) return [];
+    const ids = Array.from(new Set(userSubscribers[currentDisplayUser.id] || []));
+    const list: AppUser[] = [];
+    const seenIds = new Set<string>();
+    ids.forEach(id => {
+      const u = users.find(usr => usr.id === id);
+      if (u && !seenIds.has(u.id)) {
+        seenIds.add(u.id);
+        list.push(u);
+      }
+    });
+    return list;
+  }, [currentDisplayUser?.id, userSubscribers, users]);
+
+  const displaySubscribers = useMemo(() => {
+    return subscribers.slice(0, 6);
+  }, [subscribers]);
+
+  const [isMassDeptModalOpen, setIsMassDeptModalOpen] = useState(false);
+  const [isMultiComplaint, setIsMultiComplaint] = useState(false);
+  const [isCreateComplaintModalOpen, setIsCreateComplaintModalOpen] = useState(false);
+  const [userActionTarget, setUserActionTarget] = useState<AppUser | null>(null);
+  const [requestFields, setRequestFields] = useState({ name: '', surname: '', reason: '', logout: false });
+  const [complaintFields, setComplaintFields] = useState({ dept: 'Модерация', message: '' });
+  const [submittedRequests, setSubmittedRequests] = useState<any[]>([]);
+  const [tempTokens, setTempTokens] = useState<any[]>([
+    { id: 'tok-1', token: 'SEC-MOD-88aef', role: 'Модератор Ленты', expiresAt: 'через 4 часа', createdBy: 'Агент #105' },
+    { id: 'tok-2', token: 'SEC-SUP-22b9c', role: 'Агент Поддержки', expiresAt: 'через 11 часов', createdBy: 'Агент #112' }
+  ]);
+  const [activeSessions, setActiveSessions] = useState<any[]>([
+    { id: 'sess-1', adminName: 'Дарья Соколова', role: 'Агент Поддержки', ip: '194.186.20.12', device: 'Chrome on macOS', location: 'Москва', lastActive: '1 минуту назад' },
+    { id: 'sess-2', adminName: 'Илья Петров', role: 'Модератор Ленты', ip: '82.200.150.31', device: 'Safari on iPhone', location: 'Санкт-Петербург', lastActive: '5 минут назад' },
+    { id: 'sess-3', adminName: 'Алексей Смирнов', role: 'Борьба со спамом', ip: '95.55.90.108', device: 'Firefox on Linux', location: 'Екатеринбург', lastActive: 'Только что' },
+  ]);
+  
+  // New Moderation, Support, Spam, Verification and User Audit States
+  const [supportUrgencyFilter, setSupportUrgencyFilter] = useState<string>('all');
+  const [supportCategoryFilter, setSupportCategoryFilter] = useState<string>('Финансы');
+  const [supportCategories, setSupportCategories] = useState<any[]>([
+    { id: 'cat-1', name: 'Финансы', code: 'finance', entryPoints: 'vk.com/support?act=finance, api.vk.com/pay', description: 'Финансовые вопросы, платежи и голоса', status: 'Активен' },
+    { id: 'cat-2', name: 'Доступ', code: 'access', entryPoints: 'vk.com/restore', description: 'Восстановление утерянного или взломанного доступа', status: 'Активен' },
+    { id: 'cat-3', name: 'Баги', code: 'bugs', entryPoints: 'vk.com/bugs', description: 'Технические неполадки и баги в сервисах', status: 'Активен' },
+    { id: 'cat-4', name: 'Безопасность', code: 'security', entryPoints: 'vk.com/security', description: 'Обработка жалоб, взломов и общих угроз безопасности', status: 'Активен' },
+  ]);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatCode, setNewCatCode] = useState('');
+  const [newCatEntryPoints, setNewCatEntryPoints] = useState('');
+  const [newCatDesc, setNewCatDesc] = useState('');
+  const [newCatStatus, setNewCatStatus] = useState('Активен');
+
+  // Entry Point Placement States
+  const [isPlacingEntryPointMode, setIsPlacingEntryPointMode] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [entryPointFormName, setEntryPointFormName] = useState('Срочный вопрос');
+  const [entryPointFormTitle, setEntryPointFormTitle] = useState('Быстрые обращения');
+  const [entryPointFormHasButton, setEntryPointFormHasButton] = useState(true);
+  const [entryPointFormStyle, setEntryPointFormStyle] = useState<'blue' | 'green' | 'red' | 'amber' | 'gray' | 'text'>('blue');
+  const [entryPointFormCategory, setEntryPointFormCategory] = useState('Финансы');
+  const [entryPointFormTab, setEntryPointFormTab] = useState<string>('all');
+  const [entryPointFormDescription, setEntryPointFormDescription] = useState('');
+  const [entryPointFormTargetUserId, setEntryPointFormTargetUserId] = useState('');
+  const [currentDraggingPos, setCurrentDraggingPos] = useState({ x: 40, y: 35 });
+  const [selectedEntryPointCategory, setSelectedEntryPointCategory] = useState<string | null>(null);
+  const [placedEntryPoints, setPlacedEntryPoints] = useState<any[]>([
+    { id: 'ep-1', name: '💸 Вопросы по оплате', styleType: 'blue', categoryName: 'Финансы', targetTab: 'profile' },
+    { id: 'ep-2', name: '🔐 Восстановить доступ', styleType: 'green', categoryName: 'Доступ', targetTab: 'support' },
+    { id: 'ep-3', name: '🐛 Нашел баг / ошибку', styleType: 'red', categoryName: 'Баги', targetTab: 'feed' },
+    { id: 'ep-4', name: '🛡️ Безопасность аккаунта', styleType: 'amber', categoryName: 'Безопасность', targetTab: 'all' },
+  ]);
+  const [entryPointFormCanDismiss, setEntryPointFormCanDismiss] = useState<boolean>(false);
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
+  const [avatarSelectionUser, setAvatarSelectionUser] = useState<AppUser | null>(null);
+  const [viewingDecisionDetails, setViewingDecisionDetails] = useState<LoggedComplaintAction | null>(null);
+
+  const [selectedComplaintIds, setSelectedComplaintIds] = useState<string[]>([]);
+  const [moderationTypeFilter, setModerationTypeFilter] = useState<string>('all');
+  const [spamSensitivity, setSpamSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [spamDomains, setSpamDomains] = useState<string[]>(['cheat-shop.ru', 'free-gems.online', 'win-money.ru', 'vk-cheat-up.net', 'earn-fast.co']);
+  const [newBlacklistDomain, setNewBlacklistDomain] = useState<string>('');
+  const [requestsActiveSubTab, setRequestsActiveSubTab] = useState<'requests' | 'tokens' | 'sessions'>('requests');
+  const [newTokenType, setNewTokenType] = useState<string>('Агент Поддержки');
+  const [automodCharacterBypass, setAutomodCharacterBypass] = useState<boolean>(true);
+  const [automodSmartAiDetections, setAutomodSmartAiDetections] = useState<boolean>(false);
+  const [selectedVerificationReqId, setSelectedVerificationReqId] = useState<string | null>(null);
+  const [verificationDenialReason, setVerificationDenialReason] = useState<string>('');
+  const [checkedAuditUser, setCheckedAuditUser] = useState<any | null>(null);
+  const [checkedMultiaccUserId, setCheckedMultiaccUserId] = useState<string | null>(null);
+  
+  // Roles Modal State
+  const [isRolesModalOpen, setIsRolesModalOpen] = useState(false);
+  const [rolesModalUser, setRolesModalUser] = useState<AppUser | null>(null);
+  const [isVerificationContext, setIsVerificationContext] = useState(false);
+
+  const [isRequestRejectModalOpen, setIsRequestRejectModalOpen] = useState(false);
+
+  // Translations management states
+  const [translations, setTranslations] = useState<{ [key: string]: string }>({
+    // Buttons
+    btn_submit_support: 'Отправить вопрос',
+    btn_logout: 'Выйти',
+    btn_save_settings: 'Сохранить изменения',
+    btn_place_hotspot: 'Сохранить в Прод',
+    btn_verify: 'Подать заявку',
+    btn_moderation_delete: 'Удалить контент',
+    btn_moderation_block: 'Забанить автора',
+    btn_moderation_ignore: 'Отклонить жалобу',
+    btn_add_rule: 'Добавить правило',
+
+    // Notifications
+    notif_success_title: 'Успешно',
+    notif_error_title: 'Ошибка',
+    notif_delete_title: 'Удалено',
+    notif_quick_request_title: 'Быстрое обращение',
+    notif_added_hotspot: 'Кнопка успешно размещена у пользователей!',
+    notif_copied_api: 'Токен скопирован в буфер обмена',
+
+    // Windows/Modals titles & headers
+    modal_verification_title: 'Новая заявка на верификацию',
+    modal_complaint_title: 'Жалоба на модератора / апелляция',
+    modal_appeal_title: 'Апелляция на блокировку',
+    modal_constructor_title: 'Конструктор кнопок быстрого доступа',
+    modal_profile_details: 'Профиль сотрудника',
+    modal_add_user: 'Добавить пользователя в команду',
+    modal_edit_post: 'Редактировать публикацию',
+  });
+
+  const [translationEditingItem, setTranslationEditingItem] = useState<{
+    key: string;
+    label: string;
+    category: 'buttons' | 'notifications' | 'modals';
+    value: string;
+  } | null>(null);
+
+  const [translationActiveTab, setTranslationActiveTab] = useState<'buttons' | 'notifications' | 'modals'>('buttons');
+  const [requestRejectReason, setRequestRejectReason] = useState('');
+  const [activeRequestObject, setActiveRequestObject] = useState<any | null>(null);
+
+  // Stats State
+  const [departmentStats] = useState({
+    support: [
+      { name: 'Агент #1', actions: 145 },
+      { name: 'Агент #2', actions: 89 },
+      { name: operatorName, actions: 12 }
+    ],
+    moderation: [
+      { name: 'Модератор #1', actions: 230 },
+      { name: operatorName, actions: 45 }
+    ],
+    requests: [
+      { name: 'Админ #1', actions: 56 },
+      { name: operatorName, actions: 8 }
+    ]
+  });
+
+  // Restore Modal State
+  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
+  const [isRestoreOptionsModalOpen, setIsRestoreOptionsModalOpen] = useState(false);
+  const [restoreFields, setRestoreFields] = useState({ login: '', name: '', surname: '', reason: '' });
+  const [isLoginView, setIsLoginView] = useState(true);
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginModalData, setLoginModalData] = useState<{login: string, password: string} | null>(null);
+
+  // VK Style User Information Tab States
+  const [infoUser, setInfoUser] = useState<AppUser | null>(null);
+  const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [editLogin, setEditLogin] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [activeInfoTab, setActiveInfoTab] = useState<'support' | 'complaints' | 'blocks' | 'markups' | 'appeals'>('support');
+
+  // Modals state
+  const [blockingComplaint, setBlockingComplaint] = useState<Complaint | null>(null);
+  const [blockingSource, setBlockingSource] = useState<'main' | 'spam' | 'pro'>('main');
+
+  // --- New Sections State ---
+  const [announcements, setAnnouncements] = useState([
+    { id: '1', tag: 'Важно', title: 'Обновление регламента модерации v2.4', text: 'С 15 числа вводятся новые правила обработки жалоб на спам. Мы сократили время удержания тикетов в очереди "Spam" с 24 до 12 часов. Ознакомьтесь с полным текстом изменений в Wiki.', date: 'Сегодня, 10:45', author: 'Александр (Admin)', isPinned: true },
+    { id: '2', tag: 'Инфо', title: 'Технические работы на серверах API', text: 'В воскресенье с 02:00 до 04:00 (МСК) возможны кратковременные перебои в работе административной панели в связи с обновлением ядра базы данных.', date: 'Вчера, 18:20', author: 'Тех. отдел', isPinned: false },
+    { id: '3', tag: 'Событие', title: 'Еженедельный созвон модераторов', text: 'Традиционное обсуждение итогов недели и разбор сложных кейсов пройдет в Discord (канал #staff-hangout) в 19:00. Присутствие обязательно для всех, кто не на смене.', date: '12 мая, 14:00', author: 'Мария (Lead Mod)', isPinned: false },
+    { id: '4', tag: 'Техническое', title: 'Новый инструмент: Массовая склейка профилей', text: 'В раздел Management добавлен инструмент для объединения дублирующихся аккаунтов. Используйте с осторожностью, действие необратимо.', date: '10 мая, 11:15', author: 'Admin (System)', isPinned: false }
+  ]);
+  const [wikiArticles, setWikiArticles] = useState([
+    { id: '1', title: 'Основы модерации контента', cat: 'Модератор', count: 19, content: 'Базовые правила модерации контента включают в себя проверку на соответствие пользовательскому соглашению. Основные категории нарушений, подлежащих разбору: 1. Оскорбления личности и буллинг, 2. Несанкционированная реклама и спам, 3. Эротическое содержимое и NSFW, 4. Пропаганда ненависти.\n\nКаждый модератор обязан соблюдать строгий нейтралитет и непредвзятость при вынесении вердиктов.' },
+    { id: '2', title: 'Работа с жалобами на спам', cat: 'Модератор', count: 24, content: 'Как отличить спам от обычных сообщений? Всегда обращайте внимание на частоту отправки, наличие подозрительных сокращенных ссылок, предложений о мгновенном легком заработке без вложений, а также признаков шаблонного текста.\n\nВ случае выявления массовой спам-атаки от ботнетов, незамедлительно используйте инструмент "Block & Delete" для полной зачистки материалов.' },
+    { id: '3', title: 'Модерация нецензурных выражений', cat: 'Модератор', count: 18, content: 'Применение мата на площадке регулируется общим контекстом общения. Прямые личные оскорбления собеседников с использованием мата подлежат безусловным штрафным санкциям и временной блокировке. Эмоциональные выкрики или художественные цитаты без перехода на конкретные личности могут быть проигнорированы или удалены по факту жалобы.' },
+    { id: '4', title: 'Борьба с флудом и оффтопом', cat: 'Модератор', count: 11, content: 'Флудом официально считается отправка трех и более одинаковых или схожих по смыслу сообщений подряд. Особый фокус внимания следует направлять на массовое выпрашивание оценок или взаимной подписки в обсуждениях. Такой контент скрывается от показа в ленте автоматически, а нарушителям выносится предупреждение.' },
+    { id: '5', title: 'Протокол взаимодействия с Support', cat: 'Поддержка', count: 15, content: 'Регламент взаимодействия со службой технической поддержки определяет порядок эскалации сложных вопросов на старших администраторов. Все обращения пользователей, требующие вмешательства бэкенд-инженеров или исправления записей в базе данных, помечаются маркером "DEV_READY".' },
+    { id: '6', title: 'Этика общения в тикетах у поддержки', cat: 'Поддержка', count: 22, content: 'Будьте предельно вежливы и профессиональны в любой ситуации, даже если пользователь идет на прямые провокации, грубит и хамит. Наша ключевая задача — успокоить человека и оперативно решить его затруднение. Придерживайтесь нейтральных словесных конструкций.' },
+    { id: '7', title: 'Решение споров и сбоев по платежам', cat: 'Поддержка', count: 14, content: 'Алгоритм обработки тикетов по задержкам оплат:\n1. Запросите у обратившегося чек операции (желательно PDF-версию с деталями банка);\n2. Проверьте ID транзакции в нашей биллинговой системе;\n3. При статусе платежа "В обработке" попросите подождать до 1-2 часов;\n4. При системной ошибке - инициируйте процедуру ручной активации пакета.' },
+    { id: '8', title: 'Восстановление взломанных профилей', cat: 'Поддержка', count: 32, content: 'Если пользователь утверждает, что потерял контроль над аккаунтом:\n1. Проанализируйте историю входов, IP-адресов и последние действия.\n2. Попросите пользователя прислать качественное фото на фоне открытого тикета.\n3. Сравните био-данные страницы. При совпадении критериев деактивируйте старое мыло и телефон, выдав ссылку на ввод нового пароля.' },
+    { id: '9', title: 'Критерии верификации профилей', cat: 'Безопасность', count: 27, content: 'Базовые требования для прохождения верификации и выдачи галочки:\n1. Полностью заполненные поля профиля, включая имя, фамилию, дату рождения и город.\n2. Наличие качественного реального аватара человека.\n3. Абсолютное отсутствие блокировок и предупреждений за последние 90 дней.\n4. Документальное подтверждение медийности (ссылки на статьи в СМИ, крупные каналы).' },
+    { id: '10', title: 'Анализ логов безопасности входа', cat: 'Безопасность', count: 9, content: 'Каждый раз при авторизации пользователя с нового диапазона IP-сетей, система проводит проверку его отпечатков браузера (User-Agent, куки, локаль). При сильном расхождении на аккаунт накладывается временный запрет сброса паролей на 24 часа для защиты от кражи сессии.' },
+    { id: '11', title: 'Предотвращение фишинга и кражи сессий', cat: 'Безопасность', count: 16, content: 'Фишинг несёт критическую угрозу безопасности конфиденциальных данных. Модераторы должны незамедлительно вносить в черные списки подсети и редиректы, копирующие интерфейс Следы. Профили, распространяющие подобные ссылки, блокируются перманентно по идентификатору железа.' },
+    { id: '12', title: 'Защита конфиденциальных данных (GDPR)', cat: 'Безопасность', count: 12, content: 'Сотрудники администрации обязаны строго соблюдать нормативы конфиденциальности. Разглашение персональных сведений (включая номера телефонов, пароли, адреса IP-авторизаций, банковские карты) посторонним лицам является грубым нарушением и карается увольнением из структуры поддержки.' },
+    { id: '13', title: 'Разбор поданных апелляций на бан', cat: 'Регламент', count: 35, content: 'При изучении аргументации в заявках на разблокировку:\n1. Оцените общее количество и частоту прошлых нарушений.\n2. Проверьте архив удаленных постов, послуживших триггером бана.\n3. Если пользователь искренне раскаивается, сменил пароли при взломе и не допускал рецидивов - вечную блокировку допускается заменить временной или снять.' },
+    { id: '14', title: 'Действия при аварии на серверах', cat: 'Регламент', count: 8, content: 'В случае выявления масштабных технических неисправностей (отказ СУБД, падение серверов доставки контента):\n1. Модераторам запрещено плодить панику.\n2. Закрепите сверху в ленте сообщение от тех. отдела об идущих работах.\n3. Закрытые тикеты задержите до стабилизации систем, все обращения переводите на регламентный режим ожидания.' },
+    { id: '15', title: 'Инструкция по использованию админ-панели', cat: 'Инструкции', count: 41, content: 'Вспомогательный гид по возможностям веб-интерфейса:\n- Левый сайдбар группирует все оперативные queues.\n- В ленте активности зажатая при клике клавиша ALT мгновенно открывает профиль зафиксированного пользователя с возможностью экспресс-блокировки.\n- Фильтры поиска поддерживают детекцию стоп-слов, спам-шаблонов.' },
+    { id: '16', title: 'Стандарты оценки качества персонала', cat: 'Инструкции', count: 11, content: 'Ключевые KPI эффективность сотрудников поддержки и модерации:\n- Показатель ART (Average Response Time) — среднее время ответа на тикет.\n- Доля успешных аудитов от отдела качества (минимум 90% корректных решений в выборке).\n- Количество повторных жалоб от пользователей, спровоцированных некорректными трактовками правил.' }
+  ]);
+  const [securityLogs, setSecurityLogs] = useState([
+    { id: '1', event: 'Вход в панель', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:45:12', status: 'success', device: 'Chrome / Windows 11' },
+    { id: '2', event: 'Массовая блокировка', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:30:05', status: 'warning', device: 'Chrome / Windows 11' },
+    { id: '3', event: 'Ошибка авторизации', ip: '45.12.8.23', user: 'Unknown', time: '09:12:44', status: 'error', device: 'Safari / iPhone' },
+    { id: '4', event: 'Смена пароля оператора', ip: '192.168.1.42', user: 'Mod_Ivan (ID 4)', time: '08:55:01', status: 'success', device: 'Firefox / Linux' },
+    { id: '5', event: 'Экспорт базы данных', ip: '192.168.1.42', user: 'Mod_Ivan (ID 4)', time: '08:40:22', status: 'critical', device: 'Postman Runtime' }
+  ]);
+  interface MessengerMessage {
+    id: string;
+    senderId: string;
+    senderName: string;
+    senderAvatar: string;
+    receiverId: string;
+    text: string;
+    timestamp: string;
+    unread: boolean;
+    supportTicketId?: string;
+  }
+
+  const [messengerMessages, setMessengerMessages] = useState<MessengerMessage[]>([
+    {
+      id: 'mm-1',
+      senderId: '2',
+      senderName: 'Агент Поддержки',
+      senderAvatar: 'dog2.jpeg',
+      receiverId: '1',
+      text: 'Приветствую! Как ваши дела с модерацией жалоб сегодня?',
+      timestamp: '10:45',
+      unread: true
+    },
+    {
+      id: 'mm-2',
+      senderId: '1',
+      senderName: 'admin',
+      senderAvatar: 'dog1.png',
+      receiverId: '2',
+      text: 'Привет! Всё под контролем, разгребаем понемногу.',
+      timestamp: '10:46',
+      unread: false
+    },
+    {
+      id: 'mm-3',
+      senderId: '3',
+      senderName: 'Ольга Модератор',
+      senderAvatar: 'images.png',
+      receiverId: '1',
+      text: 'Александр, привет! Подскажи по поводу обращения #2441, подтверждаем верификацию?',
+      timestamp: 'Вчера',
+      unread: false
+    }
+  ]);
+
+  const [activeChatPartnerId, setActiveChatPartnerId] = useState<string | null>(null);
+  const [messengerSearchQuery, setMessengerSearchQuery] = useState('');
+  const [newMessageInput, setNewMessageInput] = useState('');
+  const [reportingMessage, setReportingMessage] = useState<MessengerMessage | null>(null);
+  const [reportedMessageIds, setReportedMessageIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (activeChatPartnerId && currentUser?.id) {
+      setMessengerMessages(prev => 
+        prev.map(m => m.senderId === activeChatPartnerId && m.receiverId === currentUser.id ? { ...m, unread: false } : m)
+      );
+    }
+  }, [activeChatPartnerId, currentUser?.id]);
+
+
+  const [monitoringStats, setMonitoringStats] = useState({
+    cpu: 24,
+    ram: 45,
+    dbLoad: 14,
+    queueSize: 12,
+    uptime: '14 дней, 12:44:01'
+  });
+  const [isShiftActive, setIsShiftActive] = useState(false);
+  const [staffShifts, setStaffShifts] = useState<any[]>([]);
+  
+  // New State for functionality
+  const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
+  const [qualityAuditData, setQualityAuditData] = useState({ staff: '', score: 5, comment: '', status: 'Пройдено', duration: 2.0 });
+  const [qualityAudits, setQualityAudits] = useState<any[]>([]);
+
+  // Wiki Custom States
+  const [wikiCategories, setWikiCategories] = useState(['Все', 'Модератор', 'Поддержка', 'Безопасность', 'Регламент', 'Инструкции']);
+  const [activeWikiCat, setActiveWikiCat] = useState('Все');
+  const [isWikiAdminMode, setIsWikiAdminMode] = useState(false);
+  const [wikiSubTab, setWikiSubTab] = useState<'articles' | 'manage'>('articles');
+  const [wikiRules, setWikiRules] = useState<string[]>([
+    'Соблюдайте корпоративную этику при общении с пользователями.',
+    'Всегда аргументируйте свое решение пунктами правил компании.',
+    'В случае сомнений передавайте кейс на ревью старшему модератору.'
+  ]);
+  const [newWikiArticle, setNewWikiArticle] = useState({ title: '', cat: 'Модератор', content: '', pageCount: 1 });
+  const [showAddArticleForm, setShowAddArticleForm] = useState(false);
+  const [newWikiCatName, setNewWikiCatName] = useState('');
+
+  // User details & Edit states
+  const [inspectingUser, setInspectingUser] = useState<AppUser | null>(null);
+  const [isEditingUser, setIsEditingUser] = useState(false);
+  const [editUserData, setEditUserData] = useState({ firstName: '', lastName: '', status: '', login: '', password: '' });
+
+  // Security Interactive States
+  const [blockedIPs, setBlockedIPs] = useState<any[]>([
+    { id: '1', ip: '45.12.8.23', reason: 'Слишком много неудачных попыток входа', date: 'Вчера, 09:15', staff: 'Система' },
+    { id: '2', ip: '82.202.16.5', reason: 'DDoS/Подозрительные запросы', date: '2 дня назад', staff: 'Admin' }
+  ]);
+  const [newBlockedIP, setNewBlockedIP] = useState('');
+  const [newBlockedIPReason, setNewBlockedIPReason] = useState('Атака на API/Брутфорс');
+  const [isBruteForceActive, setIsBruteForceActive] = useState(true);
+  const [maxAttempts, setMaxAttempts] = useState(5);
+
+  const [isAppealFormOpen, setIsAppealFormOpen] = useState(false);
+  const [appealFormText, setAppealFormText] = useState('');
+
+  const [supportStats, setSupportStats] = useState({
+    total: 1042,
+    answered: 890,
+    time: '12 мин',
+    today: 124,
+  });
+
+  const [realStats, setRealStats] = useState({
+    moderation: 0,
+    support: 0,
+    verification: 0
+  });
+
+  const [internalTasks, setInternalTasks] = useState<any[]>([
+    { id: 't-1', title: 'Обновить Wiki для новых агентов', priority: 'high', status: 'todo', assignee: 'Мария' },
+    { id: 't-2', title: 'Проверить отчеты по жалобам за Пятницу', priority: 'medium', status: 'in-progress', assignee: 'Александр' },
+    { id: 't-3', title: 'Собрать фидбек по новому интерфейсу', priority: 'low', status: 'todo', assignee: 'admin' }
+  ]);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [newTaskData, setNewTaskData] = useState({ title: '', priority: 'medium', assignee: 'admin' });
+
+  const logModeratorAction = (type: string, msg: string) => {
+    addModeratorLog({
+      type: 'moderation' as any,
+      action: type,
+      message: msg
+    });
+  };
+
+  // --- React Router integration and Tab State derivation ---
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { userId, postId } = useParams<{ userId?: string; postId?: string }>();
+
+  // Determine active tab based on path location
+  const activeTab = useMemo(() => {
+    const path = location.pathname;
+    if (path === '/' || path === '') return 'profile';
+    if (path === '/feed') return 'feed';
+    if (path.startsWith('/u/')) return 'profile';
+    if (path.startsWith('/post/')) return 'post';
+    if (path === '/settings') return 'settings';
+    if (path === '/admin') return 'admin';
+    if (path.startsWith('/admin/')) {
+      return path.replace('/admin/', '');
+    }
+    const plainPath = path.substring(1);
+    if (plainPath) return plainPath;
+    return 'profile';
+  }, [location.pathname]);
+
+  const getPathForTab = (tabId: string): string => {
+    if (tabId === 'profile') return '/';
+    if (tabId === 'feed') return '/feed';
+    if (tabId === 'settings') return '/settings';
+    if (tabId === 'admin') return '/admin';
+    
+    if ([
+      'spam', 'verification', 'tasks', 'internal-mail', 'support', 'appeals', 
+      'requests', 'users', 'management', 'statistics', 'announcements', 'wiki', 
+      'security', 'action-logs', 'monitoring', 'translations', 'quality-control', 
+      'personnel', 'page_moderation', 'discussed-now', 'notifications', 'academy'
+    ].includes(tabId) || tabId.startsWith('support-category-')) {
+      return `/admin/${tabId}`;
+    }
+    return `/${tabId}`;
+  };
+
+  const setActiveTab = (tab: string) => {
+    if (tab === 'profile') {
+      setSelectedUserData(null);
+      navigate('/');
+    } else {
+      navigate(getPathForTab(tab));
+    }
+  };
+
+  // Synchronize URL /u/:userId parameter with selectedUserData state
+  useEffect(() => {
+    const path = location.pathname;
+    if (path.startsWith('/u/') && userId) {
+      if (!selectedUserData || selectedUserData.id !== userId) {
+        const found = users.find(u => u.id === userId);
+        if (found) {
+          setSelectedUserData(found);
+        }
+      }
+    } else if (path === '/' || path === '/feed' || path === '/settings') {
+      if (selectedUserData !== null) {
+        setSelectedUserData(null);
+      }
+    }
+  }, [location.pathname, userId, users]);
+
+  // Valid route checker for 404 page content inclusion
+  const isPathValid = (path: string): boolean => {
+    if (path === '/' || path === '') return true;
+    if (path === '/feed') return true;
+    if (path.startsWith('/u/')) return true;
+    if (path.startsWith('/post/')) return true;
+    if (path === '/settings') return true;
+    if (path === '/admin') return true;
+    if (path.startsWith('/admin/')) return true;
+    
+    const tabName = path.substring(1);
+    if ([
+      'discussed-now', 'notifications', 'academy', 'appeals', 'requests', 'users', 
+      'management', 'statistics', 'announcements', 'wiki', 'security', 'action-logs', 
+      'monitoring', 'translations', 'quality-control', 'personnel', 'page_moderation',
+      'spam', 'verification', 'tasks', 'internal-mail', 'support'
+    ].includes(tabName)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Auto-deduplicate and clean up redundant spam-exemplars (e.g., removing 'Чмошник' if 'Чмо' is present)
+  useEffect(() => {
+    const uniqueDecisions: SpamDecision[] = [];
+    const seenTexts = new Set<string>();
+    
+    // 1. Deduplicate exact match texts
+    spamDecisions.forEach(decision => {
+      const norm = decision.postText.toLowerCase().trim();
+      if (!norm) return;
+      if (!seenTexts.has(norm)) {
+        seenTexts.add(norm);
+        uniqueDecisions.push(decision);
+      }
+    });
+    
+    // 2. Filter out subset/superset redundancies (e.g. if 'Чмошник' contains 'Чмо', we drop 'Чмошник')
+    let changed = false;
+    const filteredDecisions = uniqueDecisions.filter(decisionB => {
+      const textB = decisionB.postText.toLowerCase().trim();
+      
+      const isRedundant = uniqueDecisions.some(decisionA => {
+        if (decisionA.id === decisionB.id) return false;
+        const textA = decisionA.postText.toLowerCase().trim();
+        return textB.includes(textA) && textA.length < textB.length;
+      });
+      
+      if (isRedundant) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    
+    if (changed || filteredDecisions.length !== spamDecisions.length) {
+      setSpamDecisions(filteredDecisions);
+    }
+  }, [spamDecisions]);
+
+  // Effects for real-time feel
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMonitoringStats(prev => ({
+        ...prev,
+        cpu: Math.max(10, Math.min(90, prev.cpu + (Math.random() * 10 - 5))),
+        ram: Math.max(30, Math.min(80, prev.ram + (Math.random() * 4 - 2))),
+        dbLoad: Math.max(5, Math.min(50, prev.dbLoad + (Math.random() * 6 - 3)))
+      }));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch users from Supabase on mount
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!isSupabaseConfigured) {
+        setUsers([]);
+        return;
+      }
+      try {
+        let { data, error } = await supabase.from('users').select('*');
+        if (error) {
+          const { data: profData, error: profError } = await supabase.from('profiles').select('*');
+          if (!profError && profData) {
+            data = profData;
+          } else {
+            data = null;
+          }
+        }
+        const userList = (data || []) as AppUser[];
+        setUsers(userList);
+
+        // Generate deterministic subscribers map based on the loaded users
+        const initialMap: Record<string, string[]> = {};
+        userList.forEach((u) => {
+          const others = userList.filter((other) => other.id !== u.id);
+          const count = others.length > 0 ? (3 + (parseInt(u.id) || 0) % 6) : 0;
+          const subs: string[] = [];
+          for (let i = 0; i < Math.min(count, others.length); i++) {
+            const idx = (parseInt(u.id || '0') * 7 + i * 13) % others.length;
+            const candidate = others[idx];
+            if (candidate && !subs.includes(candidate.id)) {
+              subs.push(candidate.id);
+            }
+          }
+          initialMap[u.id] = subs;
+        });
+        setUserSubscribers(initialMap);
+
+      } catch (err) {
+        console.error('Failed to load users from Supabase', err);
+        setUsers([]);
+      }
+    };
+    fetchUsers();
+
+    // Fallback initialize other collections to empty lists
+    setFeedPosts([]);
+    setComplaints([]);
+    setSpamComplaints([]);
+    setPageComplaints([]);
+    setTickets([]);
+    setVerificationRequests([]);
+    setSubmittedRequests([]);
+    setAppeals([]);
+  }, []);
+
+  // Setup Realtime Service subscriptions for Posts and Alerts
+  useEffect(() => {
+    RealtimeService.subscribePosts((newPost: any) => {
+      setFeedPosts(prev => {
+        if (prev.some(p => p.id === newPost.id)) return prev;
+        return [newPost, ...prev];
+      });
+      addNotification('Новый пост', `${newPost.authorName} написал: "${newPost.text.slice(0, 40)}${newPost.text.length > 40 ? '...' : ''}"`);
+    });
+
+    RealtimeService.subscribeAlerts((newAlert: any) => {
+      setAnnouncements(prev => {
+        if (prev.some(a => a.id === newAlert.id)) return prev;
+        return [newAlert, ...prev];
+      });
+      addNotification(`Объявление: ${newAlert.title}`, newAlert.text);
+    });
+
+    return () => {
+      RealtimeService.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab.startsWith('support-category-')) {
+      const categoryName = activeTab.replace('support-category-', '');
+      setSupportCategoryFilter(categoryName);
+      setSupportTab('my-questions');
+    }
+  }, [activeTab]);
+
+  // Simulator State
+  const [isSimulating, setIsSimulating] = useState(true);
+  const [simulationSpeed, setSimulationSpeed] = useState<'fast' | 'normal' | 'slow'>('normal');
+  const [simulationCounter, setSimulationCounter] = useState(0);
+
+  // Incoming Requests Simulator engine
+  useEffect(() => {
+    if (!isSimulating) return;
+
+    const intervals = {
+      fast: 4000,
+      normal: 8000,
+      slow: 20000
+    };
+    const speedMs = intervals[simulationSpeed];
+
+    const timer = setInterval(() => {
+      setSimulationCounter(c => c + 1);
+    }, speedMs);
+
+    return () => clearInterval(timer);
+  }, [isSimulating, simulationSpeed]);
+  const [isBlockAndDelete, setIsBlockAndDelete] = useState(false);
+  const [forwardingComplaint, setForwardingComplaint] = useState<Complaint | null>(null);
+  const [forwardingSource, setForwardingSource] = useState<'main' | 'spam' | 'page_moderation'>('main');
+  const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
+  const [replyText, setReplyText] = useState('');
+  
+  const [blockReason, setBlockReason] = useState('Оскорбление');
+  const [blockDuration, setBlockDuration] = useState('1 час');
+  const [appeals, setAppeals] = useState<any[]>([]);
+  
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [verificationModalType, setVerificationModalType] = useState<'deny-reason' | 'temp'>('temp');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [activeVerificationId, setActiveVerificationId] = useState<string | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+
+  // New Request Modals States
+  const [isTempRejectModalOpen, setIsTempRejectModalOpen] = useState(false);
+  const [restoreOptions, setRestoreOptions] = useState({
+    login: true,
+    password: true,
+    resetSessions: true,
+    rejectComplaints: true,
+    showInPro: false,
+  });
+  const [tempRejectFields, setTempRejectFields] = useState({ duration: '1 день', reason: '' });
+  const [proSearchQuery, setProSearchQuery] = useState('');
+  
+  // Announcements State
+  const [isAddingAnnouncement, setIsAddingAnnouncement] = useState(false);
+  const [newAnnouncementTitle, setNewAnnouncementTitle] = useState('');
+  const [newAnnouncementText, setNewAnnouncementText] = useState('');
+  const [newAnnouncementTag, setNewAnnouncementTag] = useState('Инфо');
+
+  // Wiki State
+  const [wikiSearchQuery, setWikiSearchQuery] = useState('');
+  const [selectedWikiArticle, setSelectedWikiArticle] = useState<any>(null);
+
+  // Security State
+  const [securitySearchQuery, setSecuritySearchQuery] = useState('');
+
+  // User Support Side
+  const [userSupportFields, setUserSupportFields] = useState({ subject: '', details: '', category: '' });
+  const [userNotifications, setUserNotifications] = useState<PlatformNotification[]>([]);
+  const [discussionSubscriptions, setDiscussionSubscriptions] = useState<Record<string, string[]>>(() => ({
+    'post-1': ['1', '2'],
+    'post-2': ['1'],
+  }));
+  const [mySubscribedDiscussions, setMySubscribedDiscussions] = useState<string[]>(['post-1']);
+  const [notificationScrollTarget, setNotificationScrollTarget] = useState<{ postId: string; commentId?: string } | null>(null);
+
+  useEffect(() => {
+    if (userNotifications.length > 0 || feedPosts.length === 0 || users.length === 0) return;
+    const demoUserId = '1';
+    const samplePost = feedPosts[0];
+    const actor = users.find(u => u.id === '2') || users[1];
+    if (!actor || !samplePost) return;
+    const actorInfo = { id: actor.id, name: actor.name, avatar: actor.avatar };
+    setUserNotifications(prev =>
+      dispatchNotifications(prev, [
+        buildCommentReplyNotification(demoUserId, actorInfo, samplePost.id, 'demo-comment-1', samplePost.text),
+        buildMentionNotifications('@admin привет', users, actorInfo, samplePost.id, 'demo-comment-2')[0] || null,
+        buildDirectMessageNotification(demoUserId, actorInfo, 'mm-demo', 'Привет! Как дела?'),
+        buildDiscussionActivityNotification(demoUserId, actorInfo, samplePost.id, 'demo-comment-3', samplePost.text),
+        buildAuthorPostNotification(demoUserId, actorInfo, samplePost.id, samplePost.text),
+      ])
+    );
+  }, [feedPosts.length, users.length, userNotifications.length]);
+  const [viewingTicketFromNotification, setViewingTicketFromNotification] = useState<Ticket | null>(null);
+
+  const staffCount = useMemo(() => users.filter(u => u.roles && Object.values(u.roles).some(r => r === true)).length, [users]);
+
+  // Spam Similarity Analyzer algorithm
+  const detectSimilarSpam = useMemo(() => {
+    const textFreq: Record<string, { count: number; postings: FeedPost[] }> = {};
+    const allComplaints = [...complaints, ...spamComplaints, ...pageComplaints];
+
+    allComplaints.forEach(complaint => {
+      if (!complaint.content) return;
+      // normalize simple key (lowercase, strip non-alphanumeric, collapse whitespace)
+      const cleanKey = complaint.content.toLowerCase().trim()
+        .replace(/[^\w\sа-яё]/gi, '')
+        .replace(/\s+/g, ' ')
+        .slice(0, 100);
+      if (cleanKey.length < 10) return;
+      if (!textFreq[cleanKey]) {
+        textFreq[cleanKey] = { count: 0, postings: [] };
+      }
+      textFreq[cleanKey].count++;
+      
+      const existingPost = feedPosts.find(p => p.text === complaint.content);
+      if (existingPost) {
+        textFreq[cleanKey].postings.push(existingPost);
+      } else {
+        textFreq[cleanKey].postings.push({
+          id: `complaint-item-${complaint.id}`,
+          authorName: complaint.userName || 'Неизвестный автор',
+          authorAvatar: complaint.userAvatar || 'images.png',
+          text: complaint.content,
+          likes: 0,
+          timestamp: complaint.timestamp ? new Date(complaint.timestamp).toLocaleString('ru-RU') : 'Ранее',
+          comments: []
+        });
+      }
+    });
+
+    return Object.entries(textFreq)
+      .filter(([_, data]) => data.count > 1)
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([key, data]) => ({
+        key,
+        text: data.postings[0].text || '',
+        count: data.count,
+        authors: Array.from(new Set(data.postings.map(p => p.authorName))),
+        postings: data.postings
+      }));
+  }, [feedPosts, complaints, spamComplaints, pageComplaints]);
+
+  const MENU_ITEMS = [
+    { id: 'profile', icon: User, label: 'Моя страница' },
+    { id: 'feed', icon: LayoutGrid, label: 'Лента' },
+    { id: 'discussed-now', icon: Flame, label: 'Это обсуждают' },
+    { id: 'notifications', icon: Bell, label: 'Уведомления', count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
+    { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
+    { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.filter(t => t.status === 'new').length },
+    { id: 'academy', icon: GraduationCap, label: 'Академия модерации' },
+    { id: 'appeals', icon: Icon16Block, label: 'Апелляции', count: appeals.filter(a => a.status === 'pending').length, adminOnly: true },
+    { id: 'spam', icon: Icon16Block, label: 'Модерация', count: spamComplaints.length, adminOnly: true },
+    { id: 'verification', icon: BadgeCheck, label: 'Верификации', count: verificationRequests.length, adminOnly: true },
+    { id: 'requests', icon: Icon16WorkOutline, label: 'Доступы', count: submittedRequests.length, adminOnly: true },
+    { id: 'users', icon: Users, label: 'Пользователи', adminOnly: true },
+    { id: 'management', icon: Settings2, label: 'Управление', adminOnly: true },
+    { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика', adminOnly: true },
+    { id: 'announcements', icon: Icon16WorkOutline, label: 'Объявления', count: announcements.filter(a => a.isPinned).length, adminOnly: true },
+    { id: 'wiki', icon: Icon16WorkOutline, label: 'База знаний', adminOnly: true },
+    { id: 'security', icon: Icon16WorkOutline, label: 'Безопасность', adminOnly: true },
+    { id: 'action-logs', icon: Icon16WorkOutline, label: 'Логи действий', adminOnly: true },
+    { id: 'monitoring', icon: Icon16WorkOutline, label: 'Мониторинг', adminOnly: true },
+    { id: 'translations', icon: Icon16WorkOutline, label: 'Переводы', adminOnly: true },
+    { id: 'quality-control', icon: Icon16WorkOutline, label: 'Отдел качества', adminOnly: true },
+    { id: 'personnel', icon: Icon16WorkOutline, label: 'Сотрудники', count: staffCount, adminOnly: true },
+    { id: 'tasks', icon: Icon16WorkOutline, label: 'Задачи', adminOnly: true },
+    { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
+  ];
+
+  const DYNAMIC_MENU_ITEMS = useMemo(() => {
+    const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
+    const hasSupportRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'support');
+    
+    // Determine which tabs are visible based on admin status OR roles
+    const baseItems: any[] = [];
+    
+    MENU_ITEMS.filter(item => {
+      if (permissionService.isAdmin(currentUser)) return true; // EVERYTHING is visible for admin as requested
+      
+      // Basic tabs always accessible
+      if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy') {
+        return true;
+      }
+
+      if (item.adminOnly) {
+        return permissionService.hasRole(currentUser, item.id);
+      }
+
+      if (item.id === 'support' && !permissionService.isAdmin(currentUser) && !hasActiveTicket) return false;
+      
+      return true;
+    }).forEach(item => {
+      // Special label for support if person is just a user with a ticket
+      if (item.id === 'support') {
+        if (hasSupportRole) {
+          // Do not add the general support tab - staff navigates via specific departments!
+        } else if (!permissionService.isAdmin(currentUser) && !permissionService.hasRole(currentUser, 'support') && hasActiveTicket) {
+          baseItems.push({ ...item, label: 'Мои вопросы' });
+        } else {
+          baseItems.push(item);
+        }
+      } else {
+        baseItems.push(item);
+      }
+      
+      // Dynamic support category tabs inside left menu
+      if (item.id === 'support' && hasSupportRole) {
+        supportCategories.forEach(cat => {
+          baseItems.push({
+            id: `support-category-${cat.name}`,
+            icon: LifeBuoy,
+            label: cat.name,
+            isCategoryTab: true,
+            onClick: () => {
+              setSupportCategoryFilter(cat.name);
+              setSupportTab('my-questions');
+              setIsSupportStarted(true);
+              setActiveTab(`support-category-${cat.name}`);
+            }
+          });
+        });
+      }
+    });
+
+    const userShortcuts = users.map(u => ({
+      id: `user-${u.id}`,
+      icon: User,
+      label: `ID ${u.id}`,
+      onClick: () => {
+        setSelectedUserData(u);
+        setActiveTab('profile');
+      }
+    }));
+
+    return [...baseItems, ...userShortcuts];
+  }, [MENU_ITEMS, isAdminMode, users, currentUser, tickets, supportCategories, translations]);
+
+  useEffect(() => {
+    if (currentUser) {
+       const userInList = users.find(u => u.id === currentUser.id || u.name === currentUser.name);
+       if (userInList?.isBlocked) {
+          setIsProfileBlocked(true);
+          setProfileBlockInfo(userInList.profileBlockInfo || { 
+            duration: 'Навсегда', 
+            reason: userInList.blockReason || 'Нарушение правил', 
+            comment: userInList.moderatorComment || '',
+            blockedBy: 'Агент Поддержки',
+            examples: { posts: false, name: false, status: false, other: false }
+          });
+       } else if (userInList?.isDeleted) {
+         // Handle deleted state if needed
+       } else {
+         setIsProfileBlocked(false);
+       }
+    }
+  }, [currentUser, users]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const userIdParam = params.get('user');
+    if (userIdParam) {
+      const foundUser = users.find(u => u.id === userIdParam);
+      if (foundUser) {
+        const [first, ...lastParts] = foundUser.name.split(' ');
+        setEditFirstName(first);
+        setEditLastName(lastParts.join(' '));
+        setEditStatus(foundUser.status || '');
+        setEditLogin(foundUser.login || '');
+        setEditPassword('');
+        setIsEditingInfo(false);
+        setInfoUser(foundUser);
+        setActiveTab('users');
+      }
+    }
+  }, [users]);
+
+  // Profile Moderation State
+  const [isProfileBlocked, setIsProfileBlocked] = useState(false);
+  const [profileBlockInfo, setProfileBlockInfo] = useState<any>({ duration: '', reason: '', comment: '', isWithUnban: false });
+  const [selectedViolations, setSelectedViolations] = useState<{ [key: string]: boolean }>({});
+  const [isProfileVerified, setIsProfileVerified] = useState(false);
+  const [isProfileBlockModalOpen, setIsProfileBlockModalOpen] = useState(false);
+  const [isWithUnban, setIsWithUnban] = useState(false);
+  const [isProfileInfoModalOpen, setIsProfileInfoModalOpen] = useState(false);
+  const [isOperatorIdModalOpen, setIsOperatorIdModalOpen] = useState(false);
+  const [isOperatorAvatarModalOpen, setIsOperatorAvatarModalOpen] = useState(false);
+  const [profileModerationLogs, setProfileModerationLogs] = useState<{ id: string, action: string, timestamp: Date }[]>([]);
+
+  // States for the new VK Actions dropdown features
+  const [isBugsModalOpen, setIsBugsModalOpen] = useState(false);
+  const [isBlockHistoryModalOpen, setIsBlockHistoryModalOpen] = useState(false);
+  const [isInterestsVectorModalOpen, setIsInterestsVectorModalOpen] = useState(false);
+  const [isPageStatisticsModalOpen, setIsPageStatisticsModalOpen] = useState(false);
+  
+  const [privatePhotosUsers, setPrivatePhotosUsers] = useState<Record<string, boolean>>({});
+  const [userNotificationsSubscribed, setUserNotificationsSubscribed] = useState<Record<string, boolean>>({});
+  const [userShowNewsSubscribed, setUserShowNewsSubscribed] = useState<Record<string, boolean>>({});
+  const [bugStatusesState, setBugStatusesState] = useState<Record<string, string>>({});
+  const [unveiledBlockedProfiles, setUnveiledBlockedProfiles] = useState<Record<string, boolean>>({});
+
+  // Memoized values
+  const selectedCount = useMemo(() => complaints.filter(c => c.selected).length, [complaints]);
+  const statsData = useMemo(() => {
+    const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const chart = days.map((day, idx) => {
+      // 0 is Sunday, 1 is Monday ... 6 is Saturday
+      // Mapping index: 0->Monday (1), 1->Tuesday (2) ... 5->Saturday (6), 6->Sunday (0)
+      const targetDayOfWeek = idx === 6 ? 0 : idx + 1;
+      const val = moderatorHistory.filter(log => {
+        const d = new Date(log.timestamp);
+        return d.getDay() === targetDayOfWeek;
+      }).length;
+      return { name: day, val };
+    });
+
+    const total = moderatorHistory.length;
+    const answered = moderatorHistory.filter(l => l.type === 'support').length;
+    const todayLogCount = moderatorHistory.filter(log => {
+      const d = new Date(log.timestamp);
+      const today = new Date();
+      return d.toDateString() === today.toDateString();
+    }).length;
+
+    return {
+      total,
+      answered,
+      time: total > 0 ? '5 мин' : '0 мин',
+      today: todayLogCount,
+      chart
+    };
+  }, [moderatorHistory]);
+
+  // Central logging function
+  const addModeratorLog = (params: {
+    type: ModeratorAction['type'],
+    action: string,
+    message: string,
+    targetId?: string,
+    targetName?: string
+  }) => {
+    const log: ModeratorAction = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      type: params.type,
+      action: params.action,
+      message: params.message,
+      targetId: params.targetId,
+      targetName: params.targetName,
+      operatorId,
+      operatorName,
+      timestamp: new Date()
+    };
+    setModeratorHistory(prev => [log, ...prev]);
+  };
+  useEffect(() => {
+    const loader = document.getElementById('loader');
+    if (loader) {
+      loader.style.opacity = '0';
+      setTimeout(() => {
+        if (loader) loader.style.display = 'none';
+      }, 500);
+    }
+  }, []);
+
+  // Timer for PM restrictions tick
+  useEffect(() => {
+    const activeKeys = Object.keys(pmRestrictions);
+    if (activeKeys.length === 0) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      const updated = { ...pmRestrictions };
+      
+      for (const k of activeKeys) {
+        const restriction = pmRestrictions[k];
+        const elapsed = now - restriction.startedAt;
+        if (elapsed >= restriction.durationMs) {
+          delete updated[k];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        setPmRestrictions(updated);
+      } else {
+        setPmRestrictions({ ...updated });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [pmRestrictions]);
+
+  useEffect(() => {
+    const handleMouseUpGlobal = () => setIsDragging(false);
+    const handleMouseMoveGlobal = (e: MouseEvent) => {
+      if (isDragging) {
+        const xPoint = Math.round((e.clientX / window.innerWidth) * 100);
+        const yPoint = Math.round((e.clientY / window.innerHeight) * 100);
+        setCurrentDraggingPos({
+          x: Math.min(Math.max(xPoint, 1), 99),
+          y: Math.min(Math.max(yPoint, 1), 99)
+        });
+      }
+    };
+    window.addEventListener('mouseup', handleMouseUpGlobal);
+    window.addEventListener('mousemove', handleMouseMoveGlobal);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUpGlobal);
+      window.removeEventListener('mousemove', handleMouseMoveGlobal);
+    };
+  }, [isDragging]);
+
+
+  // Notifications
+  const addNotification = (title: string, message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setNotifications(prev => [...prev, { id, title, message }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 4000);
+  };
+
+  const pushPlatformNotifications = (
+    ...items: (import('./features/notifications/notificationTypes').CreateNotificationParams | null)[]
+  ) => {
+    setUserNotifications(prev => dispatchNotifications(prev, items));
+  };
+
+  const platformUnreadCount = useMemo(() => {
+    if (!currentUser?.id) return 0;
+    return NotificationService.getUnreadCount(userNotifications, currentUser.id);
+  }, [userNotifications, currentUser?.id]);
+
+  const currentUserNotifications = useMemo(() => {
+    if (!currentUser?.id) return [];
+    return NotificationService.getUserNotifications(userNotifications, currentUser.id);
+  }, [userNotifications, currentUser?.id]);
+
+  const handlePlatformNotificationClick = (notification: PlatformNotification) => {
+    setUserNotifications(prev => NotificationService.markAsRead(prev, notification.id));
+    setIsNotificationsOpen(false);
+    navigateFromNotification(notification, {
+      setActiveTab,
+      setActiveChatPartnerId,
+      setSupportTab,
+      setViewingTicketFromNotification,
+      setNotificationScrollTarget,
+      tickets,
+    });
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    if (!currentUser?.id) return;
+    setUserNotifications(prev => NotificationService.markAllAsRead(prev, currentUser.id));
+  };
+
+  const handleToggleDiscussionSubscribe = (postId: string) => {
+    if (!currentUser?.id) return;
+    const isSubscribed = mySubscribedDiscussions.includes(postId);
+    if (isSubscribed) {
+      setMySubscribedDiscussions(prev => prev.filter(id => id !== postId));
+      setDiscussionSubscriptions(prev => ({
+        ...prev,
+        [postId]: (prev[postId] || []).filter(id => id !== currentUser.id),
+      }));
+      addNotification('Обсуждение', 'Вы отписались от уведомлений об этом обсуждении');
+    } else {
+      setMySubscribedDiscussions(prev => [...prev, postId]);
+      setDiscussionSubscriptions(prev => ({
+        ...prev,
+        [postId]: [...new Set([...(prev[postId] || []), currentUser.id])],
+      }));
+      addNotification('Обсуждение', 'Вы подписались на новые ответы в этом обсуждении');
+    }
+  };
+
+  const notifyDiscussionComment = (
+    postId: string,
+    commentId: string,
+    text: string,
+    parentCommentId?: string
+  ) => {
+    if (!currentUser?.id) return;
+    const post = feedPosts.find(p => p.id === postId);
+    const actor = {
+      id: currentUser.id,
+      name: currentUser.name,
+      avatar: currentUser.avatar || '',
+    };
+    const toDispatch: (import('./features/notifications/notificationTypes').CreateNotificationParams | null)[] = [];
+
+    if (parentCommentId) {
+      const parent = post?.comments?.find(c => c.id === parentCommentId);
+      const parentAuthorId = parent?.authorId || users.find(u => u.name === parent?.authorName)?.id;
+      if (parentAuthorId) {
+        toDispatch.push(
+          buildCommentReplyNotification(
+            parentAuthorId,
+            actor,
+            postId,
+            commentId,
+            post?.text
+          )
+        );
+      }
+    }
+
+    toDispatch.push(...buildMentionNotifications(text, users, actor, postId, commentId));
+
+    const subscribers = discussionSubscriptions[postId] || [];
+    subscribers.forEach(subscriberId => {
+      toDispatch.push(
+        buildDiscussionActivityNotification(
+          subscriberId,
+          actor,
+          postId,
+          commentId,
+          post?.text
+        )
+      );
+    });
+
+    pushPlatformNotifications(...toDispatch);
+  };
+
+  useEffect(() => {
+    if (!notificationScrollTarget) return;
+    const timer = window.setTimeout(() => {
+      const commentPart = notificationScrollTarget.commentId
+        ? `comment-${notificationScrollTarget.commentId}`
+        : null;
+      const targetId = commentPart || `post-${notificationScrollTarget.postId}`;
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-[#5181b8]', 'ring-offset-2');
+        window.setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-[#5181b8]', 'ring-offset-2');
+        }, 2500);
+      }
+      setNotificationScrollTarget(null);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [notificationScrollTarget, activeTab]);
+
+  const handleModerationAction = (id: string, action: 'delete' | 'ignore' | 'block' | 'block_delete' | 'forward', source: 'main' | 'spam' | 'page_moderation' = 'main') => {
+    let list: Complaint[];
+    let setList: React.Dispatch<React.SetStateAction<Complaint[]>>;
+    
+    if (source === 'spam') { list = spamComplaints; setList = setSpamComplaints; }
+    else if (source === 'page_moderation') { list = pageComplaints; setList = setPageComplaints; }
+    else { list = complaints; setList = setComplaints; }
+
+    const complaint = list.find(c => c.id === id);
+    if (!complaint) return;
+
+    if (action === 'delete') {
+      // Delete ONLY the post matching complaint content from feed & profile
+      setFeedPosts(prev => prev.filter(p => p.text !== complaint.content));
+      setList(prev => prev.filter(c => c.id !== id));
+      addModeratorLog({
+        type: 'moderation',
+        action: 'Удаление публикации',
+        message: `Публикация «${complaint.content}» автора ${complaint.userName} удалена по жалобе`,
+        targetId: complaint.userId,
+        targetName: complaint.userName
+      });
+      logComplaintAction(complaint, 'delete', 'Удалить', source, 'Удаление публикации из ленты и профиля');
+      addNotification('Удалено', 'Данная публикация успешно удалена из ленты и профилей');
+    } else if (action === 'ignore') {
+      setList(prev => prev.filter(c => c.id !== id));
+      addModeratorLog({
+        type: 'moderation',
+        action: 'Игнорирование',
+        message: `Жалоба на ${complaint.userName} проигнорирована`,
+        targetId: complaint.userId,
+        targetName: complaint.userName
+      });
+      logComplaintAction(complaint, 'ignore', 'Игнорировать', source, 'Жалоба проигнорирована и отклонена');
+      addNotification('Действие успешно', `Жалоба на ${complaint.userName} проигнорирована`);
+    } else if (action === 'block') {
+      setBlockingSource(source);
+      setIsBlockAndDelete(false);
+      setBlockingComplaint(complaint);
+    } else if (action === 'block_delete') {
+      setBlockingSource(source);
+      setIsBlockAndDelete(true);
+      setBlockingComplaint(complaint);
+    } else if (action === 'forward') {
+      setForwardingSource(source);
+      setForwardingComplaint(complaint);
+    }
+  };
+
+  const undoAction = (id: string) => {
+    const log = moderatorHistory.find(l => l.id === id);
+    if (!log) return;
+
+    // Undo logic based on action description
+    if (log.action.includes('Выдача галочки') || log.action.includes('Верифицирован')) {
+       setUsers(prev => prev.map(u => u.id === log.targetId ? { ...u, isVerified: false } : u));
+       if (selectedUserData?.id === log.targetId) setSelectedUserData(prev => prev ? { ...prev, isVerified: false } : null);
+    } else if (log.action.includes('Снятие галочки') || log.action.includes('Верификация снята')) {
+       setUsers(prev => prev.map(u => u.id === log.targetId ? { ...u, isVerified: true } : u));
+       if (selectedUserData?.id === log.targetId) setSelectedUserData(prev => prev ? { ...prev, isVerified: true } : null);
+    } else if (log.action.includes('Блокировка') || log.action.includes('ЗАБЛОКИРОВАН')) {
+       setUsers(prev => prev.map(u => u.id === log.targetId ? { ...u, isBlocked: false } : u));
+       if (selectedUserData?.id === log.targetId) setSelectedUserData(prev => prev ? { ...prev, isBlocked: false } : null);
+    } else if (log.action.includes('Разблокировка')) {
+       setUsers(prev => prev.map(u => u.id === log.targetId ? { ...u, isBlocked: true } : u));
+       if (selectedUserData?.id === log.targetId) setSelectedUserData(prev => prev ? { ...prev, isBlocked: true } : null);
+    }
+
+    setModeratorHistory(prev => prev.filter(l => l.id !== id));
+    addNotification('Отмена действия', `Действие "${log.action}" было аннулировано Отделом качества`);
+  };
+
+  const handleMassAction = (action: string) => {
+    const selectedComplaints = complaints.filter(c => c.selected);
+    const selectedIds = selectedComplaints.map(c => c.id);
+    if (selectedIds.length === 0) return;
+
+    selectedComplaints.forEach(item => {
+      const typeMap: Record<string, 'mass_delete' | 'mass_block' | 'mass_forward' | 'mass_multi'> = {
+        'Удалить': 'mass_delete',
+        'Заблокировать': 'mass_block',
+        'В отдел': 'mass_forward',
+        'Мультижалоба': 'mass_multi'
+      };
+      const actionType = typeMap[action] || 'mass_delete';
+      logComplaintAction(item, actionType, `Массово: ${action}`, 'main', `Пакетная массовая обработка: ${action}`);
+    });
+
+    setComplaints(prev => prev.filter(c => !selectedIds.includes(c.id)));
+    setProcessedCount(prev => prev + selectedIds.length);
+    setModeratorHistory(prev => [
+      ...selectedIds.map(id => ({ id: Math.random().toString(), complaintId: id, action: 'Массово', message: `Массовое действие: ${action}`, timestamp: new Date() })),
+      ...prev
+    ]);
+    addNotification('Массовая обработка', `Обработано ${selectedIds.length} жалоб`);
+  };
+
+  const openProfileBlockModal = () => {
+    setBlockReason('Оскорбление');
+    setBlockDuration('1 день');
+    setSelectedViolations({});
+    setIsWithUnban(false);
+    setIsProfileBlockModalOpen(true);
+  };
+
+  const handleDeleteProfile = (user: AppUser) => {
+    const originalName = user.originalName || user.name;
+    const updatedUser = {
+      ...user,
+      isDeleted: true,
+      name: `DELETED (${originalName})`,
+      originalName: originalName,
+      avatar: `https://i.pravatar.cc/150?u=deleted`
+    };
+    
+    setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    if (selectedUserData?.id === user.id) setSelectedUserData(updatedUser);
+    
+    setTickets(prev => prev.map(t => t.userId === user.id ? { ...t, userName: updatedUser.name } : t));
+    setComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    setSpamComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    setPageComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    
+    // Remove posts from feed
+    setFeedPosts(prev => prev.filter(p => p.authorName !== originalName && p.authorName !== user.name));
+
+    addNotification('Удаление', 'Профиль пользователя удален');
+    addModeratorLog({
+      type: 'moderation',
+      action: 'Удаление профиля',
+      message: `Профиль ${originalName} (ID: ${user.id}) был удален`,
+      targetId: user.id,
+      targetName: originalName
+    });
+  };
+
+  const handleRestoreProfile = (user: AppUser) => {
+    const originalName = user.originalName || user.name.replace(/^DELETED \((.*)\)$/, '$1');
+    const updatedUser = {
+      ...user,
+      isDeleted: false,
+      name: originalName,
+      avatar: `https://i.pravatar.cc/150?u=${user.id}`
+    };
+    
+    setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    if (selectedUserData?.id === user.id) setSelectedUserData(updatedUser);
+    
+    setTickets(prev => prev.map(t => t.userId === user.id ? { ...t, userName: updatedUser.name } : t));
+    setComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    setSpamComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    setPageComplaints(prev => prev.map(c => c.userId === user.id ? { ...c, userName: updatedUser.name } : c));
+    
+    addNotification('Восстановление', 'Профиль пользователя успешно восстановлен');
+    addModeratorLog({
+      type: 'moderation',
+      action: 'Восстановление профиля',
+      message: `Профиль ${originalName} (ID: ${user.id}) восстановлен и переведен в обычный режим`,
+      targetId: user.id,
+      targetName: originalName
+    });
+  };
+
+  const handleMarkAsPorn = (user: AppUser | null) => {
+    if (!user) {
+      return;
+    }
+    const nextSpamState = !user.isSpamBadge;
+    const updatedUser = { ...user, isPornMarked: nextSpamState, isSpamBadge: nextSpamState };
+    setUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    setSelectedUserData(updatedUser);
+    addNotification('Пометка SPAM', nextSpamState ? 'Пользователь помечен как SPAM' : 'Пометка SPAM снята');
+    addModeratorLog({
+      type: 'moderation',
+      action: nextSpamState ? 'Пометка SPAM' : 'Снятие пометки SPAM',
+      message: nextSpamState ? `Пользователь ${user.name} помечен как спамер оператором` : `С пользователя ${user.name} снята пометка спамера`,
+      targetId: user.id,
+      targetName: user.name
+    });
+  };
+
+  const confirmProfileBlock = () => {
+    const targetUser = selectedUserData || currentUser;
+    const targetUserPosts = feedPosts.filter(p => p.authorName === targetUser?.name);
+    const activeViolations: string[] = [];
+    if (selectedViolations['name']) activeViolations.push(`Имя профиля: «${targetUser?.name || ''}»`);
+    if (selectedViolations['status']) activeViolations.push(`Статус профиля: «${targetUser?.status || ''}»`);
+    targetUserPosts.forEach((post, idx) => {
+      if (selectedViolations[post.id]) {
+        activeViolations.push(`Публикация #${idx + 1}: «${post.text}»`);
+      }
+    });
+
+    const blockData = {
+      duration: blockDuration,
+      reason: blockReason,
+      comment: replyText,
+      timestamp: new Date(),
+      moderator: operatorName || 'Агент Поддержки',
+      blockedBy: operatorName || 'Агент Поддержки',
+      examplesList: activeViolations,
+      isWithUnban: isWithUnban,
+      examples: {
+        posts: targetUserPosts.some(p => selectedViolations[p.id]),
+        name: !!selectedViolations['name'],
+        status: !!selectedViolations['status'],
+        other: false
+      }
+    };
+    if (selectedUserData) {
+      const updatedUser = { 
+        ...selectedUserData, 
+        isBlocked: true,
+        blockReason: blockReason,
+        moderatorComment: replyText,
+        profileBlockInfo: blockData
+      };
+      setUsers(prev => prev.map(u => u.id === selectedUserData.id ? updatedUser : u));
+      setSelectedUserData(updatedUser);
+      if (currentUser?.id === selectedUserData.id) {
+        setCurrentUser(prev => prev ? { ...prev, ...updatedUser } : null);
+        setIsProfileBlocked(true);
+        setProfileBlockInfo(blockData);
+      }
+      addModeratorLog({
+        type: 'moderation',
+        action: 'Блокировка',
+        message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`,
+        targetId: selectedUserData.id,
+        targetName: selectedUserData.name
+      });
+    } else {
+      setIsProfileBlocked(true);
+      setProfileBlockInfo(blockData);
+      if (currentUser) {
+        const updatedUser = {
+          ...currentUser,
+          isBlocked: true,
+          blockReason: blockReason,
+          moderatorComment: replyText,
+          profileBlockInfo: blockData
+        };
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+        setCurrentUser(updatedUser);
+      }
+    }
+    const logAction = `Заблокирован Оператором #${operatorId} на ${blockDuration} по причине: ${blockReason}${replyText ? `\nКомментарий: ${replyText}` : ''}`;
+    setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
+    setIsProfileBlockModalOpen(false);
+    addNotification('Блокировка', `Пользователь с ID ${selectedUserData?.id || currentUser?.id} заблокирован`);
+  };
+
+  const handleProfileUnblock = () => {
+    if (selectedUserData) {
+      const updatedUser = { ...selectedUserData, isBlocked: false, profileBlockInfo: undefined };
+      setUsers(prev => prev.map(u => u.id === selectedUserData.id ? updatedUser : u));
+      setSelectedUserData(updatedUser);
+      if (currentUser?.id === selectedUserData.id) {
+        setCurrentUser(prev => prev ? { ...prev, isBlocked: false, profileBlockInfo: undefined } : null);
+        setIsProfileBlocked(false);
+      }
+      addModeratorLog({
+        type: 'moderation',
+        action: 'Разблокировка',
+        message: 'Пользователь разблокирован вручную через профиль',
+        targetId: selectedUserData.id,
+        targetName: selectedUserData.name
+      });
+    } else {
+      setIsProfileBlocked(false);
+      if (currentUser) {
+        const updatedUser = { ...currentUser, isBlocked: false, profileBlockInfo: undefined };
+        setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+        setCurrentUser(updatedUser);
+      }
+    }
+    const logAction = `Разблокирован Оператором #${operatorId}`;
+    setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
+    addNotification('Разблокировка', 'Пользователь разблокирован');
+  };
+
+  const toggleProfileVerification = () => {
+    if (selectedUserData) {
+      const newState = !selectedUserData.isVerified;
+      const updatedUser = { ...selectedUserData, isVerified: newState };
+      setUsers(prev => prev.map(u => u.id === selectedUserData.id ? updatedUser : u));
+      setSelectedUserData(updatedUser);
+      addModeratorLog({
+        type: 'verification',
+        action: newState ? 'Выдача галочки' : 'Снятие галочки',
+        message: newState ? 'Верификация установлена через профиль' : 'Верификация снята через профиль',
+        targetId: selectedUserData.id,
+        targetName: selectedUserData.name
+      });
+      const logAction = newState ? `Верифицирован Оператором #${operatorId}` : `Верификация снята Оператором #${operatorId}`;
+      setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
+      addNotification('Верификация', newState ? 'Верификация установлена' : 'Верификация снята');
+    } else {
+      const newState = !isProfileVerified;
+      setIsProfileVerified(newState);
+      const logAction = newState ? `Верифицирован Оператором #${operatorId}` : `Верификация снята Оператором #${operatorId}`;
+      setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
+      addNotification('Верификация', newState ? 'Верификация установлена' : 'Верификация снята');
+    }
+  };
+
+  const handleForwardComplaint = (dept: string) => {
+    if (forwardingComplaint) {
+      const updatedComplaint: Complaint = { 
+        ...forwardingComplaint, 
+        dept: dept,
+        type: forwardingComplaint.type || 'Перенесено' 
+      };
+      
+      // Remove from source
+      if (forwardingSource === 'spam') {
+        setSpamComplaints(prev => prev.filter(c => c.id !== forwardingComplaint.id));
+      } else if (forwardingSource === 'page_moderation') {
+        setPageComplaints(prev => prev.filter(c => c.id !== forwardingComplaint.id));
+      } else {
+        setComplaints(prev => prev.filter(c => c.id !== forwardingComplaint.id));
+      }
+      
+      // Add to destination
+      if (dept === 'Модерация страниц') setPageComplaints(prev => [updatedComplaint, ...prev]);
+      else if (dept === 'Спам') setSpamComplaints(prev => [updatedComplaint, ...prev]);
+      else if (dept === 'Модерация' || dept === 'Поддержка') setComplaints(prev => [updatedComplaint, ...prev]);
+      
+      addNotification('Перенос', `Жалоба перенесена в отдел ${dept}`);
+      logComplaintAction(forwardingComplaint, 'forward', 'В отдел', forwardingSource as any, `Перенесено в отдел: ${dept}`);
+      setForwardingComplaint(null);
+    }
+  };
+
+  const confirmBlock = () => {
+    if (blockingComplaint) {
+      const targetUserName = blockingComplaint.userName;
+      const targetUserId = blockingComplaint.userId;
+
+      const blockData = {
+        duration: blockDuration,
+        reason: blockReason,
+        comment: replyText,
+        timestamp: new Date(),
+        moderator: operatorName || 'Агент Поддержки',
+        blockedBy: operatorName || 'Агент Поддержки',
+        examplesList: [blockingComplaint.content],
+        examples: {
+          posts: true,
+          name: false,
+          status: false,
+          other: false
+        }
+      };
+
+      // Update users list
+      setUsers(prev => {
+        const exists = prev.some(u => u.id === targetUserId || u.name === targetUserName);
+        if (exists) {
+          return prev.map(u => (u.id === targetUserId || u.name === targetUserName) ? { 
+            ...u, 
+            isBlocked: true, 
+            blockReason: blockReason, 
+            moderatorComment: replyText,
+            profileBlockInfo: blockData
+          } : u);
+        } else {
+          const newUser: AppUser = {
+            id: targetUserId || `u-${Date.now()}`,
+            name: targetUserName,
+            avatar: blockingComplaint.userAvatar || `https://i.pravatar.cc/150?u=${targetUserId}`,
+            trustLevel: parseFloat(blockingComplaint.rating || '0.7'),
+            isVerified: false,
+            isBlocked: true,
+            regDate: 'сегодня',
+            blockReason: blockReason,
+            moderatorComment: replyText,
+            profileBlockInfo: blockData
+          };
+          return [...prev, newUser];
+        }
+      });
+
+      // Update selectedUserData if we are viewing this user
+      if (selectedUserData && (selectedUserData.id === targetUserId || selectedUserData.name === targetUserName)) {
+        setSelectedUserData(prev => prev ? {
+          ...prev,
+          isBlocked: true,
+          blockReason: blockReason,
+          moderatorComment: replyText,
+          profileBlockInfo: blockData
+        } : null);
+      }
+
+      // If current user is the target
+      if (currentUser && (currentUser.id === targetUserId || currentUser.name === targetUserName)) {
+        setIsProfileBlocked(true);
+        setProfileBlockInfo(blockData);
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          isBlocked: true,
+          blockReason: blockReason,
+          moderatorComment: replyText,
+          profileBlockInfo: blockData
+        } : null);
+      }
+
+      if (isBlockAndDelete) {
+        setFeedPosts(prev => prev.filter(p => p.text !== blockingComplaint.content));
+      }
+
+      if (blockingSource === 'spam') {
+        setSpamComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+      } else if (blockingSource === 'page_moderation') {
+        setPageComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+      } else {
+        setComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+      }
+
+      setProcessedCount(prev => prev + 1);
+      setModeratorHistory(prev => [{ 
+        id: Math.random().toString(), 
+        complaintId: blockingComplaint.id, 
+        action: isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка', 
+        message: `Пользователь ${targetUserName} заблокирован по причине: ${blockReason}`, 
+        timestamp: new Date() 
+      }, ...prev]);
+      
+      {
+        const blockActionType = isBlockAndDelete ? 'block_delete' : 'block';
+        const blockActionName = isBlockAndDelete ? 'Заблокировать и удалить' : 'Заблокировать';
+        logComplaintAction(blockingComplaint, blockActionType, blockActionName, blockingSource as any, `Причина: ${blockReason}. Срок: ${blockDuration}. Комментарий: ${replyText}`);
+      }
+      
+      addNotification('Действие успешно', `Пользователь ${targetUserName} заблокирован`);
+      setBlockingComplaint(null);
+      setReplyText('');
+    }
+  };
+
+  const startSupportWork = () => {
+    setIsSupportStarted(true);
+    setHasSupportAccess(true);
+    addNotification('Система', 'Доступ в поддержку получен');
+  };
+
+  const getNewQuestions = () => {
+    const nextTicket = tickets.find(t => t.status === 'new' && !activeSupportTickets.find(at => at.id === t.id));
+    if (nextTicket) {
+      setActiveSupportTickets(prev => [...prev, nextTicket]);
+      addNotification('Внимание', 'Новый тикет добавлен в ваш список');
+    } else {
+      addNotification('Очередь пуста', 'Новых обращений пока нет');
+    }
+  };
+
+  const getNextTicketInQueue = () => {
+    const nextInList = activeSupportTickets.find(t => t.status === 'new' && t.id !== activeTicket?.id && t.id !== openedTicket?.id);
+    if (nextInList) {
+      // Закрываем текущий тикет и открываем следующий из активных
+      setActiveTicket(nextInList);
+      setOpenedTicket(null);
+      addNotification('Следующий вопрос', 'Вы перешли к следующему тикету из очереди');
+    } else {
+      const nextFromQueue = tickets.find(t => t.status === 'new' && !activeSupportTickets.find(at => at.id === t.id));
+      if (nextFromQueue) {
+        setActiveSupportTickets(prev => [...prev, nextFromQueue]);
+        setActiveTicket(nextFromQueue);
+        setOpenedTicket(null);
+        addNotification('Система', 'Взята новая заявка из очереди');
+      } else {
+        addNotification('Завершено', 'Больше нет новых тикетов в очереди');
+        setActiveTicket(null);
+      }
+    }
+  };
+
+  const handleSendReply = () => {
+    if (!activeTicket || !replyText.trim()) return;
+    
+    let updatedTicket: Ticket | null = null;
+    const replyBody = replyText.trim();
+    const updatedTickets = tickets.map(t => {
+      if (t.id === activeTicket.id) {
+        if (t.source === 'service_profile_chat' && t.serviceProfileId) {
+          const serviceProfile = users.find(u => u.id === t.serviceProfileId);
+          updatedTicket = appendStaffMessageToServiceTicket(
+            t,
+            replyBody,
+            serviceProfile?.name || t.serviceProfileName || 'Поддержка'
+          );
+        } else {
+          updatedTicket = {
+            ...t,
+            status: 'answered',
+            messages: [...t.messages, { sender: 'staff', text: replyBody, time: 'Сейчас', operatorName: `${operatorName} #${operatorId}` }]
+          };
+        }
+        return updatedTicket;
+      }
+      return t;
+    });
+    
+    setTickets(updatedTickets);
+    setActiveSupportTickets(prev => prev.filter(t => t.id !== activeTicket.id));
+
+    if (updatedTicket) {
+      syncStaffReplyToServiceChat(updatedTicket as Ticket, replyBody);
+      pushPlatformNotifications(
+        buildSupportReplyNotification(
+          (updatedTicket as Ticket).userId,
+          (updatedTicket as Ticket).id,
+          (updatedTicket as Ticket).title
+        )
+      );
+    }
+
+    setReplyText('');
+    addNotification('Ответ отправлен', 'Тикет успешно закрыт');
+  };
+
+  const handleVerificationAction = (id: string, action: 'approve' | 'deny' | 'deny-reason' | 'temp' | 'confirm-temp' | 'confirm-deny', extra?: string) => {
+    const req = verificationRequests.find(v => v.id === id);
+    if (!req && !['confirm-temp', 'confirm-deny'].includes(action)) return;
+
+    const targetUser = users.find(u => u.id === req?.senderId || u.login === req?.senderLogin);
+
+    if (action === 'approve') {
+      if (targetUser) {
+        setUsers(prev => prev.map(u => u.id === targetUser.id || u.login === targetUser.login ? { ...u, isVerified: true } : u));
+        
+        if (selectedUserData && (selectedUserData.id === targetUser.id || selectedUserData.login === targetUser.login)) {
+          setSelectedUserData({ ...selectedUserData, isVerified: true });
+        }
+        
+        if (currentUser && (currentUser.id === targetUser.id || currentUser.login === targetUser.login)) {
+          setCurrentUser(prev => prev ? { ...prev, isVerified: true } : null);
+        }
+
+        addModeratorLog({
+          type: 'verification',
+          action: 'Выдача галочки',
+          message: 'Заявка на верификацию одобрена (навсегда)',
+          targetId: targetUser.id,
+          targetName: targetUser.name
+        });
+        setVerificationRequests(prev => prev.filter(v => v.id !== id));
+        addNotification('Верификация', `Заявка ${req?.userName} одобрена (навсегда)`);
+      }
+    } else if (action === 'deny') {
+      if (targetUser) {
+        pushPlatformNotifications(buildVerificationDeniedNotification(targetUser.id));
+        addModeratorLog({
+          type: 'verification',
+          action: 'Отказ',
+          message: 'Заявка на верификацию отклонена без причины',
+          targetId: targetUser.id,
+          targetName: targetUser.name
+        });
+      }
+      setVerificationRequests(prev => prev.filter(v => v.id !== id));
+      addNotification('Верификация', `Заявка ${req?.userName} отклонена`);
+    } else if (action === 'deny-reason') {
+      setActiveVerificationId(id);
+      setVerificationModalType('deny-reason');
+      setIsVerificationModalOpen(true);
+    } else if (action === 'temp') {
+      setActiveVerificationId(id);
+      setVerificationModalType('temp');
+      setIsVerificationModalOpen(true);
+    } else if (action === 'confirm-temp' || action === 'confirm-deny') {
+      const activeReq = verificationRequests.find(v => v.id === activeVerificationId);
+      const activeUser = users.find(u => u.id === activeReq?.senderId || u.login === activeReq?.senderLogin);
+
+      if (action === 'confirm-temp' && activeUser) {
+        setUsers(prev => prev.map(u => u.id === activeUser.id || u.login === activeUser.login ? { ...u, isVerified: true } : u));
+        
+        if (selectedUserData && (selectedUserData.id === activeUser.id || selectedUserData.login === activeUser.login)) {
+           setSelectedUserData({ ...selectedUserData, isVerified: true });
+        }
+
+        if (currentUser && (currentUser.id === activeUser.id || currentUser.login === activeUser.login)) {
+          setCurrentUser(prev => prev ? { ...prev, isVerified: true } : null);
+        }
+
+        addModeratorLog({
+          type: 'verification',
+          action: 'Временная галочка',
+          message: `Выдана временная галочка (${extra})`,
+          targetId: activeUser.id,
+          targetName: activeUser.name
+        });
+        const logEntry = {
+          id: `log-v-temp-${Date.now()}`,
+          action: `Верификация выдана временно (${extra}) оператором ${operatorName} #${operatorId}`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+        addNotification('Верификация', `Выдана временная галочка (${extra})`);
+        pushPlatformNotifications(buildVerificationTempNotification(activeUser.id, extra || ''));
+      } else if (action === 'confirm-deny' && activeUser) {
+        pushPlatformNotifications({
+          ...buildVerificationDeniedNotification(activeUser.id),
+          message: `Ваша заявка отклонена. Причина: ${extra}`,
+        });
+        addModeratorLog({
+          type: 'verification',
+          action: 'Отказ',
+          message: `Заявка на верификацию отклонена. Причина: ${extra}`,
+          targetId: activeUser.id,
+          targetName: activeUser.name
+        });
+      }
+      setVerificationRequests(prev => prev.filter(v => v.id !== activeVerificationId));
+      setIsVerificationModalOpen(false);
+    }
+  };
+
+  const renderModerationList = (items: Complaint[], title: string, count: number, started: boolean, setStarted: (s: boolean) => void) => {
+    const isSpamQueue = title === 'Спам';
+    const effectiveStarted = isSpamQueue ? true : started;
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        {/* Header Widget */}
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center">
+              <ShieldAlert size={20} className="text-[#2a5885]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[17px] font-medium font-sans">{title === 'Про' ? 'Очередь PRO' : `Очередь ${title}`}</h1>
+                <span className="bg-[#2a5885]/10 text-[#2a5885] text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] tracking-wide font-mono">
+                  {title === 'Про' ? 'Автоматический анализ' : title === 'Спам' ? 'Жалобы на спам' : 'Модерация'}
+                </span>
+              </div>
+              <p className="text-[11px] text-vk-text-secondary mt-0.5">
+                {title === 'Про' 
+                  ? 'Сложные инциденты, требующие анализа связей, поведенческих паттернов и мультиаккаунтов' 
+                  : 'Потоковая обработка жалоб пользователей на нежелательный и вредоносный контент'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right col-span-1">
+              <div className="text-vk-text-secondary text-[11px]">В очереди: {count} жалоб</div>
+              {isSpamQueue ? (
+                <div className="text-green-600 text-[11px] font-semibold flex items-center gap-1.5 justify-end">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full inline-block animate-pulse"></span>
+                  Очередь активна
+                </div>
+              ) : (
+                <div className="text-[#2a5885] text-[11px] font-medium">Смена: {effectiveStarted ? 'Активна' : 'Не начата'}</div>
+              )}
+            </div>
+            {!isSpamQueue && (
+              !effectiveStarted ? (
+                <button 
+                  onClick={() => {
+                    setStarted(true);
+                    addNotification('Смена начата', `Вы приступили к обработке очереди ${title}`);
+                  }}
+                  className="bg-[#4bb34b] hover:bg-[#52c152] text-white px-4 py-1.5 rounded-[2px] text-[12px] font-medium transition-colors"
+                >
+                  Начать работу
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    setStarted(false);
+                    addNotification('Смена завершена', `Вы вышли из обработки очереди ${title}`);
+                  }}
+                  className="bg-[#e64646] hover:bg-[#f05050] text-white px-4 py-1.5 rounded-[2px] text-[12px] font-medium transition-colors"
+                  id="end-support-shift-btn"
+                >
+                  Завершить
+                </button>
+              )
+            )}
+          </div>
+        </div>
+
+        {effectiveStarted && (
+          <div className="flex flex-wrap gap-3 bg-[#fafbfc] p-3 border border-vk-separator rounded-[4px] items-center justify-between">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-[12px] font-bold text-[#55677d] select-none cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={items.length > 0 && selectedComplaintIds.length === items.length}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedComplaintIds(items.map(it => it.id));
+                    } else {
+                      setSelectedComplaintIds([]);
+                    }
+                  }}
+                  className="rounded-[3px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] cursor-pointer" 
+                />
+                Выбрать все
+              </label>
+
+              {selectedComplaintIds.length > 0 && (
+                <div className="flex items-center gap-2 border-l border-[#e7e8ec] pl-3">
+                  <span className="text-[11px] text-vk-text-secondary font-medium">Действие ({selectedComplaintIds.length}):</span>
+                  {title === 'Спам' ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          selectedComplaintIds.forEach(id => {
+                            const item = items.find(it => it.id === id);
+                            if (!item) return;
+                            const targetUser = users.find(u => u.id === item.userId || u.name === item.userName);
+                            if (targetUser) {
+                              const newSpamCount = (targetUser.spamCount || 0) + 1;
+                              const shouldBlock = newSpamCount >= 3;
+                              const historyItem = {
+                                id: `ch-${Date.now()}-${id}`,
+                                type: 'incoming' as const,
+                                content: item.content,
+                                decision: `Жалоба на «${item.content}» рассмотрена пакетно как спам сотрудником ${operatorName}`,
+                                moderator: `${operatorName} #${operatorId}`,
+                                timestamp: new Date().toLocaleString(),
+                                status: 'Завершена'
+                              };
+                              setUsers(prev => prev.map(u => u.id === targetUser.id ? {
+                                ...u,
+                                isSpamBadge: true,
+                                spamCount: newSpamCount,
+                                isBlocked: shouldBlock ? true : u.isBlocked,
+                                complaintHistory: [historyItem, ...(u.complaintHistory || [])]
+                              } : u));
+                            }
+                          });
+                          setSpamComplaints(prev => prev.filter(c => !selectedComplaintIds.includes(c.id)));
+                          setSelectedComplaintIds([]);
+                          addNotification('Пакетное действие', 'Выбранные жалобы отмечены как спам');
+                        }}
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-2 py-1 rounded-[3px] text-[11px] font-medium cursor-pointer"
+                      >
+                        Это спам
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSpamComplaints(prev => prev.filter(c => !selectedComplaintIds.includes(c.id)));
+                          setSelectedComplaintIds([]);
+                          addNotification('Пакетное действие', 'Выбранные жалобы отклонены как ложные');
+                        }}
+                        className="bg-[#4bb34b] hover:bg-[#52c152] text-white px-2 py-1 rounded-[3px] text-[11px] font-medium cursor-pointer"
+                      >
+                        Не спам
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          selectedComplaintIds.forEach(id => {
+                            handleModerationAction(id, 'block_delete', 'page_moderation');
+                          });
+                          setSelectedComplaintIds([]);
+                          addNotification('Пакетное действие', 'Выбранные пользователи заблокированы');
+                        }}
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-2 py-1 rounded-[3px] text-[11px] font-medium cursor-pointer"
+                      >
+                        Бан + Удаление
+                      </button>
+                      <button
+                        onClick={() => {
+                          selectedComplaintIds.forEach(id => {
+                            handleModerationAction(id, 'ignore', 'page_moderation');
+                          });
+                          setSelectedComplaintIds([]);
+                          addNotification('Пакетное действие', 'Выбранные жалобы отклонены');
+                        }}
+                        className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-2 py-1 rounded-[3px] text-[11px] font-medium cursor-pointer"
+                      >
+                        Игнорировать
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-vk-text-secondary font-medium">Фильтр по типу:</span>
+              <select
+                value={moderationTypeFilter}
+                onChange={(e) => setModerationTypeFilter(e.target.value)}
+                className="bg-white border border-[#dce1e6] rounded px-2 py-1 text-[11px] font-bold text-[#55677d] focus:outline-none focus:ring-1 focus:ring-[#5181b8]"
+              >
+                <option value="all">Все категории</option>
+                <option value="Оскорбление">Оскорбление</option>
+                <option value="Спам">Спам</option>
+                <option value="Порнография">Порнография</option>
+                <option value="Мошенничество">Мошенничество</option>
+                <option value="Клонирование аккаунта">Клоны</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {effectiveStarted ? (
+          <div className="space-y-4">
+            {items
+              .filter(item => {
+                if (moderationTypeFilter !== 'all') {
+                  return item.type === moderationTypeFilter || (item.type.includes(moderationTypeFilter));
+                }
+                return true;
+              })
+              .map((item) => {
+                const isExpanded = expandedProIds.includes(item.id);
+                const isSelected = selectedComplaintIds.includes(item.id);
+                return (
+                  <div key={item.id} className={`bg-vk-white p-4 pl-12 rounded-[2px] border border-vk-separator transition-all relative ${isSelected ? 'bg-[#f0f4f9] border-[#cbd5e1]' : ''}`}>
+                    <div className="absolute top-4 left-4 z-10">
+                      <input 
+                        type="checkbox" 
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedComplaintIds(prev => [...prev, item.id]);
+                          } else {
+                            setSelectedComplaintIds(prev => prev.filter(id => id !== item.id));
+                          }
+                        }}
+                        className="rounded-[3px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] cursor-pointer w-4 h-4" 
+                      />
+                    </div>
+                    {title === 'Про' && (
+                    <div className="mb-4 flex items-center gap-2 bg-[#f0f2f5] p-2 rounded-[2px] border border-vk-separator/50">
+                      <Search size={14} className="text-vk-text-secondary" />
+                      <input 
+                        placeholder="Поиск похожих пользователей или постов..." 
+                        className="bg-transparent border-none text-[12px] focus:ring-0 grow"
+                        value={proSearchQuery}
+                        onChange={(e) => setProSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {proSearchQuery && title === 'Про' && (
+                    <div className="mb-4 bg-white border border-[#5181b8]/30 rounded-[2px] p-3 shadow-inner">
+                      <div className="text-[10px] font-bold text-[#5181b8] uppercase mb-2">Найдено совпадений (массовые меры):</div>
+                      <div className="space-y-2">
+                        {[1, 2, 3].map(id => (
+                          <label key={id} className="flex items-center gap-2 cursor-pointer p-1.5 hover:bg-[#f0f2f5] rounded-[2px]">
+                            <input type="checkbox" className="rounded-[2px] border-vk-separator" />
+                            <UserAvatar user={{ name: `${item.userName}_${id}`, id: `${item.id}-${id}` }} className="w-6 h-6 border border-vk-separator" />
+                            <span className="text-[11px] font-medium">Похожий по подсетям {item.userName}_{id}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar user={users.find(u => u.id === item.id || u.name === item.userName)} avatarUrl={item.userAvatar || users.find(u => u.id === item.id || u.name === item.userName)?.avatar} className="w-8 h-8 border border-vk-separator" />
+                    <div>
+                      <div onClick={() => { 
+                        setSelectedUserData({
+                          id: item.id,
+                          name: item.userName,
+                          avatar: `https://i.pravatar.cc/150?u=${item.id}`,
+                          trustLevel: parseFloat(item.rating),
+                          isVerified: false,
+                          isBlocked: false,
+                          regDate: 'сегодня'
+                        });
+                        setActiveTab('profile'); 
+                      }} className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{item.userName}</div>
+                      <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {Math.random().toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(item.rating) > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
+                    Рейтинг: {item.rating}
+                  </div>
+                </div>
+                <div className="pl-8">
+                  <div className="text-[12.5px] font-medium mb-1">Тип: <span className="text-[#2a5885]">{item.type}</span></div>
+                  <div className="text-[12.5px] text-vk-text-secondary mb-3 p-3 bg-[#f7f8fa] border border-vk-separator rounded-[2px] italic"> «{item.content}» </div>
+                  
+                  {item.moderatedBy && (
+                    <div className="mb-3 px-3 py-1.5 bg-[#e5ebf1] text-[#2a5885] rounded-[2px] text-[11px] font-bold">
+                      Промодерировано ({item.moderatedBy})
+                    </div>
+                  )}
+                  
+                  {title === 'Про' && isExpanded && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0 }} 
+                      animate={{ height: 'auto', opacity: 1 }} 
+                      className="mb-4 p-3 bg-[#f0f2f5] border border-vk-separator rounded-[2px] overflow-hidden"
+                    >
+                      <h4 className="text-[11px] font-bold uppercase text-[#656565] mb-2">Техническая информация:</h4>
+                      <div className="space-y-1.5 text-[12.5px]">
+                        <div className="flex gap-2"><span className="text-vk-text-secondary w-32 shrink-0">Автор:</span> {item.userName}</div>
+                        <div className="flex gap-2"><span className="text-vk-text-secondary w-32 shrink-0">Релевантность:</span> {parseFloat(item.rating) > 0.5 ? 'Высокая' : 'Средняя'}</div>
+                        <div className="flex gap-2"><span className="text-vk-text-secondary w-32 shrink-0">Другие аккаунты:</span> {Math.floor(Math.random() * 3)} совпадения по IP</div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {title === 'Спам' ? (
+                      <>
+                        <button onClick={() => { 
+                          const targetUser = users.find(u => u.id === item.userId || u.name === item.userName);
+                          if (targetUser) {
+                            const newSpamCount = (targetUser.spamCount || 0) + 1;
+                            const shouldBlock = newSpamCount >= 3;
+                            
+                            const historyItem: ComplaintHistoryItem = {
+                              id: `ch-${Date.now()}`,
+                              type: 'incoming',
+                              content: item.content,
+                              decision: `Жалоба на «${item.content}» рассмотрена, решение: «Это спам» сотрудником ${operatorName} #${operatorId}${shouldBlock ? '. Пользователь заблокирован за превышение лимита жалоб (3/3).' : ''}`,
+                              moderator: `${operatorName} #${operatorId}`,
+                              timestamp: new Date().toLocaleString(),
+                              status: 'Завершена'
+                            };
+
+                             setUsers(prev => prev.map(u => u.id === targetUser.id ? { 
+                               ...u, 
+                               isSpamBadge: true,
+                               spamCount: newSpamCount,
+                               isBlocked: shouldBlock ? true : u.isBlocked,
+                               profileBlockInfo: shouldBlock ? { 
+                                 reason: 'Спам', 
+                                 duration: 'Навсегда', 
+                                 comment: 'Ваши публикации нарушали правила нашей платформы, так как содержали нежелательную информацию',
+                                 blockedBy: operatorName || 'Агент Поддержки',
+                                 examples: { posts: true, name: false, status: false, other: false }
+                               } : u.profileBlockInfo,
+                               complaintHistory: [historyItem, ...(u.complaintHistory || [])]
+                             } : u));
+                            
+                            // Log to profile logs as well
+                            const logEntry = {
+                              id: `log-spam-${Date.now()}`,
+                              action: `Повешен бейдж SPAM. Причина: жалоба на «${item.content}».${shouldBlock ? ' Пользователь ЗАБЛОКИРОВАН (3/3).' : ''} Решение принял ${operatorName} #${operatorId}`,
+                              timestamp: new Date()
+                            };
+                            setProfileModerationLogs(prev => [logEntry, ...prev]);
+
+                            // Delete content from feed
+                            setFeedPosts(prev => prev.filter(p => !(p.authorName === targetUser.name && p.text === item.content)));
+                            
+                            if (shouldBlock) {
+                               addNotification('Пользователь заблокирован', 'Достигнут лимит жалоб на спам (3/3)');
+                            }
+
+                            const newDecision: SpamDecision = {
+                              id: `sd-${Date.now()}`,
+                              postText: item.content,
+                              authorName: item.userName,
+                              moderatorName: `${operatorName || 'Агент Поддержки'} #${operatorId}`,
+                              timestamp: new Date().toLocaleDateString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                              source: 'Служба модерации'
+                            };
+                            setSpamDecisions(prev => [newDecision, ...prev]);
+                            logComplaintAction(item, 'block_delete', 'Это спам', 'spam', 'Удален контент, выдан бейдж SPAM');
+                          }
+                          setSpamComplaints(prev => prev.filter(c => c.id !== item.id)); 
+                          addNotification('Действие успешно', 'Контент удален, на пользователя повешен бейдж SPAM'); 
+                        }} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Это спам</button>
+                        <button onClick={() => { 
+                          const newDecision: SpamDecision = {
+                            id: `sd-${Date.now()}`,
+                            postText: item.content,
+                            authorName: item.userName,
+                            moderatorName: `${operatorName || 'Агент Поддержки'} #${operatorId}`,
+                            timestamp: new Date().toLocaleDateString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                            source: 'Ложная жалоба (Не спам)'
+                          };
+                          setSpamDecisions(prev => [newDecision, ...prev]);
+                          logComplaintAction(item, 'ignore', 'Это не спам', 'spam', 'Жалоба отклонена как ложная');
+                          setSpamComplaints(prev => prev.filter(c => c.id !== item.id)); 
+                          addNotification('Действие успешно', 'Отмечено как не спам'); 
+                        }} className="bg-[#4bb34b] hover:bg-[#52c152] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Это не спам</button>
+                        <button onClick={() => { 
+                          setComplaints(prev => [item, ...prev]);
+                          logComplaintAction(item, 'forward', 'Вернуть в оч.', 'spam', 'Жалоба возвращена в основную очередь модерации');
+                          setSpamComplaints(prev => prev.filter(c => c.id !== item.id)); 
+                          addNotification('Возвращено', 'Жалоба возвращена в основной отдел'); 
+                        }} className="bg-[#f0f2f5] hover:bg-[#e5ebf1] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Вернуть</button>
+                      </>
+                    ) : (
+                      <>
+                        {title === 'Про' && (
+                          <button 
+                            onClick={() => {
+                              setExpandedProIds(prev => prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id]);
+                            }} 
+                            className={`px-3 py-1 text-[12px] font-medium rounded-[2px] transition-colors flex items-center gap-1 cursor-pointer border ${expandedProIds.includes(item.id) ? 'bg-[#e5ebf1] border-[#5181b8] text-[#2a5885]' : 'bg-[#e5ebf1] text-[#55677d] border-transparent hover:bg-[#dfe6ed]'}`}
+                          >
+                            <FileSearch size={14} />
+                            {expandedProIds.includes(item.id) ? 'Свернуть' : 'Подробнее'}
+                          </button>
+                        )}
+                        <button onClick={() => { handleModerationAction(item.id, 'block_delete', 'page_moderation'); }} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать и удалить</button>
+                        <button onClick={() => { handleModerationAction(item.id, 'block', 'page_moderation'); }} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать</button>
+                        <button onClick={() => { handleModerationAction(item.id, 'delete', 'page_moderation'); }} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Удалить</button>
+                        <button onClick={() => { handleModerationAction(item.id, 'ignore', 'page_moderation'); }} className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Игнорировать</button>
+                        <button onClick={() => { 
+                          setComplaints(prev => [item, ...prev]);
+                          setPageComplaints(prev => prev.filter(c => c.id !== item.id)); 
+                          addNotification('Возвращено', 'Жалоба возвращена в основной отдел'); 
+                        }} className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Вернуть</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {items.length === 0 && (
+            <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
+              <ShieldAlert size={48} className="text-[#dce1e6]" />
+              <p className="text-vk-text-secondary text-[12.5px]">Очередь {title} пуста!</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
+          <ShieldAlert size={48} className="text-[#dce1e6]" />
+          <p className="text-vk-text-secondary text-[12.5px]">Нажмите «Начать работу» сверху</p>
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+  const renderPageModeration = () => {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        {/* Header Widget */}
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center">
+              <ShieldAlert size={20} className="text-[#2a5885]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[17px] font-medium font-sans">Жалобы на профили</h1>
+                <span className="bg-[#2a5885]/10 text-[#2a5885] text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] tracking-wide font-mono">Модерация страниц</span>
+              </div>
+              <p className="text-[11px] text-vk-text-secondary mt-0.5">
+                Просмотр и принятие мер по жалобам на страницы и оформление профилей пользователей
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-vk-text-secondary text-[11px]">В очереди: {pageComplaints.length}</div>
+            <div className="text-[#2a5885] text-[11px] font-medium">Обработано: {processedCount}</div>
+          </div>
+        </div>
+
+        {/* Complaints List */}
+        <div className="space-y-4">
+          {pageComplaints.map((item) => {
+            const targetUser = users.find(u => u.id === item.userId || u.name === item.userName) || {
+              id: item.userId,
+              name: item.userName,
+              avatar: item.userAvatar || `https://i.pravatar.cc/150?u=${item.userId}`,
+              trustLevel: 0.85,
+              isVerified: false,
+              isBlocked: false,
+              regDate: 'сегодня',
+              status: 'Моя страница — мои правила'
+            };
+
+            return (
+              <div key={item.id} className="bg-white p-5 rounded-[4px] border border-vk-separator transition-all relative space-y-4 shadow-sm hover:border-[#bfcbda]">
+                {/* 1. Header: User Profile Card representation with verification / trust indicators */}
+                <div className="flex justify-between items-start border-b pb-3 border-vk-separator/50">
+                  <div className="flex items-center gap-3">
+                    <div 
+                      onClick={() => {
+                        setSelectedUserData(targetUser);
+                        setActiveTab('profile');
+                      }} 
+                      className="w-12 h-12 rounded-full overflow-hidden border border-vk-separator cursor-pointer hover:opacity-85 transition-opacity"
+                    >
+                      <img src={targetUser.avatar} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span 
+                          onClick={(e) => {
+                            if (e.altKey) {
+                              handlePostCardClickWithAlt(e, targetUser.name, 'name');
+                            } else {
+                              setSelectedUserData(targetUser);
+                              setActiveTab('profile');
+                            }
+                          }} 
+                          className="text-[13.5px] font-bold text-[#2a5885] hover:underline cursor-pointer font-sans"
+                        >
+                          {targetUser.name}
+                        </span>
+                        {targetUser.isVerified && <VerifiedBadge size={14} />}
+                        {targetUser.isBlocked && <span className="text-[10px] bg-red-100 text-red-700 px-1 py-0.2 rounded font-semibold ml-1">Заблокирован</span>}
+                      </div>
+                      
+                       {/* Registration info */}
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-vk-text-secondary flex-wrap">
+                        <span>Зарегистрирован: {targetUser.regDate}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Complaint rating & risk badge */}
+                  <div className={`text-[10.5px] font-bold uppercase px-2 py-0.5 rounded-[2px] font-mono ${
+                    item.rating.includes('Высокий') ? 'bg-red-50 text-[#e64646] border border-red-200' : 'bg-yellow-50 text-[#a8740c] border border-yellow-200'
+                  }`}>
+                    {item.rating}
+                  </div>
+                </div>
+
+                {/* 2. Main Extract (Основная выжимка): type of complaint, reason and content with some user-status */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-[12.5px]">
+                  <div className="md:col-span-2 space-y-2 text-left">
+                    <div className="flex items-center gap-1.5 font-semibold text-vk-text">
+                      <ShieldAlert size={15} className="text-vk-text-secondary" />
+                      <span>Суть нарушения: <span className="text-[#e64646]">{item.type}</span></span>
+                    </div>
+                    <div className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] leading-relaxed italic text-vk-text shrink-0 text-left">
+                      «{item.content}»
+                    </div>
+                    
+                    {/* Page specific details / Profile status bar */}
+                    <div className="text-[11.5px] text-vk-text-secondary flex gap-2 pt-1">
+                      <span className="font-semibold text-vk-text">Статус на странице:</span>
+                      <span 
+                        onClick={(e) => handlePostCardClickWithAlt(e, targetUser.status || '', 'status')}
+                        className="italic cursor-pointer hover:underline text-[#2a5885] font-medium"
+                      >
+                        "{targetUser.status || 'Статус отсутствует'}"
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 3. Administrator Info (Информация администратора) Box */}
+                  <div className="bg-[#f2f5f9] border border-[#d3dfef] p-3 rounded-[4px] space-y-2 text-[12.5px] text-vk-text text-left">
+                    <h4 className="text-[11px] font-bold text-[#2a5885] uppercase tracking-wider font-sans">Информация Администратора:</h4>
+                    <div className="space-y-1 text-[11.5px] text-vk-text-secondary font-mono">
+                      <div><span className="font-medium text-vk-text font-sans">Жалоб на юзера:</span> {targetUser.spamCount || 1}</div>
+                      <div><span className="font-medium text-vk-text font-sans">Проверки IP:</span> <span className="text-green-700 font-semibold">Чисто (0 совп)</span></div>
+                      <div><span className="font-medium text-vk-text font-sans">История мер:</span> <span className="text-[#a8740c]">Нет блокировок</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Action buttons: Block (opens modal) and Skip (marks as skipped/ignored) */}
+                <div className="flex gap-2 justify-end pt-2 border-t border-vk-separator/50">
+                  <button 
+                    onClick={() => {
+                      // Skip action: hide from queue
+                      setPageComplaints(prev => prev.filter(c => c.id !== item.id));
+                      setProcessedCount(count => count + 1);
+                      addNotification('Жалоба пропущена', 'Данная жалоба скрыта из очереди модерации');
+                    }}
+                    className="px-4 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-[12px] font-medium transition-colors"
+                  >
+                    Пропустить
+                  </button>
+                  <button 
+                    onClick={() => {
+                      // Block action: load target user & open block modal
+                      setSelectedUserData(targetUser);
+                      setIsProfileBlockModalOpen(true);
+                      // Auto ignore/resolve this complaint upon blocking as well
+                      setPageComplaints(prev => prev.filter(c => c.id !== item.id));
+                    }}
+                    className="px-4 py-1.5 bg-[#faeaea] hover:bg-[#f6d5d5] text-[#e64646] rounded-[2px] text-[12px] font-medium transition-colors"
+                  >
+                    Заблокировать
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {pageComplaints.length === 0 && (
+            <div className="bg-vk-white p-20 rounded-[4px] border border-vk-separator text-center flex flex-col items-center gap-4">
+              <ShieldAlert size={48} className="text-[#dce1e6]" />
+              <p className="text-vk-text-secondary text-[12.5px] font-medium">Очередь модерации страниц пуста!</p>
+              <p className="text-vk-text-secondary text-[11px]">Все отправленные жалобы успешно обработаны и проверены.</p>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderUserInfo = (user: AppUser) => {
+    const userTickets = tickets.filter(t => t.userId === user.id);
+    const userComplaints = complaints.filter(c => c.userId === user.id || c.userName === user.name);
+    const blockingLogs = moderatorHistory.filter(h => h.targetId === user.id);
+    const markupLogs = moderatorHistory.filter(h => h.targetId === user.id);
+    const userAppeals = appeals.filter(a => a.userId === user.id);
+
+    const handleSaveEdit = () => {
+      const newFullName = `${editFirstName} ${editLastName}`.trim();
+      setUsers(prev => prev.map(u => {
+        if (u.id === user.id) {
+          const nameHistory = u.nameHistory || [];
+          const updatedHistory = u.name !== newFullName ? [...nameHistory, u.name] : nameHistory;
+          const updatedUser = {
+            ...u,
+            name: newFullName,
+            status: editStatus,
+            login: editLogin,
+            nameHistory: updatedHistory
+          };
+          if (currentUser && currentUser.id === user.id) {
+            setCurrentUser(updatedUser);
+          }
+          if (selectedUserData && selectedUserData.id === user.id) {
+            setSelectedUserData(updatedUser);
+          }
+          return updatedUser;
+        }
+        return u;
+      }));
+      setIsEditingInfo(false);
+      addNotification('Успех', 'Профиль обновлен');
+    };
+
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between">
+          <button 
+            onClick={() => setInfoUser(null)}
+            className="flex items-center gap-2 text-[13px] font-medium text-[#2d547a] hover:underline"
+          >
+            <ChevronLeft size={16} /> Назад к списку пользователей
+          </button>
+          <div className="text-[12px] text-vk-text-secondary">Просмотр профиля</div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+          <div className="md:col-span-4 bg-vk-white p-4 rounded-[2px] border border-vk-separator flex flex-col items-center gap-4">
+            <div className="w-full aspect-square relative rounded-full border border-vk-separator overflow-hidden bg-[#fafbfc] flex items-center justify-center">
+              <UserAvatar user={user} avatarUrl={user.avatar} className="w-full h-full" forceGrayscale={user.isDeleted} />
+              {user.isVerified && (
+                <span className="absolute top-2 right-2 bg-white/90 p-1 rounded-full shadow-sm text-[#5181b8]">
+                  <BadgeCheck size={20} />
+                </span>
+              )}
+            </div>
+
+            <div className="w-full space-y-2">
+              <button 
+                onClick={() => {
+                  if (isEditingInfo) {
+                    handleSaveEdit();
+                  } else {
+                    const [first, ...lastParts] = user.name.split(' ');
+                    setEditFirstName(first);
+                    setEditLastName(lastParts.join(' '));
+                    setEditStatus(user.status || '');
+                    setEditLogin(user.login || '');
+                    setEditPassword('');
+                    setIsEditingInfo(true);
+                  }
+                }}
+                className="w-full py-1.5 px-3 bg-[#5181b8] hover:bg-[#5b88bd] text-white text-[12.5px] font-medium rounded-[4px] transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                {isEditingInfo ? 'Сохранить изменения' : 'Редактировать'}
+              </button>
+
+              {isEditingInfo && (
+                <button 
+                  onClick={() => setIsEditingInfo(false)}
+                  className="w-full py-1.5 px-3 bg-[#f0f2f5] hover:bg-[#e4e6e9] text-vk-text text-[12.5px] font-medium rounded-[4px] transition-colors cursor-pointer"
+                >
+                  Отмена редактирования
+                </button>
+              )}
+
+              <button 
+                onClick={() => {
+                  setAvatarSelectionUser(user);
+                }}
+                className="w-full py-1.5 px-3 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] text-[12px] font-semibold rounded-[4px] transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                Задать аватарку
+              </button>
+
+              {isAdminMode && (
+                <div className="w-full flex items-center justify-between gap-3 p-3 bg-[#f7f9fc] border border-[#dce1e6] rounded-[4px]">
+                  <span className="text-[12px] font-medium text-vk-text leading-tight text-left">
+                    Сделать профиль служебным
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!user.isServiceProfile}
+                    onClick={() => handleToggleServiceProfile(user)}
+                    className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
+                      user.isServiceProfile ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                        user.isServiceProfile ? 'translate-x-5' : ''
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
+
+              {isAdminMode && user.isServiceProfile && (
+                <div className="w-full space-y-2 p-3 bg-[#f7f9fc] border border-[#dce1e6] rounded-[4px]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[12px] font-medium text-vk-text leading-tight text-left">
+                      Показывать кнопку «Написать сообщение»
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!user.showServiceMessageButton}
+                      onClick={() => handleToggleServiceMessageButton(user)}
+                      className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
+                        user.showServiceMessageButton ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                          user.showServiceMessageButton ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {user.showServiceMessageButton && (
+                    <div className="pt-2 border-t border-[#e7e8ec] space-y-1">
+                      <label className="text-[11px] font-bold text-vk-text-secondary uppercase">
+                        Категория в поддержке
+                      </label>
+                      <select
+                        value={user.serviceSupportCategory || 'Поддержка'}
+                        onChange={(e) => handleUpdateServiceSupportCategory(user, e.target.value)}
+                        className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-2.5 py-1.5 text-[12px] focus:outline-none focus:border-[#5181b8]"
+                      >
+                        {supportCategories.map(cat => (
+                          <option key={cat.id} value={cat.name}>
+                            {cat.name}
+                          </option>
+                        ))}
+                        <option value="Поддержка">Поддержка</option>
+                      </select>
+                      <p className="text-[10.5px] text-[#818c99] leading-snug">
+                        Переписка открывается в чате и автоматически создаёт тикет в поддержке.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button 
+                onClick={() => {
+                  const isCurrentActive = currentUser?.id === user.id;
+                  
+                  // Clear login
+                  setUsers(prev => prev.map(u => {
+                    if (u.id === user.id) {
+                      return { ...u, login: '' };
+                    }
+                    return u;
+                  }));
+                  
+                  // Update selectedUserData and infoUser if currently viewed
+                  setSelectedUserData(prev => prev && prev.id === user.id ? { ...prev, login: '' } : prev);
+                  setInfoUser(prev => prev && prev.id === user.id ? { ...prev, login: '' } : prev);
+                  
+                  addNotification('Доступ аннулирован', `Данные входа пользователя ${user.name} успешно стерты.`);
+                  
+                  if (isCurrentActive) {
+                    addNotification('Сессия завершена', 'Вы отозвали собственный доступ. Выход из системы...');
+                    setTimeout(() => {
+                      setIsRegistered(false);
+                      setCurrentUser(null);
+                      setIsAdminMode(false);
+                      setIsUserMenuOpen(false);
+                    }, 1000);
+                  }
+                }}
+                className="w-full py-1.5 px-3 bg-[#faeaea] hover:bg-[#f6d5d5] text-[#e64646] text-[12px] font-semibold rounded-[4px] transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                Забрать доступ
+              </button>
+            </div>
+          </div>
+
+          <div className="md:col-span-8 flex flex-col gap-5">
+            <div className="bg-vk-white p-5 rounded-[2px] border border-vk-separator relative">
+              <div className="flex justify-between items-start border-b pb-4 mb-4">
+                <div>
+                  <h2 className="text-[19px] font-medium text-vk-text flex items-center gap-1.5 leading-tight">
+                    <span 
+                      onClick={() => {
+                        setSelectedUserData(user);
+                        setActiveTab('profile');
+                      }}
+                      className="text-[#2a5885] hover:underline cursor-pointer"
+                    >
+                      {user.name}
+                    </span>
+                    {user.isVerified && <VerifiedBadge size={14} />}
+                    {user.isBlocked && <span className="bg-red-100 text-[#e64646] text-[9px] uppercase font-bold px-1 py-0.5 rounded-[2px] tracking-wider shrink-0">Заблокирован</span>}
+                    {user.isSpamBadge && <span className="bg-red-50 text-red-600 border border-red-100 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] shrink-0">SPAM</span>}
+                  </h2>
+                  <p className="text-[12px] text-vk-text-secondary mt-1 italic">
+                    «{user.status || 'Статус не указан'}»
+                  </p>
+                </div>
+
+                {/* Убрана кнопка "Редактировать" из правого угла */}
+              </div>
+
+              {isEditingInfo && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#f9f9fb] p-4 rounded-[4px] border border-vk-separator mb-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Имя пользователя</label>
+                    <input 
+                      type="text" 
+                      value={editFirstName} 
+                      onChange={(e) => setEditFirstName(e.target.value)} 
+                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]" 
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Фамилия пользователя</label>
+                    <input 
+                      type="text" 
+                      value={editLastName} 
+                      onChange={(e) => setEditLastName(e.target.value)} 
+                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]" 
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Статус (Текст в профиле)</label>
+                    <input 
+                      type="text" 
+                      value={editStatus} 
+                      onChange={(e) => setEditStatus(e.target.value)} 
+                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]" 
+                      placeholder="Например, Модератор спама..."
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Логин</label>
+                    <input 
+                      type="text" 
+                      value={editLogin} 
+                      onChange={(e) => setEditLogin(e.target.value)} 
+                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]" 
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Пароль</label>
+                    <input 
+                      type="text" 
+                      value={editPassword} 
+                      onChange={(e) => setEditPassword(e.target.value)} 
+                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]" 
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    {/* Employee-only User Analytics Block */}
+                    {(isAdminMode || currentUser?.isEmployee || isWorker(currentUser)) && user && (
+                      <div className="mt-2 pt-4 border-t border-vk-separator space-y-4 text-left bg-slate-50 p-4 rounded-[4px] border border-vk-separator/50">
+                        <h3 className="text-xs font-bold text-[#2a5885] uppercase tracking-wide flex items-center gap-1 leading-none select-none">
+                          🛠️ Панель аналитики сотрудника (Служебная)
+                        </h3>
+                        
+                        {/* Block 1: Тематический профиль пользователя */}
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-vk-text-secondary uppercase">Тематический профиль:</div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px]">
+                            {TopicScoreService.calculateUserProfileScore(user, feedPosts, allTopics).slice(0, 5).map((pt, idx) => (
+                              <button
+                                key={`${pt.topic}-${idx}`}
+                                type="button"
+                                onClick={() => {
+                                  setActiveUserExpandedTopic(pt.topic === activeUserExpandedTopic ? null : pt.topic);
+                                }}
+                                className={`p-1 px-2 text-[11px] rounded border font-semibold select-none cursor-pointer transition-colors ${
+                                  activeUserExpandedTopic === pt.topic
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                                    : 'bg-white hover:bg-slate-100 border-vk-separator text-vk-text'
+                                }`}
+                                title="Нажмите, чтобы увидеть источники интереса"
+                              >
+                                {pt.topic} <span className="text-[#2066a3] font-bold ml-0.5">{pt.score}%</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Block 1b: Explanation popover */}
+                          {activeUserExpandedTopic && (
+                            <div className="bg-indigo-50/60 p-3 rounded border border-indigo-100 text-[11.5px] text-[#2c2d2e] space-y-1 relative">
+                              <div className="flex items-center justify-between font-bold text-indigo-800 mb-1">
+                                <span>💡 Источники интереса к теме «{activeUserExpandedTopic}»</span>
+                                <button type="button" onClick={() => setActiveUserExpandedTopic(null)} className="text-[10px] hover:underline font-normal text-indigo-600">скрыть</button>
+                              </div>
+                              <div className="space-y-0.5 leading-tight">
+                                {TopicScoreService.calculateInterestExplanation(user, activeUserExpandedTopic).map((reason, i) => (
+                                  <p key={i}>• {reason}</p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Block 2: Поведенческий профиль */}
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-vk-text-secondary uppercase">Поведенческий профиль:</div>
+                          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                            {TopicScoreService.calculateBehaviorProfile(user, feedPosts).map(bp => (
+                              <div key={bp.label} className="bg-white border border-vk-separator p-1.5 px-2 rounded-[2px] leading-tight" title={bp.desc}>
+                                <span className="font-semibold text-[#2c2d2e]">{bp.label}:</span> <span className="font-bold text-[#4bb34b]">{bp.score}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Block 3: Риск-профиль */}
+                        {(() => {
+                          const rp = TopicScoreService.calculateRiskProfile(user);
+                          return (
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-bold text-vk-text-secondary uppercase">Риск-профиль:</div>
+                              <div className="bg-white border border-[#dce1e6] rounded-[4px] p-2.5 flex items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                  <p className="text-[12px] font-bold text-[#c71515] flex items-center gap-1 leading-none">
+                                    ⚠️ Угроза: <span className="font-extrabold">{rp.riskPercentage}%</span>
+                                  </p>
+                                  <p className="text-[10px] text-vk-text-secondary leading-tight">{rp.desc}</p>
+                                </div>
+                                <div className="grid grid-cols-3 text-center gap-1.5 text-[9px] font-bold uppercase shrink-0">
+                                  <div className="bg-slate-100 p-1 px-1.5 rounded-sm leading-tight">
+                                    <p className="text-[#818c99]">Нар:</p>
+                                    <p className="text-[11px] font-mono text-[#c71515] mt-0.5">{rp.violations}</p>
+                                  </div>
+                                  <div className="bg-slate-100 p-1 px-1.5 rounded-sm leading-tight">
+                                    <p className="text-[#818c99]">Жал:</p>
+                                    <p className="text-[11px] font-mono text-[#c71515] mt-0.5">{rp.complaints}</p>
+                                  </div>
+                                  <div className="bg-slate-100 p-1 px-1.5 rounded-sm leading-tight">
+                                    <p className="text-[#818c99]">Огр:</p>
+                                    <p className="text-[11px] font-mono text-[#c71515] mt-0.5">{rp.limitations}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="sm:col-span-2 flex justify-end gap-3 mt-2 border-t pt-3">
+                    <button 
+                      onClick={() => setIsEditingInfo(false)} 
+                      className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-vk-text rounded-[4px] text-[12px] font-medium"
+                    >
+                      Отменить
+                    </button>
+                    <button 
+                      onClick={handleSaveEdit} 
+                      className="px-5 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[4px] text-[12px] font-medium shadow-sm"
+                    >
+                      Сохранить изменения
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* VK Style Sub Tabs */}
+              <div className="flex border-b border-vk-separator my-4 overflow-x-auto no-scrollbar">
+                <button 
+                  onClick={() => setActiveInfoTab('support')}
+                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'support' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Вопросы в поддержку ({userTickets.length})
+                </button>
+                <button 
+                  onClick={() => setActiveInfoTab('complaints')}
+                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'complaints' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Жалобы ({userComplaints.length})
+                </button>
+                <button 
+                  onClick={() => setActiveInfoTab('blocks')}
+                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'blocks' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Блокировки ({blockingLogs.length})
+                </button>
+                <button 
+                  onClick={() => setActiveInfoTab('appeals')}
+                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'appeals' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Апелляции ({userAppeals.length})
+                </button>
+                <button 
+                  onClick={() => setActiveInfoTab('markups')}
+                  className={`py-2 px-1 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'markups' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Логи модератора ({markupLogs.length})
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div className="space-y-3 min-h-[150px]">
+                {activeInfoTab === 'support' && (
+                  <div className="space-y-2">
+                    {userTickets.map(t => (
+                      <div key={t.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                        <div className="flex justify-between font-medium text-vk-text mb-1">
+                          <span>Тикет #{t.id} - {t.title}</span>
+                          <span className={`text-[11px] px-1.5 py-0.5 rounded-sm font-bold ${t.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{t.status}</span>
+                        </div>
+                        <p className="text-vk-text-secondary">{t.description}</p>
+                      </div>
+                    ))}
+                    {userTickets.length === 0 && (
+                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Вопросов в поддержку не найдено.</p>
+                    )}
+                  </div>
+                )}
+
+                {activeInfoTab === 'complaints' && (
+                  <div className="space-y-2">
+                    {userComplaints.map(c => (
+                      <div key={c.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                        <div className="flex justify-between font-medium text-vk-text mb-1">
+                          <span>Жалоба от {c.userName}</span>
+                          <span className="text-[#e64646] font-mono pr-1">{c.rating}</span>
+                        </div>
+                        <p className="text-vk-text-secondary">«{c.content}»</p>
+                        <p className="text-[11px] text-[#2a5885] mt-1">{c.type}</p>
+                      </div>
+                    ))}
+                    {userComplaints.length === 0 && (
+                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Жалоб на пользователя не найдено.</p>
+                    )}
+                  </div>
+                )}
+
+                {activeInfoTab === 'blocks' && (
+                  <div className="space-y-2">
+                    {blockingLogs.map(l => (
+                      <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                        <div className="flex justify-between font-medium text-vk-text mb-1">
+                          <span>{l.action}</span>
+                          <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                        </div>
+                        <p className="text-vk-text-secondary">{l.message}</p>
+                      </div>
+                    ))}
+                    {blockingLogs.length === 0 && (
+                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Записей о блокировках не найдено.</p>
+                    )}
+                  </div>
+                )}
+
+                {activeInfoTab === 'markups' && (
+                  <div className="space-y-2">
+                    {markupLogs.map(l => (
+                      <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                        <div className="flex justify-between font-medium text-vk-text mb-1">
+                          <span>{l.action}</span>
+                          <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                        </div>
+                        <p className="text-vk-text-secondary">{l.message}</p>
+                      </div>
+                    ))}
+                    {markupLogs.length === 0 && (
+                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Логи модератора пусты.</p>
+                    )}
+                  </div>
+                )}
+
+                {activeInfoTab === 'appeals' && (
+                  <div className="space-y-2">
+                    {userAppeals.map(a => (
+                      <div key={a.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px] space-y-1.5 text-left">
+                        <div className="flex justify-between font-medium text-vk-text mb-1">
+                          <span className="font-semibold text-vk-text">Заявка #{a.id} • {a.date}</span>
+                          <span className={`text-[10.5px] font-bold ${a.status === 'pending' ? 'text-amber-600' : a.status === 'approved' ? 'text-[#4bb34b]' : 'text-[#a63232]'}`}>
+                            {a.status === 'pending' ? 'На проверке' : a.status === 'approved' ? 'Одобрена' : 'Отклонена'}
+                          </span>
+                        </div>
+                        <p className="italic text-[#555] bg-white p-2 rounded border border-vk-separator">«{a.text}»</p>
+                        <div className="text-[11px] text-[#656565] grid grid-cols-1 sm:grid-cols-3 gap-1 pt-1">
+                          <div><span className="text-vk-text-secondary">Инициатор бана:</span> <span className="font-medium text-vk-text">{a.blockedBy}</span></div>
+                          <div><span className="text-vk-text-secondary">Причина:</span> <span className="font-medium text-vk-text">{a.reason}</span></div>
+                          <div><span className="text-vk-text-secondary">Срок:</span> <span className="font-medium text-vk-text">{a.duration}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                    {userAppeals.length === 0 && (
+                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Апелляций от этого пользователя не поступало.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSpamSearch = () => {
+    interface SpamSearchResultItem {
+      id: string;
+      type: 'post' | 'status' | 'name';
+      authorName: string;
+      authorAvatar: string;
+      text: string;
+      timestamp: string;
+      customData: any;
+    }
+
+    // 1. Filter patterns (similar spam clusters) on the right column
+    const filteredClusters = detectSimilarSpam.filter(cluster => {
+      return cluster.count >= minSpamCopies;
+    });
+
+    // 2. Filter publications based on appliedSearchQuery and filter scopes
+    const matchedResults: SpamSearchResultItem[] = [];
+
+    if (spamSearchAppliedQuery) {
+      const queryLower = spamSearchAppliedQuery.toLowerCase().trim();
+      
+      // Post search matching
+      if (spamSearchFilterPost) {
+        feedPosts.forEach(post => {
+          if ((post.text || '').toLowerCase().includes(queryLower)) {
+            matchedResults.push({
+              id: `post-${post.id}`,
+              type: 'post',
+              authorName: post.authorName,
+              authorAvatar: post.authorAvatar || 'images.png',
+              text: post.text || '',
+              timestamp: post.timestamp || 'Только что',
+              customData: post
+            });
+          }
+        });
+      }
+
+      // Status search matching
+      if (spamSearchFilterStatus) {
+        users.forEach(user => {
+          if (user.status && user.status.toLowerCase().includes(queryLower)) {
+            matchedResults.push({
+              id: `status-${user.id}`,
+              type: 'status',
+              authorName: user.name,
+              authorAvatar: user.avatar || 'images.png',
+              text: user.status,
+              timestamp: `Установлен: ${user.regDate || 'Недавно'}`,
+              customData: user
+            });
+          }
+        });
+      }
+
+      // Name search matching
+      if (spamSearchFilterName) {
+        users.forEach(user => {
+          if (user.name && user.name.toLowerCase().includes(queryLower)) {
+            matchedResults.push({
+              id: `name-${user.id}`,
+              type: 'name',
+              authorName: user.name,
+              authorAvatar: user.avatar || 'images.png',
+              text: `Имя в профиле: ${user.name}`,
+              timestamp: `Регистрация: ${user.regDate || 'Недавно'}`,
+              customData: user
+            });
+          }
+        });
+      }
+    }
+
+    const handleAddResultToAutoSpam = (text: string) => {
+      if (!text) return;
+      const alreadyExists = spamDecisions.some(d => d.postText === text);
+      if (alreadyExists) {
+        addNotification('Уже записано', 'Этот текст уже находится в сигнатурах авто-спама');
+        return;
+      }
+
+      const newDecision: SpamDecision = {
+        id: `sd-auto-${Date.now()}`,
+        postText: text,
+        authorName: 'Массовый спамер',
+        moderatorName: currentUser?.name || 'Оператор',
+        timestamp: 'Только что',
+        source: 'Анализатор схожести'
+      };
+
+      setSpamDecisions(prev => [newDecision, ...prev]);
+      addNotification('Экземпляр сохранен', 'Шаблон текста успешно внесен в сигнатуры авто-блокировщика');
+    };
+
+    const handleResultDelete = (item: SpamSearchResultItem) => {
+      if (item.type === 'post') {
+        setFeedPosts(prev => prev.filter(p => p.id !== item.customData.id));
+        addNotification('Удалено', 'Публикация успешно удалена.');
+      } else if (item.type === 'status') {
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, status: '' };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Статус удален', 'Статус пользователя очищен.');
+      } else if (item.type === 'name') {
+        const defaultName = `Пользователь #${item.customData.id}`;
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, name: defaultName };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Имя сброшено', 'Имя пользователя сброшено по умолчанию.');
+      }
+      setSelectedSpamPostIds(prev => prev.filter(id => id !== item.id));
+    };
+
+    const handleResultDeleteAndExemplar = (item: SpamSearchResultItem) => {
+      // Add text to exemplars
+      const textToSave = item.type === 'name' ? item.authorName : item.text;
+      handleAddResultToAutoSpam(textToSave);
+
+      // Perform deletion
+      if (item.type === 'post') {
+        setFeedPosts(prev => prev.filter(p => p.id !== item.customData.id));
+        addNotification('Выполнено', 'Пост удален и внесен в список экземпляров.');
+      } else if (item.type === 'status') {
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, status: '' };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', 'Статус очищен и внесен в список экземпляров.');
+      } else if (item.type === 'name') {
+        const defaultName = `Пользователь #${item.customData.id}`;
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, name: defaultName };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', 'Имя сброшено и внесено в список экземпляров.');
+      }
+      setSelectedSpamPostIds(prev => prev.filter(id => id !== item.id));
+    };
+
+    const handleResultDeleteBanAndExemplar = (item: SpamSearchResultItem) => {
+      // Add text to exemplars
+      const textToSave = item.type === 'name' ? item.authorName : item.text;
+      handleAddResultToAutoSpam(textToSave);
+
+      // Ban author
+      setUsers(prev => prev.map(u => {
+        if (u.name === item.authorName) {
+          const updated = { ...u, isBlocked: true, spamCount: (u.spamCount || 0) + 1, isSpamBadge: true };
+          if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+          if (currentUser?.id === u.id) setCurrentUser(updated);
+          return updated;
+        }
+        return u;
+      }));
+
+      // record moderation action log
+      const logEntry: ModeratorAction = {
+        id: `log-spam-ban-${Date.now()}-${item.id}`,
+        type: 'moderation',
+        action: `Бан за спам: ${item.authorName}`,
+        message: `Заблокирован за публикацию/установку спама: "${item.text.slice(0, 60)}..."`,
+        operatorName: currentUser?.name || 'Система',
+        operatorId: currentUser?.id || 'admin',
+        timestamp: new Date(),
+        targetId: item.customData?.id || '',
+        targetName: item.authorName
+      };
+      setModeratorHistory(prev => [logEntry, ...prev]);
+
+      // Perform deletion
+      if (item.type === 'post') {
+        setFeedPosts(prev => prev.filter(p => p.id !== item.customData.id));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, пост удален, шаблон внесен в базу.`);
+      } else if (item.type === 'status') {
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, status: '' };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, статус очищен, шаблон внесен в базу.`);
+      } else if (item.type === 'name') {
+        const defaultName = `Пользователь #${item.customData.id}`;
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, name: defaultName };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, имя сброшено, шаблон внесен в базу.`);
+      }
+      setSelectedSpamPostIds(prev => prev.filter(id => id !== item.id));
+    };
+
+    // Bulk actions
+    const handleResultCopyToSpamDecisions = (item: SpamSearchResultItem) => {
+      const textToSave = item.type === 'name' ? item.authorName : item.text;
+      handleAddResultToAutoSpam(textToSave);
+      setSelectedSpamPostIds(prev => prev.filter(id => id !== item.id));
+    };
+
+    const handleResultBanAndDelete = (item: SpamSearchResultItem) => {
+      // Ban author
+      setUsers(prev => prev.map(u => {
+        if (u.name === item.authorName) {
+          const updated = { ...u, isBlocked: true, spamCount: (u.spamCount || 0) + 1, isSpamBadge: true };
+          if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+          if (currentUser?.id === u.id) setCurrentUser(updated);
+          return updated;
+        }
+        return u;
+      }));
+
+      // record action log
+      const logEntry: ModeratorAction = {
+        id: `log-spam-ban-${Date.now()}-${item.id}`,
+        type: 'moderation',
+        action: `Бан за спам: ${item.authorName}`,
+        message: `Заблокирован за публикацию/установку спама: "${item.text.slice(0, 60)}..."`,
+        operatorName: currentUser?.name || 'Система',
+        operatorId: currentUser?.id || 'admin',
+        timestamp: new Date(),
+        targetId: item.customData?.id || '',
+        targetName: item.authorName
+      };
+      setModeratorHistory(prev => [logEntry, ...prev]);
+
+      // Perform deletion
+      if (item.type === 'post') {
+        setFeedPosts(prev => prev.filter(p => p.id !== item.customData.id));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, пост удален.`);
+      } else if (item.type === 'status') {
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, status: '' };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, статус очищен.`);
+      } else if (item.type === 'name') {
+        const defaultName = `Пользователь #${item.customData.id}`;
+        setUsers(prev => prev.map(u => {
+          if (u.id === item.customData.id) {
+            const updated = { ...u, name: defaultName };
+            if (selectedUserData?.id === u.id) setSelectedUserData(updated);
+            if (currentUser?.id === u.id) setCurrentUser(updated);
+            return updated;
+          }
+          return u;
+        }));
+        addNotification('Выполнено', `Автор ${item.authorName} заблокирован, имя сброшено.`);
+      }
+      setSelectedSpamPostIds(prev => prev.filter(id => id !== item.id));
+    };
+
+    const handleBulkCopyToSpamDecisions = () => {
+      const selectedItems = matchedResults.filter(r => selectedSpamPostIds.includes(r.id));
+      let addedCount = 0;
+      setSpamDecisions(prev => {
+        let next = [...prev];
+        selectedItems.forEach(item => {
+          const textToSave = item.type === 'name' ? item.authorName : item.text;
+          if (!textToSave) return;
+          const alreadyExists = next.some(d => d.postText === textToSave);
+          if (!alreadyExists) {
+            next.unshift({
+              id: `sd-auto-${Date.now()}-${item.customData.id || Math.random()}`,
+              postText: textToSave,
+              authorName: item.authorName,
+              moderatorName: currentUser?.name || 'Оператор',
+              timestamp: 'Только что',
+              source: 'Пакетный перенос'
+            });
+            addedCount++;
+          }
+        });
+        return next;
+      });
+      setSelectedSpamPostIds([]);
+      addNotification('Выполнено', `Добавлено ${addedCount} сигнатур в базы.`);
+    };
+
+    const handleBulkDeleteAndExemplar = () => {
+      const selectedItems = matchedResults.filter(r => selectedSpamPostIds.includes(r.id));
+      let addedCount = 0;
+      
+      setSpamDecisions(prev => {
+        let next = [...prev];
+        selectedItems.forEach(item => {
+          const textToSave = item.type === 'name' ? item.authorName : item.text;
+          if (!textToSave) return;
+          const alreadyExists = next.some(d => d.postText === textToSave);
+          if (!alreadyExists) {
+            next.unshift({
+              id: `sd-auto-${Date.now()}-${item.customData.id || Math.random()}`,
+              postText: textToSave,
+              authorName: item.authorName,
+              moderatorName: currentUser?.name || 'Оператор',
+              timestamp: 'Только что',
+              source: 'Пакетный перенос'
+            });
+            addedCount++;
+          }
+        });
+        return next;
+      });
+
+      // Perform deletion
+      const postIdsToRemove = selectedItems.filter(r => r.type === 'post').map(p => p.customData.id);
+      const userIdsToClearStatus = selectedItems.filter(r => r.type === 'status').map(p => p.customData.id);
+      const userIdsToResetName = selectedItems.filter(r => r.type === 'name').map(p => p.customData.id);
+
+      if (postIdsToRemove.length > 0) {
+        setFeedPosts(prev => prev.filter(p => !postIdsToRemove.includes(p.id)));
+      }
+      if (userIdsToClearStatus.length > 0 || userIdsToResetName.length > 0) {
+        setUsers(prev => prev.map(u => {
+          let updated = { ...u };
+          if (userIdsToClearStatus.includes(u.id)) {
+            updated.status = '';
+          }
+          if (userIdsToResetName.includes(u.id)) {
+            updated.name = `Пользователь #${u.id}`;
+          }
+          return updated;
+        }));
+      }
+
+      setSelectedSpamPostIds([]);
+      addNotification('Выполнено', `Элементов удалено: ${selectedItems.length}, сигнатур добавлено: ${addedCount}`);
+    };
+
+    const handleBulkDeleteBanAndExemplar = () => {
+      const selectedItems = matchedResults.filter(r => selectedSpamPostIds.includes(r.id));
+      let addedCount = 0;
+      
+      setSpamDecisions(prev => {
+        let next = [...prev];
+        selectedItems.forEach(item => {
+          const textToSave = item.type === 'name' ? item.authorName : item.text;
+          if (!textToSave) return;
+          const alreadyExists = next.some(d => d.postText === textToSave);
+          if (!alreadyExists) {
+            next.unshift({
+              id: `sd-auto-${Date.now()}-${item.customData.id || Math.random()}`,
+              postText: textToSave,
+              authorName: item.authorName,
+              moderatorName: currentUser?.name || 'Оператор',
+              timestamp: 'Только что',
+              source: 'Пакетный перенос'
+            });
+            addedCount++;
+          }
+        });
+        return next;
+      });
+
+      // Ban authors
+      const authorsToBan = Array.from(new Set(selectedItems.map(p => p.authorName)));
+      setUsers(prev => prev.map(u => {
+        if (authorsToBan.includes(u.name)) {
+          return {
+            ...u,
+            isBlocked: true,
+            isSpamBadge: true,
+            spamCount: (u.spamCount || 0) + 1
+          };
+        }
+        return u;
+      }));
+
+      authorsToBan.forEach(author => {
+        const targetUser = users.find(u => u.name === author);
+        if (targetUser) {
+          const logEntry: ModeratorAction = {
+            id: `log-bulk-ban-${Date.now()}-${author}`,
+            type: 'moderation',
+            action: `Пакетный бан за спам: ${author}`,
+            message: 'Заблокирован за участие в массовой рассылке спама и внесение данных в экземпляры.',
+            operatorName: currentUser?.name || 'Система',
+            operatorId: currentUser?.id || 'admin',
+            timestamp: new Date(),
+            targetId: targetUser.id,
+            targetName: targetUser.name
+          };
+          setModeratorHistory(prev => [logEntry, ...prev]);
+        }
+      });
+
+      // Perform deletion
+      const postIdsToRemove = selectedItems.filter(r => r.type === 'post').map(p => p.customData.id);
+      const userIdsToClearStatus = selectedItems.filter(r => r.type === 'status').map(p => p.customData.id);
+      const userIdsToResetName = selectedItems.filter(r => r.type === 'name').map(p => p.customData.id);
+
+      if (postIdsToRemove.length > 0) {
+        setFeedPosts(prev => prev.filter(p => !postIdsToRemove.includes(p.id)));
+      }
+      if (userIdsToClearStatus.length > 0 || userIdsToResetName.length > 0) {
+        setUsers(prev => prev.map(u => {
+          let updated = { ...u };
+          if (userIdsToClearStatus.includes(u.id)) {
+            updated.status = '';
+          }
+          if (userIdsToResetName.includes(u.id)) {
+            updated.name = `Пользователь #${u.id}`;
+          }
+          return updated;
+        }));
+      }
+
+      setSelectedSpamPostIds([]);
+      addNotification('Выполнено', `Пользователей заблокировано: ${authorsToBan.length}, элементов удалено: ${selectedItems.length}, сигнатур добавлено: ${addedCount}`);
+    };
+
+    const handleBulkBanAndDelete = () => {
+      const selectedItems = matchedResults.filter(r => selectedSpamPostIds.includes(r.id));
+      const authorsToBan = Array.from(new Set(selectedItems.map(p => p.authorName)));
+
+      setUsers(prev => prev.map(u => {
+        if (authorsToBan.includes(u.name)) {
+          return {
+            ...u,
+            isBlocked: true,
+            isSpamBadge: true,
+            spamCount: (u.spamCount || 0) + 1
+          };
+        }
+        return u;
+      }));
+
+      authorsToBan.forEach(author => {
+        const targetUser = users.find(u => u.name === author);
+        if (targetUser) {
+          const logEntry: ModeratorAction = {
+            id: `log-bulk-ban-${Date.now()}-${author}`,
+            type: 'moderation',
+            action: `Пакетный бан: ${author}`,
+            message: 'Заблокирован за участие в массовой рассылке спам-сообщений.',
+            operatorName: currentUser?.name || 'Система',
+            operatorId: currentUser?.id || 'admin',
+            timestamp: new Date(),
+            targetId: targetUser.id,
+            targetName: targetUser.name
+          };
+          setModeratorHistory(prev => [logEntry, ...prev]);
+        }
+      });
+
+      // Perform deletion
+      const postIdsToRemove = selectedItems.filter(r => r.type === 'post').map(p => p.customData.id);
+      const userIdsToClearStatus = selectedItems.filter(r => r.type === 'status').map(p => p.customData.id);
+      const userIdsToResetName = selectedItems.filter(r => r.type === 'name').map(p => p.customData.id);
+
+      if (postIdsToRemove.length > 0) {
+        setFeedPosts(prev => prev.filter(p => !postIdsToRemove.includes(p.id)));
+      }
+      if (userIdsToClearStatus.length > 0 || userIdsToResetName.length > 0) {
+        setUsers(prev => prev.map(u => {
+          let updated = { ...u };
+          if (userIdsToClearStatus.includes(u.id)) {
+            updated.status = '';
+          }
+          if (userIdsToResetName.includes(u.id)) {
+            updated.name = `Пользователь #${u.id}`;
+          }
+          return updated;
+        }));
+      }
+
+      setSelectedSpamPostIds([]);
+      addNotification('Выполнено', `Заблокировано нарушителей: ${authorsToBan.length}, элементов очищено: ${selectedItems.length}`);
+    };
+
+    const handleBulkDeleteOnly = () => {
+      const selectedItems = matchedResults.filter(r => selectedSpamPostIds.includes(r.id));
+      
+      const postIdsToRemove = selectedItems.filter(r => r.type === 'post').map(p => p.customData.id);
+      const userIdsToClearStatus = selectedItems.filter(r => r.type === 'status').map(p => p.customData.id);
+      const userIdsToResetName = selectedItems.filter(r => r.type === 'name').map(p => p.customData.id);
+
+      if (postIdsToRemove.length > 0) {
+        setFeedPosts(prev => prev.filter(p => !postIdsToRemove.includes(p.id)));
+      }
+      if (userIdsToClearStatus.length > 0 || userIdsToResetName.length > 0) {
+        setUsers(prev => prev.map(u => {
+          let updated = { ...u };
+          if (userIdsToClearStatus.includes(u.id)) {
+            updated.status = '';
+          }
+          if (userIdsToResetName.includes(u.id)) {
+            updated.name = `Пользователь #${u.id}`;
+          }
+          return updated;
+        }));
+      }
+
+      setSelectedSpamPostIds([]);
+      addNotification('Выполнено', 'Выбранные элементы удалены/сброшены.');
+    };
+
+    const toggleSelectPost = (postId: string) => {
+      setSelectedSpamPostIds(prev => 
+        prev.includes(postId) ? prev.filter(id => id !== postId) : [...prev, postId]
+      );
+    };
+
+    const handleSelectAllOnPage = () => {
+      const allPageIds = matchedResults.map(p => p.id);
+      const isAllSelected = allPageIds.every(id => selectedSpamPostIds.includes(id));
+      if (isAllSelected) {
+        setSelectedSpamPostIds(prev => prev.filter(id => !allPageIds.includes(id)));
+      } else {
+        setSelectedSpamPostIds(prev => Array.from(new Set([...prev, ...allPageIds])));
+      }
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left font-sans text-[13px] text-[#2c2d30]">
+        {/* Main Interface Layout grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          
+          {/* LEFT 2 COLS: Publications Search Engine */}
+          <div className="lg:col-span-2 space-y-4">
+            
+            {/* Search inputs bar */}
+            <div className="bg-white p-5 border border-[#dae1e8] rounded-[2px] space-y-4 shadow-[#0000000a] shadow-sm">
+              <div className="space-y-1">
+                <h3 className="text-[15px] font-semibold text-[#222222]">Поиск публикаций</h3>
+                <p className="text-[12px] text-[#818c99]">Поиск публикаций по ключевым фразам, именам или фрагменту текста для точечной блокировки.</p>
+              </div>
+
+              <div className="flex gap-2">
+                <div className="relative grow">
+                  <Search className="absolute left-3 top-2.5 text-[#818c99]" size={15} />
+                  <input 
+                    type="text" 
+                    placeholder="Введите фразу для поиска по всем постам сайта..." 
+                    className="bg-white hover:bg-[#fafafa] focus:bg-white text-[13px] h-9 pl-9 pr-8 rounded-[2px] w-full text-black border border-[#d3d9de] focus:border-[#5181b8] outline-none transition-all placeholder:text-[#818c99]"
+                    value={spamSearchQuery}
+                    onChange={(e) => setSpamSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setSpamSearchAppliedQuery(spamSearchQuery);
+                        setSelectedSpamPostIds([]);
+                      }
+                    }}
+                  />
+                  {spamSearchQuery && (
+                    <button 
+                      onClick={() => {
+                        setSpamSearchQuery('');
+                        setSpamSearchAppliedQuery('');
+                        setSelectedSpamPostIds([]);
+                      }} 
+                      className="absolute right-3 top-2.5 text-[#818c99] hover:text-black font-semibold text-[13px]"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <button 
+                  onClick={() => {
+                    setSpamSearchAppliedQuery(spamSearchQuery);
+                    setSelectedSpamPostIds([]);
+                  }}
+                  className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] px-5 rounded-[2px] text-[13px] font-medium transition-colors shadow-none cursor-pointer"
+                >
+                  Применить
+                </button>
+              </div>
+
+              {/* Filters Post, Status, Name row */}
+              <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-[#f0f2f5]">
+                <span className="text-[11px] text-[#818c99] font-bold uppercase tracking-wider">Искать в разделах:</span>
+                
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={spamSearchFilterPost} 
+                    onChange={(e) => setSpamSearchFilterPost(e.target.checked)} 
+                    className="w-4 h-4 rounded-[2px] border-[#d3d9de] text-[#5181b8] focus:ring-0 cursor-pointer"
+                  />
+                  <span className={`text-[12.5px] ${spamSearchFilterPost ? 'font-semibold text-[#2f5986]' : 'text-[#656565] hover:text-black transition-colors'}`}>Пост</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={spamSearchFilterStatus} 
+                    onChange={(e) => setSpamSearchFilterStatus(e.target.checked)} 
+                    className="w-4 h-4 rounded-[2px] border-[#d3d9de] text-[#5181b8] focus:ring-0 cursor-pointer"
+                  />
+                  <span className={`text-[12.5px] ${spamSearchFilterStatus ? 'font-semibold text-[#2f5986]' : 'text-[#656565] hover:text-black transition-colors'}`}>Статус</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={spamSearchFilterName} 
+                    onChange={(e) => setSpamSearchFilterName(e.target.checked)} 
+                    className="w-4 h-4 rounded-[2px] border-[#d3d9de] text-[#5181b8] focus:ring-0 cursor-pointer"
+                  />
+                  <span className={`text-[12.5px] ${spamSearchFilterName ? 'font-semibold text-[#2f5986]' : 'text-[#656565] hover:text-black transition-colors'}`}>Имя</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Mass actions bar - styled like a complaint card with VK blue buttons */}
+            {selectedSpamPostIds.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, y: -5 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                className="bg-vk-white border border-vk-separator p-3 rounded-[2px] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left shadow-sm"
+              >
+                <div className="text-[12px] text-[#2c2d30] font-sans">
+                  Выбрано элементов в сетке результатов: <span className="font-bold text-[#2a5885] font-mono bg-[#e5ebf1] px-1.5 py-0.5 rounded-[2px]">{selectedSpamPostIds.length}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button 
+                    onClick={handleBulkCopyToSpamDecisions}
+                    className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    В Экземпляр
+                  </button>
+                  <button 
+                    onClick={handleBulkDeleteAndExemplar}
+                    className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    Удалить и в экземпляры
+                  </button>
+                  <button 
+                    onClick={handleBulkDeleteBanAndExemplar}
+                    className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    Удалить, заблокировать и в экземпляры
+                  </button>
+                  <button 
+                    onClick={handleBulkBanAndDelete}
+                    className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    Заблокировать и удалить
+                  </button>
+                  <button 
+                    onClick={handleBulkDeleteOnly}
+                    className="bg-[#dae1e8] text-[#55677d] hover:bg-[#e2e8ef] active:bg-[#d5dde6] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Active filter display below controls */}
+            {spamSearchAppliedQuery && (
+              <motion.div 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                className="flex items-center justify-between text-xs bg-[#e5ebf1] text-[#2a5885] px-4 py-2.5 rounded-[2px] border border-vk-separator/40 font-medium"
+              >
+                <div className="flex items-center gap-2">
+                  <span>Активный фильтр:</span>
+                  <span>«{spamSearchAppliedQuery}»</span>
+                </div>
+                <button 
+                  onClick={() => { 
+                    setSpamSearchQuery(''); 
+                    setSpamSearchAppliedQuery(''); 
+                    setSelectedSpamPostIds([]);
+                  }} 
+                  className="hover:text-red-500 font-bold ml-1 text-[13px] cursor-pointer"
+                >
+                  ✕
+                </button>
+              </motion.div>
+            )}
+
+            {/* Publication List with counts */}
+            <div className="space-y-3">
+              {spamSearchAppliedQuery && (
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[12px] text-[#818c99] font-medium">
+                    Отображено на странице: {matchedResults.length} элементов
+                  </span>
+                  {matchedResults.length > 0 && (
+                    <button 
+                      onClick={handleSelectAllOnPage}
+                      className="text-[12px] text-[#2a5885] hover:underline font-medium cursor-pointer"
+                    >
+                      {matchedResults.every(p => selectedSpamPostIds.includes(p.id)) ? 'Снять выделение со всех' : 'Выбрать все элементы'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {!spamSearchAppliedQuery ? (
+                // Classic placeholder when no query is applied
+                <div className="bg-white p-12 text-center border border-[#dae1e8] rounded-[2px] shadow-[#00000005] shadow-sm flex flex-col items-center justify-center gap-3">
+                  <Search size={40} className="text-[#818c99]/40" />
+                  <p className="text-[#818c99] text-[13px] font-medium">Поиск по ключевым словам</p>
+                </div>
+              ) : matchedResults.length > 0 ? (
+                matchedResults.map((result) => {
+                  const isSelected = selectedSpamPostIds.includes(result.id);
+                  // check if the author is already blocked
+                  const authorUser = users.find(u => u.name === result.authorName);
+                  const isAuthorBlocked = authorUser?.isBlocked;
+
+                  return (
+                    <div 
+                      key={result.id} 
+                      onClick={(e) => handlePostCardClickWithAlt(e, result.text)}
+                      className={`bg-white border rounded-[2px] p-4 transition-all flex gap-3.5 ${isSelected ? 'border-[#5181b8] bg-[#f5f8fa]' : 'border-[#dae1e8] hover:border-[#b2c1d4]'}`}
+                    >
+                      {/* Checkbox placement */}
+                      <div className="pt-2 select-none shrink-0">
+                        <input 
+                          type="checkbox" 
+                          checked={isSelected}
+                          onChange={() => toggleSelectPost(result.id)}
+                          className="w-4 h-4 rounded-[2px] border-[#dae1e8] text-[#5181b8] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="grow space-y-3 text-left">
+                        {/* Author Header */}
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <img 
+                              src={result.authorAvatar || 'images.png'} 
+                              alt={result.authorName} 
+                              className="w-9 h-9 rounded-full object-cover border border-[#dae1e8] shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-[13px] text-[#2a5885] hover:underline cursor-pointer">
+                                  {result.authorName}
+                                </span>
+                                {isAuthorBlocked && (
+                                  <span className="bg-red-100 text-[#e64646] text-[8px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">
+                                    БАН
+                                  </span>
+                                )}
+                                {authorUser?.isSpamBadge && (
+                                  <span className="bg-[#faeaea] text-[#e64646] text-[8px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">
+                                    SPAM
+                                  </span>
+                                )}
+                                <span className="bg-[#f0f2f5] text-[#4a76a8] text-[8px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">
+                                  {result.type === 'post' ? 'Пост' : result.type === 'status' ? 'Статус' : 'Имя'}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-[#818c99]">{result.timestamp}</span>
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-mono text-[#aaaeab] bg-[#f5f6f8] px-1.5 py-0.5 rounded-[2px]">
+                            ID: {result.id}
+                          </span>
+                        </div>
+
+                        {/* Content text */}
+                        <div 
+                          className="text-[13px] text-[#2c2d30] leading-relaxed break-words whitespace-pre-wrap font-sans bg-[#f7f8fa] p-3 rounded-[2px] border-l border-[#d3d9de]"
+                        >
+                          {result.text}
+                        </div>
+
+                        {/* Interactive footer actions as simple VK button bar */}
+                        <div className="border-t border-[#f0f2f5] pt-3.5 flex flex-wrap justify-between items-center gap-2">
+                          <div className="text-[11px] text-[#818c99]">
+                            {result.type === 'post' ? `Лайков: ${result.customData.likes || 0} • Комментариев: ${result.customData.comments?.length || 0}` : `Профиль ID: ${result.customData.id}`}
+                          </div>
+                          
+                          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                            <button 
+                              onClick={() => {
+                                handleResultCopyToSpamDecisions(result);
+                                addNotification('Экземпляр добавлен', 'Текст внесен в базу спам-экземпляров');
+                              }}
+                              className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11px] font-medium h-7 px-2.5 rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              В Экземпляр
+                            </button>
+                            <button 
+                              onClick={() => handleResultDeleteAndExemplar(result)}
+                              className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11px] font-medium h-7 px-2.5 rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              Удалить и в экземпляры
+                            </button>
+                            <button 
+                              onClick={() => handleResultDeleteBanAndExemplar(result)}
+                              className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11px] font-medium h-7 px-2.5 rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              Удалить, заблокировать и в экземпляры
+                            </button>
+                            <button 
+                              onClick={() => handleResultBanAndDelete(result)}
+                              className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11px] font-medium h-7 px-2.5 rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              Заблокировать и удалить
+                            </button>
+                            <button 
+                              onClick={() => handleResultDelete(result)}
+                              className="bg-[#dae1e8] text-[#55677d] hover:bg-[#e2e8ef] active:bg-[#d5dde6] text-[11px] font-medium h-7 px-2.5 rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="bg-white p-20 border border-[#dae1e8] rounded-[2px] text-center flex flex-col items-center justify-center gap-3">
+                  <Search size={40} className="text-[#c5c9d1]" />
+                  <p className="text-[#818c99] text-[13px] font-medium">Ничего не найдено</p>
+                  <p className="text-[#818c99] text-[11.5px] -mt-1">Попробуйте ввести другой поисковый запрос.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT COL: Patterns and Repetitive Floods */}
+          <div className="space-y-4">
+            
+            {/* Threshold configurations & input */}
+            <div className="bg-white border border-[#dae1e8] rounded-[2px] shadow-[#00000004] shadow-sm overflow-hidden text-left">
+              <div className="bg-[#f7f8fa] border-b border-[#dae1e8] px-4 py-3 text-[12px] font-bold text-[#202020] uppercase tracking-wide">
+                Настройки фильтра
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-[12px] text-[#2c2d30] font-medium">Порог повторов:</label>
+                  <input 
+                    type="number" 
+                    min={2} 
+                    max={100}
+                    value={minSpamCopies}
+                    onChange={(e) => setMinSpamCopies(Math.max(2, parseInt(e.target.value) || 2))}
+                    className="w-16 h-8 text-[12px] text-center border border-[#d3d9de] rounded-[2px] font-mono focus:border-[#5181b8] outline-none"
+                  />
+                </div>
+                
+                <div className="flex items-center gap-3 pt-1">
+                  <input 
+                    type="range" 
+                    min={2} 
+                    max={60}
+                    value={minSpamCopies}
+                    onChange={(e) => setMinSpamCopies(parseInt(e.target.value) || 2)}
+                    className="grow h-1 bg-[#e5ebf1] rounded appearance-none cursor-pointer accent-[#5181b8]"
+                  />
+                </div>
+                <p className="text-[11px] text-[#818c99] leading-tight pt-1">
+                  Группировка дубликатов постов со схожим текстом на всей платформе.
+                </p>
+              </div>
+            </div>
+
+            {/* Injected template panel */}
+            <div className="bg-white border border-[#dae1e8] rounded-[2px] shadow-[#00000004] shadow-sm overflow-hidden text-left">
+              <div className="bg-[#f7f8fa] border-b border-[#dae1e8] px-4 py-3 text-[12px] font-bold text-[#202020] uppercase tracking-wide">
+                Паттерны и повторяющиеся посты
+              </div>
+              
+              <div className="p-3 space-y-3 max-h-[460px] overflow-y-auto">
+                {filteredClusters.map((cluster) => {
+                  return (
+                    <div 
+                      key={cluster.key} 
+                      className="p-3 bg-[#fdfdfd] border border-[#e7e8ec] rounded-[2px] space-y-2 hover:border-[#b2c1d4] transition-colors"
+                    >
+                      <div className="flex justify-between items-start gap-1">
+                        <span className="text-[11px] font-semibold text-[#e64646] bg-[#faeaea] px-2 py-0.5 rounded-[2px] shrink-0 font-mono">
+                          Повторов: {cluster.count}
+                        </span>
+                        <button 
+                          onClick={() => {
+                            setSpamSearchQuery(cluster.text);
+                            setSpamSearchAppliedQuery(cluster.text);
+                            setSelectedSpamPostIds([]);
+                          }}
+                          className="text-[11px] text-[#2a5885] hover:underline font-medium text-right shrink-0 cursor-pointer"
+                        >
+                          Искать клоны →
+                        </button>
+                      </div>
+
+                      <div className="text-[12px] text-[#2c2d30] font-sans italic line-clamp-3 break-words bg-white p-2 border border-[#f0f2f5] rounded-[2px]">
+                        «{cluster.text}»
+                      </div>
+
+                      <div className="flex justify-between items-center text-[10.5px] text-[#818c99]">
+                        <span>Авторов: {cluster.authors.length}</span>
+                        <button 
+                          onClick={() => handleAddResultToAutoSpam(cluster.text)}
+                          className="text-[#2a5885] hover:underline cursor-pointer font-medium"
+                        >
+                          В сигнатуры
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredClusters.length === 0 && (
+                  <div className="text-center py-8 text-[12px] text-[#818c99] italic">
+                    Дубликатов постов не найдено
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderSpamTriggers = () => {
+    // Collect triggered posts that contain/match any of our spam decisions (exemplars)
+    const triggeredPosts = feedPosts.filter(post => {
+      if (!post.text) return false;
+      if (ignoredTriggerPostIds.includes(post.id)) return false;
+
+      const txt = post.text.toLowerCase().trim();
+      return spamDecisions.some(decision => {
+        const exemplarTxt = decision.postText.toLowerCase().trim();
+        if (!exemplarTxt) return false;
+        // Check for substring Match: e.g., exemplar "Чмо" matches post "Чмошник"
+        return txt.includes(exemplarTxt) || exemplarTxt.includes(txt);
+      });
+    });
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 font-sans text-left text-[13px] text-[#2c2d30]">
+        <div className="bg-white p-5 border border-[#e7e8ec] rounded-[2px] flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#faeaea] flex items-center justify-center text-[#e64646]">
+              <ShieldAlert size={20} />
+            </div>
+            <div>
+              <h2 className="text-[17px] font-medium text-black">Срабатывания авто-фильтра</h2>
+            </div>
+          </div>
+          <div className="text-[#818c99] text-[12px] font-semibold bg-[#f0f2f5] px-3 py-1.5 rounded-[4px]">
+            Всего: {triggeredPosts.length}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {triggeredPosts.length === 0 ? (
+            <div className="md:col-span-2 bg-white p-20 border border-[#dae1e8] rounded-[2px] text-center flex flex-col items-center justify-center gap-3">
+              <ShieldAlert size={40} className="text-[#818c99]/40" />
+              <p className="text-[#818c99] text-[13px] font-medium">Срабатываний спам-фильтра не обнаружено</p>
+              <p className="text-[#818c99] text-[11.5px] -mt-1">Пока нет постов, содержащих тексты из базы Экземпляров.</p>
+            </div>
+          ) : (
+            triggeredPosts.map((post) => {
+              // Find the specific exemplar keyword trigger
+              const matchedExemplar = spamDecisions.find(d => {
+                const exemplarTxt = d.postText.toLowerCase().trim();
+                const postTxt = (post.text || '').toLowerCase().trim();
+                return exemplarTxt && (postTxt.includes(exemplarTxt) || exemplarTxt.includes(postTxt));
+              });
+
+              return (
+                <div 
+                  key={post.id} 
+                  className="bg-white border border-[#dae1e8] rounded-[2px] p-4 transition-all hover:border-[#b2c1d4] flex flex-col justify-between gap-3.5 shadow-sm"
+                >
+                  <div className="space-y-3">
+                    {/* Author & Match Info */}
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <img 
+                          src={post.authorAvatar || 'images.png'} 
+                          alt={post.authorName} 
+                          className="w-9 h-9 rounded-full object-cover border border-[#dae1e8] shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <div className="font-semibold text-[13px] text-[#2a5885] hover:underline cursor-pointer">
+                            {post.authorName}
+                          </div>
+                          <div className="text-[11px] text-[#818c99]">{post.timestamp}</div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-vk-text-secondary font-mono bg-[#f5f6f8] px-1.5 py-0.5 rounded-[2px]">
+                        ID: {post.id}
+                      </span>
+                    </div>
+
+                    {/* Matched pattern badge */}
+                    {matchedExemplar && (
+                      <div className="text-[11px] bg-red-50 text-red-700 border border-red-100 px-2 py-1 rounded-[2px] flex items-center gap-1.5 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-600"></span>
+                        <span>Сработало на сигнатуру: <strong>«{matchedExemplar.postText}»</strong></span>
+                      </div>
+                    )}
+
+                    {/* Post Text snippet */}
+                    <div className="text-[13px] text-[#2c2d30] leading-relaxed break-words whitespace-pre-wrap font-sans bg-[#f7f8fa] p-3 rounded-[2px] border-l border-[#d3d9de]">
+                      {post.text}
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="border-t border-[#f0f2f5] pt-3.5 flex flex-wrap justify-between items-center gap-2">
+                    <div className="text-[11px] text-[#818c99]">
+                      Лайков: {post.likes}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button 
+                        onClick={() => {
+                          const newDecision: SpamDecision = {
+                            id: `sd-auto-${Date.now()}`,
+                            postText: post.text || '',
+                            authorName: post.authorName,
+                            moderatorName: currentUser?.name || 'Оператор',
+                            timestamp: 'Только что',
+                            source: 'Срабатывания спама'
+                          };
+                          setSpamDecisions(prev => [newDecision, ...prev]);
+                          setFeedPosts(prev => prev.filter(p => p.id !== post.id));
+                          addNotification('Экземпляр добавлен', 'Пост добавлен в базу экземпляров, публикация стёрта');
+                        }}
+                        className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                        title="Добавить данный текст в Экземпляры и удалить этот пост"
+                      >
+                        В Экземпляр
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setIgnoredTriggerPostIds(prev => [...prev, post.id]);
+                          addNotification('Пропущено', 'Публикация исключена из списка срабатываний');
+                        }}
+                        className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                        title="Убрать эту публикацию из списка срабатываний"
+                      >
+                        Пропустить
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setSpamSearchQuery(post.text || '');
+                          setSpamSearchAppliedQuery(post.text || '');
+                          setSpamActiveSubTab('search');
+                          addNotification('Поиск спама', 'Текст перенесен во вкладку Поиск спама');
+                        }}
+                        className="bg-[#5181b8] text-white hover:bg-[#5b88bd] active:bg-[#4a73a0] text-[11.5px] font-medium h-7 px-3 rounded-[2px] transition-colors cursor-pointer"
+                        title="Перенести текст публикации в поиск спама"
+                      >
+                        Поиск спама
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderSpamSettings = () => {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 font-sans text-left text-[13px] text-[#2c2d30]">
+        
+        {/* Sensitivity levels Selection column */}
+        <div className="bg-white p-5 border border-[#e7e8ec] rounded-[4px] shadow-sm space-y-4">
+          <div className="flex items-center gap-3 border-b border-[#e7e8ec] pb-3">
+            <div className="w-10 h-10 rounded-full bg-[#f0f4f9] flex items-center justify-center text-[#2a5885]">
+              <Settings size={20} />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-bold text-black">Чувствительность антиспам-детектора</h2>
+              <p className="text-[11.5px] text-vk-text-secondary mt-0.5">Выберите жесткость фильтрации публикаций и ссылок</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+            {[
+              { level: 'low', label: 'Низкая (low)', desc: 'Блокирует только классический спам по точным блэклист-доменам.', style: 'hover:border-[#52c152]/30', activeStyle: 'border-[#4bb34b] bg-[#4bb34b]/5 text-[#245224]' },
+              { level: 'medium', label: 'Средняя (medium)', desc: 'Включает эвристику дублей, восклицательных знаков и капс-лока.', style: 'hover:border-[#5181b8]/30', activeStyle: 'border-[#5181b8] bg-[#5181b8]/5 text-[#204060]' },
+              { level: 'high', label: 'Высокая (high)', desc: 'Строгий режим: автоматический карантин для любых внешних доменов.', style: 'hover:border-red-300', activeStyle: 'border-[#e64646] bg-red-50 text-[#8a2424]' },
+            ].map((opt) => (
+              <button
+                key={opt.level}
+                onClick={() => {
+                  setSpamSensitivity(opt.level as any);
+                  addNotification('Настройка сохранена', `Установлена чувствительность: ${opt.level.toUpperCase()}`);
+                }}
+                className={`p-3.5 border rounded-[4px] text-left transition-all cursor-pointer flex flex-col gap-1.5 focus:outline-none ${
+                  spamSensitivity === opt.level ? opt.activeStyle : `border-vk-separator bg-white ${opt.style}`
+                }`}
+              >
+                <div className="font-bold text-[12.5px]">{opt.label}</div>
+                <div className="text-[11px] opacity-85 leading-normal">{opt.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Blacklisted domains panel */}
+        <div className="bg-white p-5 border border-[#e7e8ec] rounded-[4px] shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-[#e7e8ec] pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-[#e64646]">
+                <Globe size={20} />
+              </div>
+              <div>
+                <h2 className="text-[15px] font-bold text-black">Черный список доменов (Blacklist)</h2>
+                <p className="text-[11.5px] text-vk-text-secondary mt-0.5">Любые ссылки на эти ресурсы будут заблокированы автоматически</p>
+              </div>
+            </div>
+            <div className="text-[11.5px] font-semibold text-[#818c99] bg-[#f0f2f5] px-2.5 py-1 rounded">
+              Всего: {spamDomains.length}
+            </div>
+          </div>
+
+          {/* Form to append new domain */}
+          <div className="flex gap-2">
+            <input 
+              type="text"
+              value={newBlacklistDomain}
+              onChange={(e) => setNewBlacklistDomain(e.target.value)}
+              placeholder="Введите домен, например: bad-site.com"
+              className="grow bg-white border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[12.5px] focus:outline-none focus:border-[#5181b8] placeholder-vk-text-secondary"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const cleaned = newBlacklistDomain.trim().toLowerCase();
+                  if (!cleaned) return;
+                  if (spamDomains.includes(cleaned)) {
+                    addNotification('Внимание', 'Этот домен уже есть в черном списке');
+                    return;
+                  }
+                  setSpamDomains([...spamDomains, cleaned]);
+                  setNewBlacklistDomain('');
+                  addNotification('Домен добавлен', `Ресурс ${cleaned} успешно внесен в блэклист`);
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                const cleaned = newBlacklistDomain.trim().toLowerCase();
+                if (!cleaned) return;
+                if (spamDomains.includes(cleaned)) {
+                  addNotification('Внимание', 'Этот домен уже есть в черном списке');
+                  return;
+                }
+                setSpamDomains([...spamDomains, cleaned]);
+                setNewBlacklistDomain('');
+                addNotification('Домен добавлен', `Ресурс ${cleaned} успешно внесен в блэклист`);
+              }}
+              className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-4 py-2 rounded-[4px] text-[12px] font-medium transition-colors cursor-pointer"
+            >
+              Добавить
+            </button>
+          </div>
+
+          {/* Tag layout of current domains */}
+          <div className="flex flex-wrap gap-2 pt-2">
+            {spamDomains.map((domain, dIdx) => (
+              <div 
+                key={dIdx} 
+                className="flex items-center gap-1.5 bg-[#f0f2f5] hover:bg-[#e4e6e9] px-2.5 py-1.5 rounded-[4px] border border-vk-separator transition-all"
+              >
+                <span className="font-mono text-[11.5px] font-semibold text-vk-text">{domain}</span>
+                <button
+                  onClick={() => {
+                    setSpamDomains(spamDomains.filter(d => d !== domain));
+                    addNotification('Удалено из списка', `Домен ${domain} исключен из черного списка`);
+                  }}
+                  className="text-vk-text-secondary hover:text-red-500 transition-colors focus:outline-none"
+                  title="Удалить из черного списка"
+                >
+                  <X size={12} className="stroke-[3px]" />
+                </button>
+              </div>
+            ))}
+            {spamDomains.length === 0 && (
+              <div className="text-vk-text-secondary text-center py-4 w-full">Черный список доменов пуст.</div>
+            )}
+          </div>
+        </div>
+
+      </motion.div>
+    );
+  };
+
+  const renderUsers = () => {
+    if (infoUser) {
+      return renderUserInfo(infoUser);
+    }
+
+     const filteredUsers = users.filter(user => {
+       const q = userSearchQuery.toLowerCase();
+       return user.name.toLowerCase().includes(q) || 
+              user.id.toLowerCase().includes(q) || 
+              (user.status && user.status.toLowerCase().includes(q)) ||
+              (user.isBlocked ? 'заблокирован' : 'активен').includes(q) ||
+              (user.isVerified ? 'верифицирован' : '').includes(q) ||
+              (user.isServiceProfile ? 'служебный' : '').includes(q);
+     }).sort((a, b) => {
+       const idA = parseInt(a.id) || 0;
+       const idB = parseInt(b.id) || 0;
+       return idA - idB;
+     });
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-[17px] font-medium text-vk-text">Пользователи</h1>
+            <div className="text-vk-text-secondary text-[11px]">Всего: {users.length}</div>
+          </div>
+          
+          <div className="relative">
+            <span className="absolute left-3 top-2.5 text-vk-text-secondary">
+              <Search size={16} />
+            </span>
+            <input 
+              type="text" 
+              placeholder="Поиск по имени, ID или статусу..."
+              className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] pl-10 pr-4 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] transition-all"
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="bg-vk-white border border-vk-separator rounded-[2px] overflow-visible">
+          <div className="divide-y divide-vk-separator">
+            {filteredUsers.length > 0 ? filteredUsers.map((user, i) => (
+              <div key={user.id} className="p-4 hover:bg-[#f5f7f8] transition-all flex flex-col group">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar user={user} avatarUrl={user.avatar} className="w-10 h-10 border border-vk-separator" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setSelectedUserData(user);
+                            setActiveTab('profile');
+                          }} 
+                          className="text-[13px] font-semibold text-[#285473] hover:underline cursor-pointer"
+                        >
+                          {user.name}
+                        </span>
+                        {user.isVerified && <VerifiedBadge size={14} />}
+                        {user.isBlocked && <span className="bg-red-100 text-red-600 text-[9px] uppercase font-bold px-1 rounded-[2px]">Забанен</span>}
+                        {user.isSpamBadge && <span className="bg-[#faeaea] text-[#e64646] text-[9px] uppercase font-bold px-1 rounded-[2px]">SPAM</span>}
+                      </div>
+                      <div className="text-[11px] text-vk-text-secondary">ID: {user.id} • Регистрация: {user.regDate}</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {permissionService.hasRole(user, 'support') && <span className="bg-[#5181b8]/10 text-[#5181b8] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Поддержка</span>}
+                        {permissionService.hasRole(user, 'moderation') && <span className="bg-[#656565]/10 text-[#656565] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Модерация</span>}
+                        {permissionService.hasRole(user, 'spam') && <span className="bg-[#faeaea] text-[#e64646] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Spam</span>}
+                        {permissionService.hasRole(user, 'pro') && <span className="bg-[#fff9cc] text-[#285473] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Про</span>}
+                        {permissionService.hasRole(user, 'verification') && <span className="bg-[#e5ebf1] text-[#2a5885] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Верификации</span>}
+                        {permissionService.hasRole(user, 'requests') && <span className="bg-[#f0f2f5] text-[#55677d] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Заявки</span>}
+                        {permissionService.hasRole(user, 'feed_moderator') && <span className="bg-[#e7f8ef] text-[#4bb34b] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Модератор ленты</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isAdminMode && (
+                    <div className="flex items-center gap-1">
+                      <button title="Цифровой след" onClick={() => {
+                        setCheckedMultiaccUserId(checkedMultiaccUserId === user.id ? null : user.id);
+                      }} className={`p-1.5 rounded-[4px] transition-all ${checkedMultiaccUserId === user.id ? 'text-[#e64646] bg-[#faeaea]' : 'text-[#55677d] hover:bg-[#e1e5eb] hover:text-[#5181b8]'}`}><FileSearch size={16} /></button>
+
+                      <button title="Информация" onClick={() => {
+                        const [first, ...lastParts] = user.name.split(' ');
+                        setEditFirstName(first);
+                        setEditLastName(lastParts.join(' '));
+                        setEditStatus(user.status || '');
+                        setEditLogin(user.login || '');
+                        setEditPassword('');
+                        setIsEditingInfo(true);
+                        setInfoUser(user);
+                      }} className="p-1.5 rounded-[4px] text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#5181b8] transition-all"><Info size={16} /></button>
+
+                      <button title="Настроить роли" onClick={() => {
+                        setRolesModalUser(user);
+                        setIsRolesModalOpen(true);
+                      }} className="p-1.5 rounded-[4px] text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#2a5885] transition-all"><Settings2 size={16} /></button>
+                      
+                      <button title="Логин/Пароль" onClick={() => {
+                        setLoginModalData({ login: user.login || 'не задан', password: 'удален из соображений безопасности/не требуется' });
+                        setIsLoginModalOpen(true);
+                      }} className="p-1.5 rounded-[4px] text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#2a5885] transition-all"><ShieldCheck size={16} /></button>
+                      
+                      <button title="Жалобы" onClick={() => setComplaintsModalUser(user)} className="p-1.5 rounded-[4px] text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#2a5885] transition-all"><AlertCircle size={16} /></button>
+                      <button title={user.isVerified ? "Снять верификацию" : "Верифицировать"} onClick={() => {
+                        const newState = !user.isVerified;
+                        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, isVerified: newState } : u));
+                        addModeratorLog({
+                          type: 'verification',
+                          action: newState ? 'Выдача галочки' : 'Снятие галочки',
+                          message: newState ? 'Пользователь верифицирован вручную через список' : 'Верификация отозвана вручную через список',
+                          targetId: user.id,
+                          targetName: user.name
+                        });
+                        addNotification('Верификация', newState ? 'Верификация установлена' : 'Верификация снята');
+                      }} className={`p-1.5 rounded-[4px] transition-all ${user.isVerified ? 'text-[#5181b8] bg-[#e5ebf1]/50' : 'text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#2a5885]'}`}><BadgeCheck size={16} /></button>
+                      <button 
+                        title={user.isBlocked ? "Разблокировать" : "Заблокировать"} 
+                        onClick={() => {
+                          if (user.isBlocked) {
+                            setUsers(prev => prev.map(u => u.id === user.id ? { ...u, isBlocked: false, profileBlockInfo: undefined } : u));
+                            addModeratorLog({
+                              type: 'moderation',
+                              action: 'Разблокировка',
+                              message: 'Пользователь разблокирован через список пользователей',
+                              targetId: user.id,
+                              targetName: user.name
+                            });
+                            addNotification('Разблокировка', `Пользователь ${user.name} разблокирован`);
+                          } else {
+                            setSelectedUserData(user);
+                            setReplyText('');
+                            setBlockReason('Спам');
+                            setBlockDuration('1 день');
+                            setSelectedViolations({});
+                            setIsProfileBlockModalOpen(true);
+                          }
+                        }} 
+                        className={`p-1.5 rounded-[4px] transition-all ${user.isBlocked ? 'text-[#e64646] bg-[#faeaea]' : 'text-[#55677d] hover:bg-[#faeaea] hover:text-[#e64646]'}`}
+                      >
+                        <Hammer size={16} />
+                      </button>
+                      
+                      <div className="relative">
+                        <button 
+                          title="Еще" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenUserMenuId(openUserMenuId === user.id ? null : user.id);
+                          }} 
+                          className={`p-1.5 rounded-[4px] transition-all ${openUserMenuId === user.id ? 'bg-[#e5ebf1] text-[#2a5885]' : 'text-[#55677d] hover:bg-[#e5ebf1]'}`}
+                        >
+                          < MoreHorizontal size={16} />
+                        </button>
+                        
+                        <AnimatePresence>
+                          {openUserMenuId === user.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setOpenUserMenuId(null)} />
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95, y: i >= filteredUsers.length - 2 && filteredUsers.length > 2 ? 10 : -10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: i >= filteredUsers.length - 2 && filteredUsers.length > 2 ? 10 : -10 }}
+                                className={`absolute right-0 w-48 bg-white border border-vk-separator rounded-[2px] shadow-lg z-50 py-1 ${i >= filteredUsers.length - 2 && filteredUsers.length > 2 ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+                              >
+                                <button onClick={() => { 
+                                  setUserActionTarget(user);
+                                  const [firstName, ...lastNameParts] = user.name.split(' ');
+                                  setRequestFields({ ...requestFields, name: firstName, surname: lastNameParts.join(' ') });
+                                  setOpenUserMenuId(null); 
+                                  setIsCreateRequestModalOpen(true);
+                                }} className="w-full text-left px-3 py-1.5 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Создать Заявку</button>
+                                <button onClick={() => { 
+                                  setUserActionTarget(user);
+                                  setOpenUserMenuId(null); 
+                                  setIsCreateComplaintModalOpen(true);
+                                }} className="w-full text-left px-3 py-1.5 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Создать жалобу</button>
+                                <div className="border-t border-vk-separator my-1" />
+                                <button onClick={() => { 
+                                  setUsers(prev => prev.filter(u => u.id !== user.id));
+                                  setOpenUserMenuId(null); 
+                                  addNotification('Удаление', 'Профиль пользователя удален'); 
+                                }} className="w-full text-left px-3 py-1.5 text-[12.5px] text-red-600 hover:bg-red-50 transition-colors">Удалить Профиль</button>
+                              </motion.div>
+                            </>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Multiaccount Analyzer Panel */}
+                {checkedMultiaccUserId === user.id && (
+                  <div className="mt-3 p-4 bg-[#fafbfc] border border-dashed border-[#ccd4db] rounded-[4px] text-left text-[12.5px] space-y-3">
+                    <div className="flex items-center justify-between border-b border-vk-separator pb-2">
+                      <div className="flex items-center gap-2 font-bold text-[#2a5885]">
+                        <FileSearch size={15} />
+                        <span>Цифровой след и связи аккаунта {user.name}</span>
+                      </div>
+                      <span className="text-[11px] bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded">Deep Analysis Mode</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Technical Signature */}
+                      <div className="space-y-1.5 p-3 bg-white rounded border border-vk-separator">
+                        <div className="font-bold text-[11px] text-[#55677d] uppercase tracking-wider">Цифровые идентификаторы</div>
+                        <div className="text-[11.5px] font-sans space-y-1 text-vk-text-secondary">
+                          <div>Рег. IP-адрес: <span className="font-mono text-vk-text font-medium">194.120.55.{user.id.charCodeAt(0) || 12}</span></div>
+                          <div>Последний IP: <span className="font-mono text-vk-text font-medium">194.120.55.{(user.id.charCodeAt(1) || 14) + 1}</span></div>
+                          <div>Отпечаток Canvas: <span className="font-mono text-vk-text font-medium">CNV_FPR_88D2{user.id.charCodeAt(0).toString(16).toUpperCase()}</span></div>
+                          <div>Резолюция и ОС: <span className="text-vk-text font-medium">1920x1080 (Windows 11)</span></div>
+                        </div>
+                      </div>
+
+                      {/* Matching Twinks Accounts */}
+                      <div className="space-y-2">
+                        <div className="font-bold text-[11px] text-[#e64646] uppercase tracking-wider flex items-center gap-1">
+                          <ShieldAlert size={12} />
+                          <span>Обнаруженные перекрестные связи</span>
+                        </div>
+                        
+                        {users.filter(u => u.id !== user.id && (
+                          u.name.split(' ')[0] === user.name.split(' ')[0] || 
+                          u.login?.substring(0, 3) === user.login?.substring(0, 3)
+                        )).length > 0 ? (
+                          <div className="space-y-2">
+                            {users.filter(u => u.id !== user.id && (
+                              u.name.split(' ')[0] === user.name.split(' ')[0] || 
+                              u.login?.substring(0, 3) === user.login?.substring(0, 3)
+                            )).map(twink => (
+                              <div key={twink.id} className="p-2 bg-red-50/50 border border-red-100 rounded flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="font-bold text-[12px] text-vk-text flex items-center gap-1">
+                                    <span>{twink.name}</span>
+                                    <span className="text-[9px] bg-red-100 text-red-700 px-1 rounded font-bold">Твинк?</span>
+                                  </div>
+                                  <div className="text-[10px] text-vk-text-secondary">Логин: {twink.login} • Общий след: 92% (Совпадение IP & Подсети)</div>
+                                </div>
+
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setUsers(prev => prev.map(u => u.id === twink.id ? { ...u, isBlocked: true, profileBlockInfo: { reason: 'Связанный аккаунт / Мультиаккаунт нарушителя', duration: 'Навсегда' } } : u));
+                                      addNotification('Заблокирован', `Аккаунт ${twink.name} заблокирован как твинк`);
+                                    }}
+                                    className="px-2 py-1 bg-[#faeaea] hover:bg-red-100 text-[#e64646] rounded text-[10.5px] font-bold transition-all cursor-pointer"
+                                  >
+                                    Бан
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      addNotification('Связано', `Профили ${user.name} and ${twink.name} официально помечены как связанные`);
+                                    }}
+                                    className="px-2 py-1 bg-white hover:bg-vk-separator text-[#55677d] border border-vk-separator rounded text-[10.5px] font-bold transition-all cursor-pointer"
+                                  >
+                                    Связать
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center bg-green-50/50 text-[#245224] rounded border border-green-100 text-[11px] font-sans">
+                            Анализ завершен: подозрительных совпадений по IP-адресу или системной конфигурации не обнаружено.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )) : (
+              <div className="p-10 text-center text-vk-text-secondary text-[13px]">
+                {userSearchQuery ? 'Пользователи не найдены' : 'Вкладка Пользователи пуста, у тебя еще никто не зарегистрировался'}
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderAcademy = () => {
+    const ACADEMY_TESTS = [
+      {
+        id: 'gdpr',
+        title: 'Этика поддержки и Конфиденциальность (GDPR)',
+        icon: Shield,
+        desc: 'Научитесь общаться вежливо и не раскрывать персональные данные третьим лицам.',
+        xpReward: 150,
+        repReward: 100,
+        achievementId: 'gdpr_master',
+        achievementName: 'Защитник Конфиденциальности 🛡️',
+        questions: [
+          {
+            q: 'Пользователь просит подсказать IP-адрес или email автора оскорбительного комментария. Что делать?',
+            opts: [
+              'Предоставить данные, чтобы помочь наказать нарушителя.',
+              'Перенаправить запрос в полицию напрямую без согласия.',
+              'Отказать в предоставлении личных данных и порекомендовать отправить жалобу на комментарий.',
+              'Попросить взамен логин и пароль пользователя.'
+            ],
+            correct: 2,
+            feedback: 'Верно! Персональные данные (включая IP и email) никогда не разглашаются третьим лицам согласно регламенту конфиденциальности.'
+          },
+          {
+            q: 'Как правильно ответить на матерное оскорбление в тикете поддержки?',
+            opts: [
+              'Ответить тем же, чтобы проявить характер.',
+              'Игнорировать тикет и закрыть без ответа.',
+              'Вежливо и спокойно указать на недопустимость оскорблений, ответить на суть вопроса и предупредить о возможной блокировке.',
+              'Удалить аккаунт пользователя немедленно.'
+            ],
+            correct: 2,
+            feedback: 'Конечно! Сдержанность и профессионализм — главное лицо команды поддержки.'
+          },
+          {
+            q: 'Пользователь утверждает, что его аккаунт взломали, и просит привязать его к новому телефону прямо в чате поддержки без проверок.',
+            opts: [
+              'Сделать это немедленно, ведь он плачет.',
+              'Потребовать официальную процедуру восстановления доступа с верификацией личности.',
+              'Заблокировать его за подозрительную активность.',
+              'Написать старый пароль в ответном сообщении.'
+            ],
+            correct: 1,
+            feedback: 'Верно. Изменение привязанных данных без прохождения регламента верификации — это верный способ отдать аккаунт мошенникам.'
+          },
+          {
+            q: 'Какая информация считается публичной в профиле, если настройки приватности открыты?',
+            opts: [
+              'Любые переписки пользователя.',
+              'Пароль и логин в зашифрованном виде.',
+              'Имя, фамилия, статус, публичная стена и фотографии.',
+              'История IP-адресов входов.'
+            ],
+            correct: 2,
+            feedback: 'Да. То, что сам пользователь сделал открытым (имя, фото, стена), является общедоступной информацией.'
+          }
+        ]
+      },
+      {
+        id: 'spam',
+        title: 'Борьба со спамом и ботами',
+        icon: MessageSquare,
+        desc: 'Научитесь оперативно распознавать скрытый рекламный спам, фишинг и вредоносные скрипты.',
+        xpReward: 150,
+        repReward: 100,
+        achievementId: 'spam_hunter',
+        achievementName: 'Охотник на Спамеров 🏹',
+        questions: [
+          {
+            q: 'Профиль без аватара оставляет под каждым постом фразу: «Раздача соток в профиле, переходи по ссылке!». Что вы предпримете?',
+            opts: [
+              'Ничего, это же халява!',
+              'Заблокировать профиль за спам, удалить все подобные комментарии.',
+              'Просто удалить комментарии, оставив пользователя.',
+              'Поставить лайк комментарию нарушителя.'
+            ],
+            correct: 1,
+            feedback: 'Верно. Это классический спам-бот, крадущий данные или обманывающий людей, его нужно немедленно заблокировать.'
+          },
+          {
+            q: 'Пользователь отправляет сокращенные ссылки vk.cc. Есть ли в них угроза?',
+            opts: [
+              'Нет, короткие ссылки всегда безопасны.',
+              'Да, за ними может скрываться фишинг или вирусы. Ссылки необходимо проверять по базе.',
+              'Любое использование сокращателей строго запрещено у нас на платформе.',
+              'Сокращенные ссылки создаются только администрацией.'
+            ],
+            correct: 1,
+            feedback: 'Да! Сокращатели часто маскируют нежелательные ресурсы, поэтому модераторы уделяют им строгое внимание.'
+          },
+          {
+            q: 'Что относится к признакам массовой атаки ботнетов (рейда)?',
+            opts: [
+              'Один пользователь пишет длинную и подробную жалобу.',
+              'Появление десятков аккаунтов со схожими именами, публикующих одинаковый рекламный текст или медиа в короткий промежуток времени.',
+              'Медленный и спокойный поток тикетов техподдержки.',
+              'Когда в ленте появляются посты от руководства.'
+            ],
+            correct: 1,
+            feedback: 'Именно! Массовость, шаблонный текст и синхронность — признаки организованного рейда ботов.'
+          },
+          {
+            q: 'Что делать, если пользователь случайно запостил ссылку на свой личный Telegram-канал с рецептами пирогов на своей личной стене?',
+            opts: [
+              'Дать пожизненный бан за рекламу.',
+              'Удалить пост и заблокировать профиль.',
+              'Ничего, так как публикация личного ненавязчивого контента на собственной стене не нарушает правила платформы.',
+              'Выписать предупреждение в личные сообщения.'
+            ],
+            correct: 2,
+            feedback: 'Верно. Личный некоммерческий контент на личной стене разрешен. Не нужно перегибать палку!'
+          }
+        ]
+      },
+      {
+        id: 'content',
+        title: 'Анализ токсичности и разжигания ненависти',
+        icon: Gavel,
+        desc: 'Определите тонкую грань между жестким спором и деструктивным хейтспичем.',
+        xpReward: 200,
+        repReward: 120,
+        achievementId: 'content_arbiter',
+        achievementName: 'Арбитр Гармонии ⚖️',
+        questions: [
+          {
+            q: 'Два человека спорят в комментариях о футболе, используя сарказм и подколы (без угроз и мата). Ваше решение?',
+            opts: [
+              'Удалить ветку, выдать баны обоим.',
+              'Оставить спор. Свобода слова позволяет дискутировать, пока не нарушены жесткие правила платформы.',
+              'Пожаловаться руководству на неспортивное поведение.',
+              'Поставить лайк тому, чей клуб сильнее.'
+            ],
+            correct: 1,
+            feedback: 'Правильно. Спор — естественная часть соцсетей. Модераторам не следует вмешиваться, пока нет оскорблений, угроз или разжигания розни.'
+          },
+          {
+            q: 'Комментарий содержит открытый призыв к насилию или дискриминации по национальному или социальному признаку. Как поступить?',
+            opts: [
+              'Оставить, так как это просто личное мнение автора.',
+              'Попросить автора писать потише.',
+              'Удалить комментарий, заблокировать автора за разжигание ненависти (Hate Speech).',
+              'Скрыть коммент смайликом.'
+            ],
+            correct: 2,
+            feedback: 'Безусловно. Разжигание вражды и призывы к насилию — грубейшие нарушения, требующие немедленной блокировки.'
+          },
+          {
+            q: 'Как классифицировать фразу «Этот телефон — полное ведро с болтами, не покупайте!» в обзоре техники?',
+            opts: [
+              'Токсичность и оскорбление бренда (бан автора).',
+              'Конструктивный спам.',
+              'Субъективное мнение и критика товара (нарушений нет).',
+              'Подозрение на заказной хейт.'
+            ],
+            correct: 2,
+            feedback: 'Да. Критика товаров и брендов, пусть даже в экспрессивной форме, разрешена и относится к свободе выражения мнения.'
+          },
+          {
+            q: 'Если на фотографии запечатлена классическая картина эпохи Ренессанса с долей обнаженной натуры, нарушает ли это правила?',
+            opts: [
+              'Да, это эротический контент, удалить!',
+              'Нет, художественные произведения искусства и объекты культурного наследия не подлежат блокировке.',
+              'Только если на картине есть водяной знак.',
+              'Требуется замазать фрагменты черным квадратом.'
+            ],
+            correct: 1,
+            feedback: 'Верно! Искусство, наука и медицина исключены из правил о запрещенных изображениях эротики.'
+          }
+        ]
+      }
+    ];
+
+    const startTest = (test: any) => {
+      setAcademyActiveTest(test);
+      setAcademyAnswers({});
+      setAcademyScore(null);
+    };
+
+    const selectAnswer = (qIndex: number, optIndex: number) => {
+      if (academyScore !== null) return;
+      setAcademyAnswers(prev => ({
+        ...prev,
+        [qIndex]: optIndex
+      }));
+    };
+
+    const finalizeTest = () => {
+      if (!academyActiveTest) return;
+      let score = 0;
+      academyActiveTest.questions.forEach((q: any, i: number) => {
+        if (academyAnswers[i] === q.correct) score++;
+      });
+      setAcademyScore(score);
+
+      const passThreshold = Math.ceil(academyActiveTest.questions.length * 0.75);
+      if (score >= passThreshold) {
+        const xpReward = academyActiveTest.xpReward;
+        const repReward = academyActiveTest.repReward;
+        const rewardAch = academyActiveTest.achievementId;
+
+        addNotification('Тест пройден! 🎉', `Вы получили +${xpReward} XP, +${repReward} Репутационной кармы и новое достижение!`);
+        
+        const logEntry = {
+          id: `log-academy-${Date.now()}`,
+          action: `Успешно пройдено обучение «${academyActiveTest.title}» с результатом ${score}/${academyActiveTest.questions.length}`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+
+        setCurrentUser(current => {
+          if (!current) return null;
+          const achievements = current.achievements || [];
+          const updatedAchievements = achievements.includes(rewardAch) ? achievements : [...achievements, rewardAch];
+          
+          const hasAll = ['gdpr_master', 'spam_hunter', 'content_arbiter'].every(id => 
+            updatedAchievements.includes(id) || id === rewardAch
+          );
+          
+          const isGraduate = hasAll && !updatedAchievements.includes('academy_graduate');
+          const finalAchievements = isGraduate ? [...updatedAchievements, 'academy_graduate'] : updatedAchievements;
+          
+          if (isGraduate) {
+            addNotification('Диплом Академии! 🎓', 'Вы успешно завершили все курсы и получили статус Выпускника Академии!');
+          }
+
+          return {
+            ...current,
+            academyXp: current.academyXp + xpReward,
+            reputation: current.reputation + repReward,
+            achievements: finalAchievements
+          };
+        });
+      }
+    };
+
+    return null;
+  };
+
+  const renderAutomoderator = () => {
+    const decodeAndNormalize = (text: string) => {
+      return text.toLowerCase()
+        .replace(/[0oоo]/g, 'о')
+        .replace(/[@aаa]/g, 'а')
+        .replace(/[3eеe]/g, 'е')
+        .replace(/[1iиi]/g, 'и')
+        .replace(/[xхx]/g, 'х')
+        .replace(/[ccsс]/g, 'с')
+        .replace(/[kкk]/g, 'к')
+        .replace(/[ymуy]/g, 'у')
+        .replace(/[pрp]/g, 'р');
+    };
+
+    const getParameterLabel = (param: string) => {
+      switch (param) {
+        case 'delete': return 'Удалить публикацию';
+        case 'delete_ban': return 'Удалить + Забанить';
+        case 'block': return 'Забанить навсегда';
+        case 'flag_pro': return 'Отправить жалобу в Спам-базу';
+        default: return param || 'Действие по умолчанию';
+      }
+    };
+
+    const getSectionLabel = (sec: string) => {
+      switch (sec) {
+        case 'posts': return 'Публикации';
+        case 'status': return 'Статусы профиля';
+        case 'name': return 'Имена пользователей';
+        default: return sec;
+      }
+    };
+
+    const currentKeywords = ruleFormTrigger
+      .split(',')
+      .map(kw => kw.trim().toLowerCase())
+      .filter(Boolean);
+
+    const matchedPosts: FeedPost[] = [];
+    const matchedUsers: AppUser[] = [];
+
+    if (ruleFormTrigger.trim()) {
+      if (ruleFormSections.includes('posts')) {
+        feedPosts.forEach(post => {
+          const text = post.text?.toLowerCase() || '';
+          if (currentKeywords.some(kw => text.includes(kw))) {
+            matchedPosts.push(post);
+          }
+        });
+      }
+
+      users.forEach(user => {
+        let isMatched = false;
+        if (ruleFormSections.includes('status') && user.status) {
+          const status = user.status.toLowerCase();
+          if (currentKeywords.some(kw => status.includes(kw))) isMatched = true;
+        }
+        if (ruleFormSections.includes('name') && user.name) {
+          const name = user.name.toLowerCase();
+          if (currentKeywords.some(kw => name.includes(kw))) isMatched = true;
+        }
+        if (isMatched && !user.isServiceProfile) {
+          matchedUsers.push(user);
+        }
+      });
+    }
+
+    const totalHitsCount = matchedPosts.length + matchedUsers.length;
+
+    const executePredictiveSearch = () => {
+      addNotification('Анализ завершен', `Прогнозирование брандмауэра: найдено ${totalHitsCount} потенциальных ограничений.`);
+    };
+
+    const handleRunExistingRuleOnCurrentDB = (rule: any) => {
+      const kwList = rule.keywords || [];
+      const ruleSecs = rule.sections || ['posts'];
+      
+      const matchedPostsList: FeedPost[] = [];
+      const matchedUsersList: AppUser[] = [];
+
+      const kwNormalizedList = kwList.map((kw: string) => decodeAndNormalize(kw));
+
+      if (ruleSecs.includes('posts')) {
+        feedPosts.forEach(post => {
+          const text = decodeAndNormalize(post.text || '');
+          if (kwNormalizedList.some(kw => text.includes(kw))) {
+            matchedPostsList.push(post);
+          }
+        });
+      }
+
+      users.forEach(user => {
+        let isMatched = false;
+        if (ruleSecs.includes('status') && user.status) {
+          const status = decodeAndNormalize(user.status);
+          if (kwNormalizedList.some(kw => status.includes(kw))) isMatched = true;
+        }
+        if (ruleSecs.includes('name') && user.name) {
+          const name = decodeAndNormalize(user.name);
+          if (kwNormalizedList.some(kw => name.includes(kw))) isMatched = true;
+        }
+        if (isMatched) {
+          matchedUsersList.push(user);
+        }
+      });
+
+      const totalItems = matchedPostsList.length + matchedUsersList.length;
+
+      if (totalItems === 0) {
+        addNotification('Применение правила', `Нарушения по правилу «${rule.name}» в базе отсутствуют.`);
+        return;
+      }
+
+      if (window.confirm(`Найдено ${totalItems} совпадений в БД (${matchedUsersList.length} профилей, ${matchedPostsList.length} постов). Выполнить ограничение «${getParameterLabel(rule.parameter || rule.action)}»?`)) {
+        setAutomodRules(prev => prev.map(r => r.id === rule.id ? { ...r, matchCount: r.matchCount + totalItems } : r));
+        executeAutoRuleActions(rule.name, rule.parameter || rule.action, matchedPostsList, matchedUsersList, kwList);
+      }
+    };
+
+    const toggleFormSection = (section: string) => {
+      setRuleFormSections(prev => 
+        prev.includes(section) ? prev.filter(s => s !== section) : [...prev, section]
+      );
+    };
+
+    const toggleFormDepth = (depth: string) => {
+      setRuleFormDepth(prev => 
+        prev.includes(depth) ? prev.filter(d => d !== depth) : [...prev, depth]
+      );
+    };
+
+    const applyRecommendedTemplate = (name: string, triggers: string, action: string, sections: string[]) => {
+      setRuleFormName(name);
+      setRuleFormTrigger(triggers);
+      setRuleFormParameter(action);
+      setRuleFormSections(sections);
+      addNotification('Шаблон выбран', `Параметры заполнены для: «${name}». Проверьте предпросмотр!`);
+    };
+
+    const handleCreateRuleAndApply = (runActionImmediately: boolean) => {
+      if (!ruleFormName.trim()) {
+        addNotification('Ошибка', 'Введите название автоправила.');
+        return;
+      }
+      if (!ruleFormTrigger.trim()) {
+        addNotification('Ошибка', 'Укажите триггерные ключевые фразы.');
+        return;
+      }
+      if (ruleFormSections.length === 0) {
+        addNotification('Ошибка', 'Выберите как минимум одну область сканирования.');
+        return;
+      }
+
+      const brandNewRule = {
+        id: `rule-${Date.now()}`,
+        name: ruleFormName.trim(),
+        keywords: [...currentKeywords],
+        action: ruleFormParameter,
+        isActive: true,
+        matchCount: runActionImmediately ? totalHitsCount : 0,
+        author: operatorName || 'Агент Поддержки #' + operatorId,
+        createdDate: new Date().toLocaleDateString('ru-RU'),
+        sections: [...ruleFormSections],
+        parameter: ruleFormParameter,
+        depth: [...ruleFormDepth]
+      };
+
+      setAutomodRules(prev => [brandNewRule, ...prev]);
+
+      if (runActionImmediately && totalHitsCount > 0) {
+        executeAutoRuleActions(ruleFormName.trim(), ruleFormParameter, matchedPosts, matchedUsers, currentKeywords);
+      } else {
+        addNotification('Правило создано', `Правило "${brandNewRule.name}" зарегистрировано в брандмауэре.`);
+        
+        const logEntry = {
+          id: `automod-new-${Date.now()}`,
+          action: `Создано пассивное автоправило "${brandNewRule.name}"`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+      }
+
+      // Reset form variables
+      setRuleFormName('');
+      setRuleFormTrigger('');
+      setRuleFormSections(['posts']);
+      setRuleFormParameter('delete');
+      setRuleFormDepth(['match', 'similar']);
+    };
+
+    const executeAutoRuleActions = (
+      name: string,
+      param: string,
+      postsToRestrict: FeedPost[],
+      usersToRestrict: AppUser[],
+      kwList: string[]
+    ) => {
+      const activeName = name || 'Автоправило без названия';
+      const postIdsToDestroy = postsToRestrict.map(p => p.id);
+      const userIdsToBlock = usersToRestrict.map(u => u.id);
+
+      let countPostsAffected = 0;
+      let countUsersAffected = 0;
+
+      if (param === 'delete' || param === 'delete_ban') {
+        if (postIdsToDestroy.length > 0) {
+          setFeedPosts(prev => prev.filter(p => !postIdsToDestroy.includes(p.id)));
+          countPostsAffected = postIdsToDestroy.length;
+        }
+      }
+
+      if (param === 'block' || param === 'delete_ban') {
+        if (userIdsToBlock.length > 0) {
+          setUsers(prev => prev.map(u => {
+            if (userIdsToBlock.includes(u.id)) {
+              countUsersAffected++;
+              return {
+                ...u,
+                isBlocked: true,
+                profileBlockInfo: {
+                  reason: `Служба автоконтроля [Следы-Guard]: сработало правило «${activeName}»`,
+                  duration: 'Навсегда',
+                  comment: `Триггеры нарушений: ${kwList.join(', ')}`,
+                  timestamp: new Date(),
+                  moderator: operatorName ? `${operatorName} #${operatorId}` : 'Следы-Guard Автомат'
+                }
+              };
+            }
+            return u;
+          }));
+        }
+
+        if (param === 'delete_ban' && userIdsToBlock.length > 0) {
+          setFeedPosts(prev => {
+            const beforeLength = prev.length;
+            const filtered = prev.filter(p => !usersToRestrict.some(mu => mu.name === p.authorName));
+            countPostsAffected += (beforeLength - filtered.length);
+            return filtered;
+          });
+        }
+      }
+
+      if (param === 'flag_pro') {
+        usersToRestrict.forEach(u => {
+          countUsersAffected++;
+          const newComplaint: Complaint = {
+            id: `spam-comp-auto-${Date.now()}-${u.id}`,
+            userId: u.id,
+            userName: u.name,
+            userAvatar: u.avatar || 'images.png',
+            type: 'content',
+            content: `[Следы-Guard Автожалоба] Найдено нарушение в имени/статусе по правилу «${activeName}»`,
+            rating: '0.94',
+            reason: `Автоматическое выявление спама. Ключевые слова: ${kwList.join(', ')}`,
+            dept: 'Спам',
+            timestamp: new Date()
+          };
+          setSpamComplaints(prev => [newComplaint, ...prev]);
+        });
+
+        postsToRestrict.forEach(post => {
+          countPostsAffected++;
+          const newComplaint: Complaint = {
+            id: `spam-comp-auto-${Date.now()}-${post.id}`,
+            userId: post.id,
+            userName: post.authorName,
+            userAvatar: 'images.png',
+            type: 'content',
+            content: `[Следы-Guard Автожалоба] Подозрительный пост «${post.text}»`,
+            rating: '0.97',
+            reason: `Найдено автоправилом спам-контроля по триггерам: ${kwList.join(', ')}`,
+            dept: 'Офтоп',
+            timestamp: new Date()
+          };
+          setSpamComplaints(prev => [newComplaint, ...prev]);
+        });
+      }
+
+      const logEntry = {
+        id: `automod-applied-log-${Date.now()}`,
+        action: `[Автодействие] Запущено автоправило «${activeName}»: удалено постов: ${countPostsAffected}, ограниченные/отмеченные профили: ${countUsersAffected}.`,
+        timestamp: new Date()
+      };
+      setProfileModerationLogs(prev => [logEntry, ...prev]);
+
+      addNotification(
+        'Действие совершено',
+        `Зачистка брандмауэра выполнена успешно! Обработано ${countPostsAffected} постов, ограничено ${countUsersAffected} аккаунтов.`
+      );
+    };
+
+    const handleCreateExemplarFromTrigger = () => {
+      if (!ruleFormTrigger.trim()) {
+        addNotification('Ошибка', 'Введите паттерн или ключевые селекторы.');
+        return;
+      }
+      const newDecision: SpamDecision = {
+        id: `sd-${Date.now()}`,
+        postText: ruleFormTrigger.trim(),
+        authorName: 'Ручной ввод',
+        moderatorName: operatorName ? `${operatorName} #${operatorId}` : 'Модератор',
+        timestamp: new Date().toLocaleString('ru', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
+        source: 'Ручное добавление'
+      };
+      setSpamDecisions(prev => [newDecision, ...prev]);
+      addNotification('Добавлено в экземпляры', 'Опорный фразовый шаблон добавлен в спам-базу.');
+      
+      const logEntry = {
+        id: `automod-new-exemplar-${Date.now()}`,
+        action: `Добавлен спам-экземпляр из текущего триггера формы`,
+        timestamp: new Date()
+      };
+      setProfileModerationLogs(prev => [logEntry, ...prev]);
+    };
+
+    const toggleRuleActive = (ruleId: string) => {
+      setAutomodRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+    };
+
+    const deleteRule = (ruleId: string) => {
+      setAutomodRules(prev => prev.filter(r => r.id !== ruleId));
+      addNotification('Удаление', 'Правило было стерто из конфигурации брандмауэра.');
+    };
+
+    // Helper text highlighter using custom JSX elements
+    const renderHighlightedContent = (text: string, keywordsList: string[]) => {
+      if (!text) return '';
+      const validKeywords = keywordsList.map(k => k.trim()).filter(Boolean);
+      if (validKeywords.length === 0) return <span>{text}</span>;
+      
+      try {
+        const regex = new RegExp(`(${validKeywords.map(k => k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})`, 'gi');
+        const parts = text.split(regex);
+        return (
+          <span>
+            {parts.map((p, idx) => {
+              const isMatch = validKeywords.some(kw => p.toLowerCase() === kw.toLowerCase());
+              return isMatch ? (
+                <span key={idx} className="bg-[#fff3cc] text-[#b25e00] px-1 py-0.2 rounded-[3px] border border-[#f0c36d]/50 font-bold select-none">
+                  {p}
+                </span>
+              ) : (
+                p
+              );
+            })}
+          </span>
+        );
+      } catch (e) {
+        return <span>{text}</span>;
+      }
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left font-sans text-[13px] text-[#2c2d2e] leading-relaxed bg-[#f0f2f5] p-1.5 rounded-[2px]">
+        
+        {/* VK Simple Header Block */}
+        <div className="bg-white p-4 px-5 border border-[#e7e8ec] rounded-[2px]">
+          <h2 className="text-[16px] font-medium text-[#2c2d2e]">Автомодератор</h2>
+        </div>
+
+        {/* Dynamic Recommended Rules Shelf */}
+        <div className="bg-white border border-[#e7e8ec] rounded-[2px] p-4">
+          <div className="text-[11px] font-bold text-[#818c99] uppercase tracking-wider mb-2.5">
+            Шаблоны правил
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              {
+                name: 'Казино и азартные игры',
+                triggers: 'казино, вулкан, ставки, промокод, выигрыш, легкие деньги',
+                action: 'delete_ban',
+                secs: ['posts', 'status']
+              },
+              {
+                name: 'Накрутка и пиар',
+                triggers: 'накрутка, пиар, подписчики, взаимная подписка, спамь',
+                action: 'delete',
+                secs: ['posts']
+              },
+              {
+                name: 'Оскорбления и маты',
+                triggers: 'лошок, придурок, тупой, дебил, шлюха',
+                action: 'block',
+                secs: ['status', 'name']
+              },
+              {
+                name: 'Следы Валюта и Голоса',
+                triggers: 'продам голоса, куплю софт, голоса следы, инвайтер',
+                action: 'flag_pro',
+                secs: ['posts', 'status']
+              }
+            ].map((tpl, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => applyRecommendedTemplate(tpl.name, tpl.triggers, tpl.action, tpl.secs)}
+                className="px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#e1e5eb] active:bg-[#d5dbe4] text-[#2a5885] rounded-[2px] text-[12px] font-medium transition-all cursor-pointer"
+              >
+                {tpl.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Double Main Layout split */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          
+          {/* LEFT INTERACTIVE WORKING ZONE (7/12 layout) */}
+          <div className="lg:col-span-7 space-y-4">
+            
+            {/* Rule Builder Panel */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[2px] overflow-hidden">
+              <div className="border-b border-[#f0f2f5] p-4 bg-[#fafbfc]">
+                <h3 className="text-[13px] font-bold text-[#2a5885]">
+                  Редактирование правила
+                </h3>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="space-y-3">
+                  {/* Name Input */}
+                  <div className="space-y-1">
+                    <label className="text-[11.5px] font-semibold text-[#818c99] uppercase tracking-wider block">Название правила</label>
+                    <input
+                      type="text"
+                      placeholder="Введите понятное название для отчетности модераторов..."
+                      value={ruleFormName}
+                      onChange={(e) => setRuleFormName(e.target.value)}
+                      className="w-full bg-white text-[12.5px] p-2 px-3 rounded-[2px] border border-[#dce1e6] focus:border-[#5181b8] outline-none transition-all text-black font-normal placeholder-[#818c99]"
+                    />
+                  </div>
+
+                  {/* Triggers Input */}
+                  <div className="space-y-1">
+                    <label className="text-[11.5px] font-semibold text-[#818c99] uppercase tracking-wider block">Слова-триггеры (через запятую)</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Введите подозрительные слова, стоп-фразы, ссылки или регулярки..."
+                      value={ruleFormTrigger}
+                      onChange={(e) => setRuleFormTrigger(e.target.value)}
+                      className="w-full bg-white text-[12.5px] p-2 px-3 rounded-[2px] border border-[#dce1e6] focus:border-[#5181b8] outline-none transition-all text-black leading-relaxed font-sans placeholder-[#818c99]"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Zones of check */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11.5px] font-semibold text-[#818c99] uppercase tracking-wider block">Зоны инспекции</label>
+                      <div className="space-y-2.5 bg-white p-3.5 rounded-[2px] border border-[#e7e8ec] shadow-none">
+                        {[
+                          { key: 'name', label: 'Имена пользователей' },
+                          { key: 'status', label: 'Статусы профилей' },
+                          { key: 'posts', label: 'Публикации и посты стрима' }
+                        ].map(sec => (
+                          <label key={sec.key} className="flex items-center gap-2 text-[12.5px] font-normal text-[#2c2d2e] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={ruleFormSections.includes(sec.key)}
+                              onChange={() => toggleFormSection(sec.key)}
+                              className="w-4 h-4 rounded-[2px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] cursor-pointer bg-white"
+                            />
+                            <span className="text-[12.5px] text-[#2c2d2e] font-normal leading-tight">{sec.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Sanction parameter */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11.5px] font-semibold text-[#818c99] uppercase tracking-wider block">Действие над нарушениями</label>
+                      <div className="space-y-2">
+                        <select
+                          value={ruleFormParameter}
+                          onChange={(e) => setRuleFormParameter(e.target.value)}
+                          className="w-full bg-white text-[12.5px] p-2 px-3 rounded-[2px] border border-[#dce1e6] focus:border-[#5181b8] focus:outline-none transition-all text-[#2c2d2e] font-normal cursor-pointer"
+                        >
+                          <option value="delete">Удалить подозрительные публикации</option>
+                          <option value="delete_ban">Блокировка автора + Удаление всех постов</option>
+                          <option value="block">Мгновенный бан нарушителя навсегда</option>
+                          <option value="flag_pro">Отправить в спам-очередь (Автожалоба)</option>
+                        </select>
+
+                        {/* Depth parameter */}
+                        <div className="space-y-2.5 bg-white p-3.5 rounded-[2px] border border-[#e7e8ec] shadow-none">
+                          <label className="flex items-center gap-2 text-[12.5px] font-normal text-[#2c2d2e] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={ruleFormDepth.includes('match')}
+                              onChange={() => toggleFormDepth('match')}
+                              className="w-4 h-4 rounded-[2px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] cursor-pointer bg-white"
+                            />
+                            <span className="text-[12.5px] text-[#2c2d2e] font-normal leading-tight">Строгий поиск слов и корней</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-[12.5px] font-normal text-[#2c2d2e] cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={ruleFormDepth.includes('similar')}
+                              onChange={() => toggleFormDepth('similar')}
+                              className="w-4 h-4 rounded-[2px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] cursor-pointer bg-white"
+                            />
+                            <span className="text-[12.5px] text-[#2c2d2e] font-normal leading-tight">Обход подмены букв (leetspeak, кириллица/латиница)</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Database Forecasting Stats Panel */}
+                <div className="bg-[#f5f7fa] border border-[#e7e8ec] p-4 rounded-[2px] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[12.5px] font-semibold text-[#2c2d2e] tracking-wide">
+                      Результаты прогнозирования по базе данных
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={executePredictiveSearch}
+                      className="text-[12px] text-[#2a5885] hover:underline font-medium transition-all cursor-pointer"
+                    >
+                      Рассчитать глубокий прогноз
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pt-1 select-none font-sans">
+                    <div className="bg-white p-3 rounded-[2px] border border-[#dce1e6]">
+                      <span className="text-[#818c99] text-[11px] block font-normal leading-relaxed">Всего совпадений</span>
+                      <span className={`text-[17px] font-semibold block leading-tight mt-0.5 ${totalHitsCount > 0 ? 'text-[#e64646]' : 'text-[#818c99]'}`}>
+                        {totalHitsCount} шт.
+                      </span>
+                    </div>
+                    <div className="bg-white p-3 rounded-[2px] border border-[#dce1e6]">
+                      <span className="text-[#818c99] text-[11px] block font-normal leading-relaxed">В публикациях</span>
+                      <span className="text-[17px] font-semibold text-[#2c2d2e] block leading-tight mt-0.5">
+                        {matchedPosts.length}
+                      </span>
+                    </div>
+                    <div className="bg-white p-3 rounded-[2px] border border-[#dce1e6]">
+                      <span className="text-[#818c99] text-[11px] block font-normal leading-relaxed">В именах/статусах</span>
+                      <span className="text-[17px] font-semibold text-[#2c2d2e] block leading-tight mt-0.5">
+                        {matchedUsers.length}
+                      </span>
+                    </div>
+                    <div className="bg-white p-3 rounded-[2px] border border-[#dce1e6] shadow-none relative">
+                      <span className="text-[#2a5885] text-[11px] block font-normal leading-relaxed">Под риском бана</span>
+                      <span className={`text-[17px] font-semibold block leading-tight mt-0.5 ${matchedUsers.length > 0 ? 'text-[#d97706]' : 'text-[#818c99]'}`}>
+                        {ruleFormParameter === 'delete_ban' || ruleFormParameter === 'block' ? matchedUsers.length : 0}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Form Action Controls Zone */}
+                <div className="flex flex-col sm:flex-row gap-2.5 pt-3.5 border-t border-[#f0f2f5] justify-between">
+                  <button
+                    type="button"
+                    onClick={handleCreateExemplarFromTrigger}
+                    className="px-4 py-2 bg-[#f0f2f5] hover:bg-[#e4e6ea] active:bg-[#dbdee2] text-[#2a5885] font-semibold text-[13px] rounded-[2px] transition-all cursor-pointer text-center"
+                    title="Добавить опорный фразовый паттерн"
+                  >
+                    Занести как спам-экземпляр
+                  </button>
+
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleCreateRuleAndApply(false)}
+                      className="px-4 py-2 bg-[#f0f2f5] hover:bg-[#e4e6ea] active:bg-[#dbdee2] text-[#2c3e50] font-semibold text-[13px] rounded-[2px] transition-all cursor-pointer"
+                      title="Сохранить шаблон для обработки будущих данных"
+                    >
+                      Только сохранить автоправило
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateRuleAndApply(true)}
+                      className="px-5 py-2 bg-[#5181b8] hover:bg-[#5b88bd] active:bg-[#4672a5] text-white font-bold text-[13px] rounded-[2px] transition-all cursor-pointer"
+                      title="Сохранить новое правило и немедленно применить действия к текущей базе совпадений"
+                    >
+                      Запустить и обработать таблицу
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Preview of Matches Panel */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[2px] overflow-hidden">
+              <div className="border-b border-[#f0f2f5] p-3.5 flex justify-between items-center bg-[#fafbfc]">
+                <h3 className="text-xs uppercase tracking-wider font-bold text-[#818c99]">
+                  Предпросмотр совпадений ({totalHitsCount})
+                </h3>
+                {totalHitsCount > 0 && (
+                  <div className="flex bg-[#f0f2f5] p-0.5 rounded-[4px] gap-0.5 select-none font-sans">
+                    <button
+                      type="button"
+                      onClick={() => setAutomodPreviewTab('posts')}
+                      className={`px-3 py-1 text-[11px] font-semibold rounded-[3px] transition-all cursor-pointer ${automodPreviewTab === 'posts' ? 'bg-white text-black shadow-sm' : 'text-[#656565] hover:text-black'}`}
+                    >
+                      Посты ({matchedPosts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAutomodPreviewTab('users')}
+                      className={`px-3 py-1 text-[11px] font-semibold rounded-[3px] transition-all cursor-pointer ${automodPreviewTab === 'users' ? 'bg-white text-black shadow-sm' : 'text-[#656565] hover:text-black'}`}
+                    >
+                      Профили ({matchedUsers.length})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-[#fcfcfd] min-h-[140px]">
+                {totalHitsCount === 0 ? (
+                  <div className="text-center py-8 text-[#818c99] text-[12.5px]">
+                    Вводимые спам-триггеры лояльны к базе данных. Подозрительных совпадений не обнаружено.
+                  </div>
+                ) : automodPreviewTab === 'posts' ? (
+                  <div className="space-y-2.5">
+                    {matchedPosts.map(post => (
+                      <div key={post.id} className="p-3 bg-white border border-[#e7e8ec] rounded-[3px] space-y-1.5 text-left text-[12px] leading-relaxed relative hover:border-[#cbccd3] transition-colors duration-150">
+                        <div className="flex justify-between items-center text-[#818c99] text-[11px]">
+                          <span className="font-semibold text-[#2c2d2e]">{post.authorName}</span>
+                          <span>{post.timestamp}</span>
+                        </div>
+                        <p className="text-[#2c2d2e] break-words line-clamp-3">
+                          {renderHighlightedContent(post.text || '', currentKeywords)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {matchedUsers.map(user => (
+                      <div key={user.id} className="p-2.5 bg-white border border-[#e7e8ec] rounded-[3px] flex items-center justify-between text-[12px] leading-tight hover:border-[#cbccd3] transition-colors duration-150">
+                        <div className="flex items-center gap-2 max-w-[70%]">
+                          <span className="font-semibold text-[#2c2d2e] truncate">{user.name}</span>
+                          {user.status && (
+                            <span className="text-[#818c99] text-[11px] truncate italic">
+                              «{user.status}»
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] bg-red-50 text-red-600 font-bold px-1.5 py-0.5 rounded border border-red-100 uppercase scale-90">
+                          Под Риском
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN - ACTIVE CONTROLS PANEL */}
+          <div className="lg:col-span-5 space-y-4">
+            {/* Active configured rules block styled precisely as VK settings panel */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[4px] shadow-none p-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                <h3 className="text-[12.5px] font-semibold text-[#2c2d2e] tracking-wide">
+                  Действующие правила брандмауэра
+                </h3>
+                <span className="text-[11px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-normal leading-tight">
+                  Правил: {automodRules.length}
+                </span>
+              </div>
+
+              {/* Search filter input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Искать по названию или триггеру..."
+                  value={ruleSearchQuery}
+                  onChange={(e) => setRuleSearchQuery(e.target.value)}
+                  className="w-full bg-[#f2f3f5] hover:bg-[#ebedf0] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#5181b8] text-[12px] transition-colors outline-none text-[#2c2d2e] pl-8 placeholder-[#818c99]"
+                />
+                <Search size={13} className="text-[#818c99] absolute left-2.5 top-2.5" />
+                {ruleSearchQuery && (
+                  <button
+                    onClick={() => setRuleSearchQuery('')}
+                    className="absolute right-2.5 top-1.5 text-[#818c99] hover:text-[#2c2d2e] text-[12px]"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* Rules cards list */}
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                {(() => {
+                  const filteredRules = automodRules.filter(rule => 
+                    rule.name.toLowerCase().includes(ruleSearchQuery.toLowerCase()) ||
+                    rule.keywords.some((kw: string) => kw.toLowerCase().includes(ruleSearchQuery.toLowerCase()))
+                  );
+
+                  if (filteredRules.length === 0) {
+                    return (
+                      <div className="text-center py-10 text-[#818c99] text-[11.5px] bg-[#fafbfc] rounded-[4px] border border-dashed border-[#e7e8ec] select-none">
+                        {automodRules.length === 0 ? 'Конфигурация правил пуста' : 'Ничего не найдено'}
+                      </div>
+                    );
+                  }
+
+                  return filteredRules.map(rule => {
+                    const ruleParam = rule.parameter || rule.action;
+                    const ruleSecs = rule.sections || ['posts'];
+                    const ruleDepths = rule.depth || ['match'];
+                    const isRuleExpanded = ruleToViewSettings && ruleToViewSettings.id === rule.id;
+
+                    return (
+                      <div 
+                        key={rule.id} 
+                        className={`p-3 border rounded-[4px] bg-white transition-all text-left ${rule.isActive ? 'border-[#e7e8ec] hover:border-[#ccd4db]' : 'border-dashed border-[#e7e8ec] opacity-60 bg-[#fafbfc]'}`}
+                      >
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="space-y-0.5">
+                              <span 
+                                onClick={() => setRuleToViewSettings(isRuleExpanded ? null : rule)}
+                                className="text-[12.5px] font-semibold text-[#2a5885] cursor-pointer hover:underline block leading-snug"
+                              >
+                                {rule.name}
+                              </span>
+                              
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-[#818c99]">
+                                <span>Автор: <strong className="text-[#2c2d2e] font-normal">{rule.author || 'Система'}</strong></span>
+                                <span>•</span>
+                                <span>{rule.createdDate || '10.04.2026'}</span>
+                              </div>
+                            </div>
+
+                            <span className={`text-[9.5px] font-medium tracking-wide px-1.5 py-0.5 rounded-[2px] select-none ${
+                              ruleParam === 'delete_ban' ? 'bg-[#fae6e6] text-[#e64646]' :
+                              ruleParam === 'block' ? 'bg-[#fff0e6] text-[#d97706]' :
+                              ruleParam === 'flag_pro' ? 'bg-[#f3e8ff] text-[#7c3aed]' :
+                              'bg-[#fffbeb] text-[#b45309]'
+                            }`}>
+                              {ruleParam === 'delete_ban' ? 'purge' : ruleParam === 'block' ? 'ban' : ruleParam === 'flag_pro' ? 'warn' : 'del'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-[#f0f2f5] text-[11px] gap-2">
+                            <div className="text-[#818c99]">
+                              Предотвращено: <span className="font-semibold text-vk-text">{rule.matchCount}</span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {rule.isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRunExistingRuleOnCurrentDB(rule)}
+                                  className="text-[#2a5885] font-semibold hover:underline cursor-pointer"
+                                  title="Запустить обработку БД прямо сейчас"
+                                >
+                                  Применить к БД
+                                </button>
+                              )}
+                              
+                              <button
+                                type="button"
+                                onClick={() => setRuleToViewSettings(isRuleExpanded ? null : rule)}
+                                className="text-[#2a5885] hover:underline font-semibold cursor-pointer"
+                              >
+                                {isRuleExpanded ? 'Скрыть' : 'Детали'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  toggleRuleActive(rule.id);
+                                }}
+                                className={`px-2 py-0.5 rounded-[3px] text-[10px] font-semibold transition-all cursor-pointer ${rule.isActive ? 'bg-[#eef2f6] text-[#2a5885] hover:bg-[#e3e8f0]' : 'bg-[#f0f2f5] text-[#818c99] hover:bg-[#e0e2e6]'}`}
+                              >
+                                {rule.isActive ? 'Вкл' : 'Выкл'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Вы уверены, что хотите стереть правило "${rule.name}"?`)) {
+                                    deleteRule(rule.id);
+                                  }
+                                }}
+                                className="text-[#e64646] hover:underline cursor-pointer font-bold"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expand settings details box */}
+                          {isRuleExpanded && (
+                            <div className="mt-1.5 pt-2 border-t border-[#f0f2f5] space-y-2 text-[11px] bg-[#f5f7fa] p-2.5 rounded-[2px] border border-[#e7e8ec]">
+                              <div>
+                                <strong className="text-[#818c99] block mb-1 font-normal">Слова-триггеры правила:</strong>
+                                <div className="flex flex-wrap gap-1">
+                                  {rule.keywords?.map((kw: string, idx: number) => (
+                                    <span key={idx} className="bg-white px-1.5 py-0.5 rounded-[2px] border border-[#e7e8ec] text-[10.5px] text-[#2c2d2e] font-sans">
+                                      {kw}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#ebedf0]">
+                                <div>
+                                  <strong className="text-[#818c99] block mb-0.5 font-normal">Области инспекции:</strong>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {ruleSecs.map((sec: string) => (
+                                      <span key={sec} className="bg-white text-[#2a5885] px-1 py-0.5 rounded-[2px] text-[10px] font-medium border border-[#dce1e6]">
+                                        {getSectionLabel(sec)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <strong className="text-[#818c99] block mb-0.5 font-normal">Фильтрация:</strong>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {ruleDepths.map((dep: string) => (
+                                      <span key={dep} className="bg-white text-[#4bb34b] px-1 py-0.5 rounded-[2px] text-[10px] font-medium border border-[#c3e6c3]">
+                                        {dep === 'match' ? 'Точные' : 'Подобия'}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Spam Exemplars database block */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[4px] shadow-none p-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                <h3 className="text-[12.5px] font-semibold text-[#2c2d2e] tracking-wide">
+                  База контентных экземпляров
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingExemplar(!isAddingExemplar)}
+                    className="px-2 py-0.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[3px] text-[10px] font-medium transition-all cursor-pointer"
+                  >
+                    {isAddingExemplar ? 'Отмена' : 'Добавить'}
+                  </button>
+                  <span className="text-[11px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-normal leading-tight">
+                    {spamDecisions.length}
+                  </span>
+                </div>
+              </div>
+
+              {isAddingExemplar && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -5 }} 
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-[#fafbfc] p-3 border border-[#e7e8ec] rounded-[4px] space-y-2 text-left"
+                >
+                  <label className="block text-[11px] font-semibold text-[#818c99] uppercase mb-1">
+                    Текст или спам-паттерн вручную
+                  </label>
+                  <textarea
+                    placeholder="Впишите подозрительный абзац, шаблон рефок, спам-шаблоны..."
+                    value={newExemplarText}
+                    onChange={(e) => setNewExemplarText(e.target.value)}
+                    className="w-full h-16 p-2 text-[12px] border border-[#d3d9de] rounded-[4px] focus:outline-none focus:border-[#4a76a8] bg-white text-black resize-y leading-relaxed font-sans"
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newExemplarText.trim()) return;
+                        const newDecision: SpamDecision = {
+                          id: `sd-manual-${Date.now()}`,
+                          postText: newExemplarText.trim(),
+                          authorName: 'Ручной ввод',
+                          moderatorName: operatorName ? `${operatorName} #${operatorId}` : 'Модератор',
+                          timestamp: new Date().toLocaleString('ru', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
+                          source: 'Ручное добавление'
+                        };
+                        setSpamDecisions(prev => [newDecision, ...prev]);
+                        setNewExemplarText('');
+                        setIsAddingExemplar(false);
+                        addNotification('Добавлено', 'Паттерн внесен в базу спам-экземпляров.');
+                      }}
+                      className="px-3 py-1 bg-[#5181b8] text-white text-[11px] font-medium rounded-[3px] transition-all cursor-pointer"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Search exemplars input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Поиск по спам-экземплярам..."
+                  value={exemplarSearchQuery}
+                  onChange={(e) => setExemplarSearchQuery(e.target.value)}
+                  className="w-full bg-[#f2f3f5] hover:bg-[#ebedf0] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#5181b8] text-[12px] transition-colors outline-none text-[#2c2d2e] pl-8 placeholder-[#818c99]"
+                />
+                <Search size={13} className="text-[#818c99] absolute left-2.5 top-2.5" />
+                {exemplarSearchQuery && (
+                  <button
+                    onClick={() => setExemplarSearchQuery('')}
+                    className="absolute right-2.5 top-1.5 text-[#818c99] hover:text-[#2c2d2e] text-[12px]"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* List of exemplars */}
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                {(() => {
+                  const filtered = spamDecisions.filter(decision => 
+                    decision.postText.toLowerCase().includes(exemplarSearchQuery.toLowerCase())
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-10 text-[#818c99] text-[11.5px] bg-[#fafbfc] rounded-[4px] border border-dashed border-[#e7e8ec] select-none">
+                        База спам-экземпляров пуста
+                      </div>
+                    );
+                  }
+
+                  return filtered.map(decision => (
+                    <div 
+                      key={decision.id} 
+                      className="bg-white p-3 border border-[#e7e8ec] rounded-[4px] transition-all hover:border-[#ccd4db] text-left space-y-1.5 relative group"
+                    >
+                      <div className="text-[12px] text-[#2c2d2e] whitespace-pre-wrap leading-relaxed pr-6 bg-[#fafbfc] p-2 rounded-[3px] border border-[#e7e8ec]">
+                        {decision.postText}
+                      </div>
+                      
+                      <div className="text-[10.5px] text-[#818c99] flex gap-2 items-center justify-between pt-1">
+                        <div>
+                          Добавил: <span className="font-semibold text-[#2a5885]">{decision.moderatorName}</span>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setSpamDecisions(prev => prev.filter(d => d.id !== decision.id));
+                            addNotification('Удалено', 'Паттерн удален с панели экземпляров.');
+                          }}
+                          className="text-[#e64646] hover:underline font-semibold cursor-pointer"
+                        >
+                          Стереть
+                        </button>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+
+
+            {/* LIVE PREVIEW OF SYSTEM VIOLATORS (The requested feature - Лента профилей и контента!) */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[2px] overflow-hidden">
+              {/* Header */}
+              <div className="border-b border-[#f0f2f5] p-4 bg-[#fafbfc] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <h4 className="text-[13.0px] font-bold text-[#2a5885]">
+                    Предпросмотр объектов под риском ограничения
+                  </h4>
+                  <p className="text-[11.5px] text-[#818c99]">
+                    Живой инспекционный контроль данных по текущим словам-триггерам: «{ruleFormTrigger || 'нет данных'}»
+                  </p>
+                </div>
+
+                {/* Sub Tab selection widgets inside standard VK styled card header */}
+                <div className="inline-flex bg-[#f0f2f5] p-0.5 rounded-[4px] shrink-0 border border-[#e2e2e2]">
+                  <button
+                    type="button"
+                    onClick={() => setAutomodPreviewTab('users')}
+                    className={`px-3 py-1 text-[11.5px] font-semibold rounded-[3px] transition-all cursor-pointer ${automodPreviewTab === 'users' ? 'bg-white text-black shadow-sm' : 'text-[#55677d] hover:text-black'}`}
+                  >
+                    Профили ({matchedUsers.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutomodPreviewTab('posts')}
+                    className={`px-3 py-1 text-[11.5px] font-semibold rounded-[3px] transition-all cursor-pointer ${automodPreviewTab === 'posts' ? 'bg-white text-black shadow-sm' : 'text-[#55677d] hover:text-black'}`}
+                  >
+                    Лента публикаций ({matchedPosts.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Feed Content body Area */}
+              <div className="p-4 bg-[#fcfdfe] min-h-[220px] max-h-[450px] overflow-y-auto space-y-3">
+                {automodPreviewTab === 'users' ? (
+                  // Users and Profile Status matched list in VKontakte style
+                  matchedUsers.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-[#818c99] space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-[#f0f2f5] flex items-center justify-center text-gray-400">
+                        <Users size={20} />
+                      </div>
+                      <p className="text-[12.5px] font-medium text-gray-500">
+                        Нет профилей, попадающих под введенные триггеры.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-[#f0f2f5] text-left">
+                      {matchedUsers.map(u => (
+                        <div key={u.id} className="py-3 first:pt-0 last:pb-0 flex items-start gap-3 hover:bg-[#fcfdfe] transition-all">
+                          {/* Round User Avatar with state controls */}
+                          <div className={`w-11 h-11 rounded-full overflow-hidden border border-[#e0e0e0] shrink-0 bg-stone-100 ${u.isBlocked ? 'brightness-75' : ''}`}>
+                            <img src={u.avatar || 'images.png'} alt={u.name} className="w-full h-full object-cover" />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-[#2a5885] hover:underline cursor-pointer block truncate text-[13px]">
+                                {u.name}
+                              </span>
+                              {u.isVerified && <VerifiedBadge size={14} />}
+                              {u.isBlocked && (
+                                <span className="bg-[#fae6e6] text-[#e64646] text-[8.5px] font-bold px-1.5 uppercase rounded-[1px] select-none">
+                                  Блокирован
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-[11px] text-[#818c99] mt-0.5">
+                              Регистрация: {u.regDate || 'Неизвестно'} · ID: #{u.id}
+                            </div>
+
+                            {/* Block status or name matched string highlights */}
+                            <div className="mt-1.5 bg-[#f0f2f5] p-2 rounded-[3px] border border-[#e7e8ec] text-[12px] text-[#2c2d2e]">
+                              <span className="text-[#818c99] font-medium mr-1 select-none">Статус профиля:</span>
+                              「{renderHighlightedContent(u.status || 'нет статуса', currentKeywords)}」
+                            </div>
+                          </div>
+
+                          <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200/50 rounded-[2px] px-2 py-0.5 whitespace-nowrap self-center font-sans">
+                            {ruleFormParameter === 'delete_ban' ? 'Бан' : ruleFormParameter === 'block' ? 'Бан' : 'Жалоба'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  // Matched Publications (Stream Posts) as standard VKontakte wall post cards
+                  matchedPosts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-[#818c99] space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-[#f0f2f5] flex items-center justify-center text-gray-400">
+                        <MessageCircleOff size={20} />
+                      </div>
+                      <p className="text-[12.5px] font-medium text-gray-500">
+                        Нет постов, попадающих под введенные триггеры.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {matchedPosts.map(post => (
+                        <div key={post.id} className="bg-white border border-[#e7e8ec] p-3.5 rounded-[2px] relative hover:shadow-xs transition-shadow text-left">
+                          {/* Post Author Card Header */}
+                          <div className="flex items-center gap-2.5 mb-2.5">
+                            <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-[#e0e0e0]">
+                              <img src={post.authorAvatar || 'images.png'} alt={post.authorName} className="w-full h-full object-cover" />
+                            </div>
+                            <div>
+                              <div className="text-[12.5px] font-bold text-[#2a5885] hover:underline cursor-pointer">
+                                {post.authorName}
+                              </div>
+                              <div className="text-[10px] text-[#818c99]">
+                                Время: {post.timestamp || 'только что'} · Публикация Стрима
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Format Badge */}
+                          <div className="mb-2">
+                            <PostFormatBadge format={post.postFormat || 'OPINION'} />
+                          </div>
+
+                          {/* Post Text content with highlighted keywords */}
+                          <div className="text-[12.5px] text-black whitespace-pre-wrap leading-relaxed">
+                            {renderHighlightedContent(post.text || '', currentKeywords)}
+                          </div>
+
+                          {/* Photo attachment placeholder overlay if photo exists on object */}
+                          {post.image && (
+                            <div className="mt-2.5 max-w-sm rounded-[2px] overflow-hidden border border-[#dce1e6] bg-[#fafbfc] aspect-video flex items-center justify-center">
+                              <span className="text-[11px] text-[#818c99] font-mono select-none">Фотовложение поста</span>
+                            </div>
+                          )}
+
+                          {/* Matching tag indicators */}
+                          <div className="mt-3 pt-2 border-t border-[#f2f4f7] flex items-center justify-between text-[11px] text-[#818c99]">
+                            <span>Лайков: <span className="text-[#a0a0a0] font-bold">{post.likes}</span></span>
+                            <span className="text-red-600 font-bold uppercase tracking-wider text-[9.5px]">
+                              Попадает под {ruleFormParameter === 'delete' || ruleFormParameter === 'delete_ban' ? 'Удаление' : 'Флаг в спам'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+
+              {/* Apply sanction directly panel */}
+              {totalHitsCount > 0 && (
+                <div className="bg-[#fffbeb] border-t border-[#fef3c7] p-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                  <div className="text-[12px] text-[#713f12]">
+                    Найдено в базе <strong className="text-black font-black font-mono">{totalHitsCount}</strong> нарушений. Сделайте зачистку рисков одним движением!
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Вы уверены, что хотите запустить автоконтроль "${ruleFormName || 'Новое автоправило'}" над всеми найденными (${totalHitsCount}) объектами? Посты будут незамедлительно стёрты, а нарушители забанены по выбранной схеме.`)) {
+                        executeAutoRuleActions(ruleFormName, ruleFormParameter, matchedPosts, matchedUsers, currentKeywords);
+                      }
+                    }}
+                    className="px-4 py-1.5 bg-[#e64646] hover:bg-[#d03d3d] active:bg-[#b03434] text-white text-[12px] font-bold rounded-[2px] transition-all cursor-pointer whitespace-nowrap shadow-sm"
+                  >
+                    Запустить автодействие над совпадениями
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
+
+          {/* RIGHT SIDEBAR WITH LOGS / STATUS PANELS / ACTIVE CONTROLS (5/12 layout) */}
+          <div className="lg:col-span-5 space-y-4">
+            
+            {/* Active configured rules block styled precisely as VK settings panel */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[4px] shadow-none p-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                <h3 className="text-[12.5px] font-bold text-[#2a5885] uppercase tracking-wider">
+                  Действующие правила брандмауэра
+                </h3>
+                <span className="text-[11px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-bold font-mono">
+                  Rules: {automodRules.length}
+                </span>
+              </div>
+
+              {/* Search filter input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Искать по названию или триггеру..."
+                  value={ruleSearchQuery}
+                  onChange={(e) => setRuleSearchQuery(e.target.value)}
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] transition-colors outline-none text-black pl-8"
+                />
+                <Search size={13} className="text-[#818c99] absolute left-2.5 top-2.5" />
+                {ruleSearchQuery && (
+                  <button
+                    onClick={() => setRuleSearchQuery('')}
+                    className="absolute right-2.5 top-1.5 text-[#818c99] hover:text-black text-[11px] font-bold"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* Rules cards list */}
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                {(() => {
+                  const filteredRules = automodRules.filter(rule => 
+                    rule.name.toLowerCase().includes(ruleSearchQuery.toLowerCase()) ||
+                    rule.keywords.some((kw: string) => kw.toLowerCase().includes(ruleSearchQuery.toLowerCase()))
+                  );
+
+                  if (filteredRules.length === 0) {
+                    return (
+                      <div className="text-center py-10 text-[#818c99] text-[12px] bg-[#fafbfc] rounded-[4px] border border-dashed border-[#e7e8ec] select-none">
+                        {automodRules.length === 0 ? 'Конфигурация правил пуста' : 'Ничего не найдено'}
+                      </div>
+                    );
+                  }
+
+                  return filteredRules.map(rule => {
+                    const ruleParam = rule.parameter || rule.action;
+                    const ruleSecs = rule.sections || ['posts'];
+                    const ruleDepths = rule.depth || ['match'];
+                    const isRuleExpanded = ruleToViewSettings && ruleToViewSettings.id === rule.id;
+
+                    return (
+                      <div 
+                        key={rule.id} 
+                        className={`p-3.5 border rounded-[4px] bg-white transition-all text-left ${rule.isActive ? 'border-[#e7e8ec] hover:border-[#ccd4db]' : 'border-dashed border-gray-200 opacity-60 bg-stone-50/50'}`}
+                      >
+                        <div className="flex flex-col gap-2.5">
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="space-y-0.5">
+                              <span 
+                                onClick={() => setRuleToViewSettings(isRuleExpanded ? null : rule)}
+                                className="text-[13px] font-bold text-[#2a5885] cursor-pointer hover:underline block leading-snug"
+                              >
+                                {rule.name}
+                              </span>
+                              
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-[#818c99]">
+                                <span>Автор: <strong className="text-black font-semibold">{rule.author || 'Система'}</strong></span>
+                                <span>•</span>
+                                <span>{rule.createdDate || '10.04.2026'}</span>
+                              </div>
+                            </div>
+
+                            <span className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-[1px] select-none ${
+                              ruleParam === 'delete_ban' ? 'bg-[#fae6e6] text-[#e64646]' :
+                              ruleParam === 'block' ? 'bg-[#fff0e6] text-[#d97706]' :
+                              ruleParam === 'flag_pro' ? 'bg-[#f3e8ff] text-[#7c3aed]' :
+                              'bg-[#fffbeb] text-[#b45309]'
+                            }`}>
+                              {ruleParam === 'delete_ban' ? 'purge' : ruleParam === 'block' ? 'ban' : ruleParam === 'flag_pro' ? 'warn' : 'del'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-[#f0f2f5] text-[11.5px] gap-2">
+                            <div className="text-[#818c99] text-[11px]">
+                              Ограничено: <span className="font-bold text-[#22c55e] font-mono">{rule.matchCount}</span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {rule.isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRunExistingRuleOnCurrentDB(rule)}
+                                  className="text-[#2a5885] font-bold hover:underline cursor-pointer"
+                                  title="Запустить обработку БД прямо сейчас"
+                                >
+                                  Применить к БД ⚡
+                                </button>
+                              )}
+                              
+                              <button
+                                type="button"
+                                onClick={() => setRuleToViewSettings(isRuleExpanded ? null : rule)}
+                                className="text-[#818c99] hover:text-black font-semibold cursor-pointer"
+                              >
+                                {isRuleExpanded ? 'Скрыть' : 'Опции'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  toggleRuleActive(rule.id);
+                                }}
+                                className={`px-2 py-0.5 rounded-[3px] text-[10px] font-bold uppercase transition-all cursor-pointer ${rule.isActive ? 'bg-[#eef2f6] text-[#2a5885] hover:bg-[#e3e8f0]' : 'bg-[#f0f2f5] text-gray-400 hover:bg-[#e0e2e6]'}`}
+                              >
+                                {rule.isActive ? 'Вкл' : 'Выкл'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Вы уверены, что хотите стереть правило "${rule.name}"?`)) {
+                                    deleteRule(rule.id);
+                                  }
+                                }}
+                                className="text-red-600 hover:underline cursor-pointer font-bold"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expand settings details box */}
+                          {isRuleExpanded && (
+                            <div className="mt-1.5 pt-2 border-t border-[#f0f2f5] space-y-2 text-[11px] bg-[#fafbfc] p-2 rounded-[3px] border border-[#e7e8ec]">
+                              <div>
+                                <strong className="text-[#818c99] block mb-1">Слова-триггеры правила:</strong>
+                                <div className="flex flex-wrap gap-1">
+                                  {rule.keywords?.map((kw: string, idx: number) => (
+                                    <span key={idx} className="bg-white px-1.5 py-0.5 rounded border border-[#e7e8ec] text-[10.5px] text-black font-mono">
+                                      {kw}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#f0f2f5]">
+                                <div>
+                                  <strong className="text-[#818c99] block mb-0.5">Области инспекции:</strong>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {ruleSecs.map((sec: string) => (
+                                      <span key={sec} className="bg-[#eef2f7] text-[#2a5885] px-1 rounded text-[10px] font-semibold border border-[#dce1e6]">
+                                        {getSectionLabel(sec)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <strong className="text-[#818c99] block mb-0.5">Фильтрация:</strong>
+                                  <div className="flex gap-1 flex-wrap">
+                                    {ruleDepths.map((dep: string) => (
+                                      <span key={dep} className="bg-[#f0f9eb] text-[#52c152] px-1 rounded text-[10px] font-semibold border border-green-200">
+                                        {dep === 'match' ? 'Точные' : 'Подобия'}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Spam Exemplars database block */}
+            <div className="bg-white border border-[#e7e8ec] rounded-[4px] shadow-none p-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                <h3 className="text-[12.5px] font-bold text-[#2a5885] uppercase tracking-wider">
+                  База контентных экземпляров
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingExemplar(!isAddingExemplar)}
+                    className="px-2 py-0.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[3px] text-[10px] font-bold uppercase transition-all cursor-pointer"
+                  >
+                    {isAddingExemplar ? 'Отмена' : 'Добавить'}
+                  </button>
+                  <span className="text-[11.5px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-bold font-mono">
+                    {spamDecisions.length}
+                  </span>
+                </div>
+              </div>
+
+              {isAddingExemplar && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -5 }} 
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-[#fafbfc] p-3 border border-[#e7e8ec] rounded-[4px] space-y-2 text-left"
+                >
+                  <label className="block text-[11px] font-bold text-[#818c99] uppercase mb-1">
+                    Текст или спам-паттерн вручную
+                  </label>
+                  <textarea
+                    placeholder="Впишите подозрительный абзац, шаблон рефок, спам-шаблоны..."
+                    value={newExemplarText}
+                    onChange={(e) => setNewExemplarText(e.target.value)}
+                    className="w-full h-16 p-2 text-[12px] border border-[#d3d9de] rounded-[4px] focus:outline-none focus:border-[#4a76a8] bg-white text-black resize-y leading-relaxed font-sans"
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newExemplarText.trim()) return;
+                        const newDecision: SpamDecision = {
+                          id: `sd-manual-${Date.now()}`,
+                          postText: newExemplarText.trim(),
+                          authorName: 'Ручной ввод',
+                          moderatorName: operatorName ? `${operatorName} #${operatorId}` : 'Модератор',
+                          timestamp: new Date().toLocaleString('ru', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
+                          source: 'Ручное добавление'
+                        };
+                        setSpamDecisions(prev => [newDecision, ...prev]);
+                        setNewExemplarText('');
+                        setIsAddingExemplar(false);
+                        addNotification('Добавлено', 'Паттерн внесен в базу спам-экземпляров.');
+                      }}
+                      className="px-3 py-1 bg-[#5181b8] text-white text-[11px] font-bold uppercase rounded-[3px] transition-all cursor-pointer"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Search exemplars input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Поиск по спам-экземплярам..."
+                  value={exemplarSearchQuery}
+                  onChange={(e) => setExemplarSearchQuery(e.target.value)}
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] transition-colors outline-none text-black pl-8"
+                />
+                <Search size={13} className="text-[#818c99] absolute left-2.5 top-2.5" />
+                {exemplarSearchQuery && (
+                  <button
+                    onClick={() => setExemplarSearchQuery('')}
+                    className="absolute right-2.5 top-1.5 text-[#818c99] hover:text-black font-semibold"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* List of exemplars */}
+              <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
+                {(() => {
+                  const filtered = spamDecisions.filter(decision => 
+                    decision.postText.toLowerCase().includes(exemplarSearchQuery.toLowerCase())
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-10 text-[#818c99] text-[12px] bg-[#fafbfc] rounded-[4px] border border-dashed border-[#e7e8ec] select-none">
+                        База спам-экземпляров пуста
+                      </div>
+                    );
+                  }
+
+                  return filtered.map(decision => (
+                    <div 
+                      key={decision.id} 
+                      className="bg-white p-3 border border-[#e7e8ec] rounded-[4px] transition-all hover:border-[#b2c1d4] text-left space-y-1.5 relative group"
+                    >
+                      <div className="text-[12.5px] text-[#2c2d2e] whitespace-pre-wrap leading-relaxed font-mono text-[11.5px] pr-6 bg-[#fafbfc] p-2 rounded-[3px] border border-vk-separator/40">
+                        {decision.postText}
+                      </div>
+                      
+                      <div className="text-[10.5px] text-[#818c99] flex gap-2 items-center justify-between pt-1">
+                        <div>
+                          Добавил: <span className="font-semibold text-[#2a5885]">{decision.moderatorName}</span>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setSpamDecisions(prev => prev.filter(d => d.id !== decision.id));
+                            addNotification('Удалено', 'Паттерн удален с панели экземпляров.');
+                          }}
+                          className="text-[#e64646] hover:underline font-bold cursor-pointer"
+                        >
+                          Стереть
+                        </button>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </motion.div>
+    );
+  };
+
+  const junkBlockToCleanUp = () => {
+    /*
+
+            <div className="p-5 space-y-6">
+              {academyActiveTest.questions.map((q: any, qIdx: number) => {
+                const answerSelected = academyAnswers[qIdx] !== undefined;
+                const selectedOpt = academyAnswers[qIdx];
+                return (
+                  <div key={qIdx} className="space-y-3 p-4 border border-vk-separator/60 rounded bg-white">
+                    <h3 className="text-[13px] font-semibold text-vk-text flex gap-2">
+                      <span className="text-vk-text-secondary font-mono">{qIdx + 1}.</span> {q.q}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pl-4">
+                      {q.opts.map((opt: string, oIdx: number) => {
+                        let btnStyle = 'border-[#dce1e6] hover:bg-[#fafbfc] text-vk-text';
+                        const isSelected = selectedOpt === oIdx;
+                        
+                        if (academyScore !== null) {
+                          if (oIdx === q.correct) {
+                            btnStyle = 'border-[#4bb34b] bg-green-50 text-green-700';
+                          } else if (isSelected) {
+                            btnStyle = 'border-red-400 bg-red-50 text-red-600';
+                          } else {
+                            btnStyle = 'border-[#e7e8ec] opacity-60 text-vk-text-secondary';
+                          }
+                        } else if (isSelected) {
+                          btnStyle = 'border-[#4a76a8] bg-[#e5f0fc] text-[#2a5885] font-semibold';
+                        }
+                        
+                        return (
+                          <button
+                            key={oIdx}
+                            disabled={academyScore !== null}
+                            onClick={() => selectAnswer(qIdx, oIdx)}
+                            className={`p-3 text-left border rounded text-[12px] transition-all duration-200 outline-none leading-relaxed cursor-pointer ${btnStyle}`}
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {academyScore !== null && (
+                      <div className="mt-3 p-2 px-3 border-l-2 border-[#5181b8] bg-[#fcfcfd] text-[11.5px] text-vk-text-secondary leading-relaxed">
+                        {q.feedback}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="pt-4 border-t border-vk-separator flex justify-between items-center">
+                {academyScore === null ? (
+                  <>
+                    <div className="text-[11.5px] text-vk-text-secondary">
+                      Отвечено вопросов: {Object.keys(academyAnswers).length} из {academyActiveTest.questions.length}
+                    </div>
+                    <button
+                      onClick={finalizeTest}
+                      disabled={Object.keys(academyAnswers).length < academyActiveTest.questions.length}
+                      className={`px-5 py-2 rounded-[4px] text-xs font-semibold ${Object.keys(academyAnswers).length === academyActiveTest.questions.length ? 'bg-[#5181b8] text-white hover:bg-[#5b88bd] cursor-pointer' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                    >
+                      Сдать тест в систему
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[13px] font-semibold">
+                        Результат: <span className={academyScore >= 3 ? 'text-[#4bb34b]' : 'text-red-500'}>{academyScore} / {academyActiveTest.questions.length}</span>
+                      </span>
+                      {academyScore >= 3 ? (
+                        <span className="text-[11px] bg-green-50 text-[#4bb34b] border border-green-200 p-1 px-2 rounded font-medium">Зачтено! Карма получена.</span>
+                      ) : (
+                        <span className="text-[11px] bg-red-50 text-red-500 border border-red-100 p-1 px-2 rounded font-medium">Порог неудачи. Требуется минимум 3/4 баллов.</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => startTest(academyActiveTest)}
+                        className="px-4 py-1.5 border border-vk-separator text-vk-text-secondary text-[12px] rounded-[4px] hover:bg-[#fafbfc] cursor-pointer"
+                      >
+                        Пересдать заново
+                      </button>
+                      <button
+                        onClick={() => setAcademyActiveTest(null)}
+                        className="px-4 py-1.5 bg-[#5181b8] text-white text-[12px] rounded-[4px] hover:bg-[#5b88bd] cursor-pointer"
+                      >
+                        Вернуться
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-4">
+              <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px]">
+                <h3 className="text-sm font-semibold mb-4 text-[#2a5885] flex items-center gap-1.5">
+                  <BookOpen size={16} /> Доступные курсы и тренинги
+                </h3>
+                <div className="space-y-4">
+                  {ACADEMY_TESTS.map(test => {
+                    const passed = hasAchievement(test.achievementId);
+                    return (
+                      <div key={test.id} className="p-4 border border-vk-separator hover:border-[#5181b8]/50 transition-all rounded-[3px] bg-white flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+                        <div className="flex gap-3">
+                          <div className="w-10 h-10 shrink-0 bg-[#f0f2f5] text-[#5181b8] rounded-full flex items-center justify-center border border-vk-separator">
+                            <test.icon size={20} />
+                          </div>
+                          <div>
+                            <h4 className="text-[13.5px] font-semibold text-vk-text flex items-center gap-1.5">
+                              {test.title}
+                              {passed && <CheckCircle size={14} className="text-[#4bb34b]" title="Пройден" />}
+                            </h4>
+                            <p className="text-[11.5px] text-vk-text-secondary mt-1">{test.desc}</p>
+                            <div className="flex items-center gap-3 mt-2 text-[10.5px] text-vk-text-secondary">
+                              <span className="font-mono bg-gray-100 p-0.5 px-2 rounded-sm text-vk-text">+{test.xpReward} XP</span>
+                              <span>Репутация: +{test.repReward} кармы</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => startTest(test)}
+                          className={`px-4 py-1.5 rounded-[4px] text-xs font-semibold whitespace-nowrap self-stretch md:self-auto text-center cursor-pointer ${passed ? 'bg-[#f0f2f5] text-[#2a5885] border border-transparent hover:bg-gray-200' : 'bg-[#5181b8] text-white hover:bg-[#5b88bd]'}`}
+                        >
+                          {passed ? 'Пройти повторно' : 'Начать обучение'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px] text-center">
+                <div className="w-16 h-16 bg-[#fafbfc] border border-[#e1e5eb] rounded-full mx-auto flex items-center justify-center mb-3">
+                  <Trophy size={32} className="text-amber-500" />
+                </div>
+                <h3 className="text-sm font-semibold">{currentUser?.name}</h3>
+                <span className={`inline-block mt-2 text-[10.5px] font-semibold border-b border-t border-r border-l p-1 px-3 rounded-full ${rank.color}`}>
+                  {rank.title}
+                </span>
+
+                <div className="mt-4 pt-4 border-t border-vk-separator space-y-2.5 text-left">
+                  <div className="flex justify-between text-[11.5px]">
+                    <span className="text-vk-text-secondary">Прогресс ранга:</span>
+                    <span className="font-semibold font-mono">{(currentUser?.academyXp || 0)} / 450 XP</span>
+                  </div>
+                  <div className="w-full bg-[#f0f2f5] h-2 rounded overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-[#5181b8] to-indigo-500 rounded"
+                      style={{ width: `${Math.min(((currentUser?.academyXp || 0) / 450) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10.5px] text-vk-text-secondary leading-normal block">Завершайте учебные программы, чтобы продвигать свои права и полномочия в модераторском цехе.</span>
+                </div>
+              </div>
+
+              <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px]">
+                <h4 className="text-[11px] uppercase font-bold text-vk-text-secondary mb-3 tracking-wider">Значки Академии</h4>
+                <div className="space-y-2">
+                  {[
+                    { id: 'gdpr_master', name: 'Защитник Данных', desc: 'Пройден тест конфиденциальности', emoji: '🛡️' },
+                    { id: 'spam_hunter', name: 'Стальной Охотник', desc: 'Успешно разоблачены бот-системы', emoji: '🏹' },
+                    { id: 'content_arbiter', name: 'Арбитр Грамонии', desc: 'Мастерское разрешение уличных баталий', emoji: '⚖️' },
+                    { id: 'academy_graduate', name: 'Выпускник Академии', desc: 'Пройден комплексный лекторий', emoji: '🎓' }
+                  ].map(b => {
+                    const has = hasAchievement(b.id);
+                    return (
+                      <div key={b.id} className={`flex gap-3 p-2.5 rounded items-center border ${has ? 'bg-white border-vk-separator' : 'bg-gray-50/50 border-dashed border-gray-200 opacity-45'}`}>
+                        <span className="text-lg">{b.emoji}</span>
+                        <div>
+                          <div className={`text-[11.5px] font-semibold ${has ? 'text-[#2a5885]' : 'text-gray-400'}`}>{b.name}</div>
+                          <div className="text-[10px] text-vk-text-secondary mt-0.5">{b.desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+    */
+    return null;
+  };
+
+  const oldAutomoderatorJunk = () => {
+    /*
+    const handleTestText = () => {
+      if (!sandboxText.trim()) return;
+      const matched = automodRules.find(r => r.isActive && r.keywords.some((kw: string) => sandboxText.toLowerCase().includes(kw.toLowerCase())));
+      
+      if (matched) {
+        addNotification('Триггер сработал!', `Текст попадает под правило: "${matched.name}"`);
+        setAutomodRules(prev => prev.map(r => r.id === matched.id ? { ...r, matchCount: r.matchCount + 1 } : r));
+      } else {
+        addNotification('Проверка чиста', 'Текст прошёл проверку без блокировок.');
+      }
+    };
+
+    const handleCreateRule = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newRuleName.trim() || !newRuleKeywords.trim()) return;
+
+      const keywordsList = newRuleKeywords
+        .split(',')
+        .map(kw => kw.trim().toLowerCase())
+        .filter(kw => kw.length > 0);
+
+      const brandNew = {
+        id: `rule-${Date.now()}`,
+        name: newRuleName.trim(),
+        keywords: keywordsList,
+        action: newRuleAction,
+        isActive: true,
+        matchCount: 0
+      };
+
+      setAutomodRules(prev => [...prev, brandNew]);
+      setNewRuleName('');
+      setNewRuleKeywords('');
+      addNotification('Правило создано', `Добавлен новый автоматический триггер: "${brandNew.name}"`);
+
+      const logEntry = {
+        id: `automod-new-${Date.now()}`,
+        action: `Создано новое правило авто-модерации "${brandNew.name}" со словами-триггерами: [${keywordsList.join(', ')}]`,
+        timestamp: new Date()
+      };
+      setProfileModerationLogs(prev => [logEntry, ...prev]);
+    };
+
+    const toggleRuleActive = (ruleId: string) => {
+      setAutomodRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+    };
+
+    const deleteRule = (ruleId: string) => {
+      setAutomodRules(prev => prev.filter(r => r.id !== ruleId));
+      addNotification('Служба обновлена', 'Правило успешно удалено.');
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+        <div className="bg-vk-white p-5 border border-vk-separator rounded-[2px] flex flex-col md:flex-row gap-4 items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center border border-red-100">
+              <Cpu size={24} />
+            </div>
+            <div>
+              <h1 className="text-[17px] font-medium text-vk-text">Автоматический Модератор (Антиспам)</h1>
+              <p className="text-[12px] text-vk-text-secondary">Управляйте триггерами, которые сканируют публикации пользователей и автоматизируют баны или удаление скама.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="md:col-span-2 space-y-4">
+            <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px]">
+              <h3 className="text-sm font-semibold text-vk-text mb-4 uppercase tracking-wider text-[#2a5885] flex items-center gap-1.5 font-mono">
+                Системные правила авто-фильтрации
+              </h3>
+              
+              <div className="space-y-3">
+                {automodRules.map(rule => (
+                  <div key={rule.id} className={`p-4 border rounded-[3px] bg-white transition-all ${rule.isActive ? 'border-vk-separator' : 'border-dashed border-gray-200 opacity-65'}`}>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] font-bold text-vk-text">{rule.name}</span>
+                          <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-semibold ${
+                            rule.action === 'delete_ban' ? 'bg-red-50 text-red-600 border border-red-100' :
+                            rule.action === 'flag_pro' ? 'bg-purple-50 text-[#8a2be2] border border-purple-100' :
+                            'bg-yellow-50 text-yellow-800 border border-yellow-100'
+                          }`}>
+                            {rule.action === 'delete_ban' ? 'Удалить пост + БАН создателя' :
+                             rule.action === 'flag_pro' ? 'Направить ПРО-экспертам' :
+                             'Перенести в спам-очередь'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {rule.keywords.map((kw: string, kIdx: number) => (
+                            <span key={kIdx} className="text-[10.5px] bg-[#f0f2f5] font-mono text-vk-text-secondary px-2 py-0.5 rounded-sm">
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className="text-[10px] text-vk-text-secondary uppercase block leading-none">Сработало</span>
+                          <span className="font-semibold text-[13px] font-mono text-vk-text">{rule.matchCount}</span>
+                        </div>
+                        <button
+                          onClick={() => toggleRuleActive(rule.id)}
+                          className={`p-1 px-3 rounded text-[11px] font-semibold border transition-all cursor-pointer ${rule.isActive ? 'bg-[#e5ebf1] text-[#2a5885] border-transparent hover:bg-[#dfe6ed]' : 'bg-gray-100 text-gray-400 border-transparent hover:bg-gray-200'}`}
+                        >
+                          {rule.isActive ? 'Активно' : 'Выкл'}
+                        </button>
+                        <button
+                          onClick={() => deleteRule(rule.id)}
+                          className="p-1 px-2 text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {automodRules.length === 0 && (
+                  <div className="text-center p-8 text-vk-text-secondary text-[12.5px]">
+                    Нет активных правил. Создайте первичное правило во избежание флуда.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px]">
+              <h3 className="text-sm font-semibold text-vk-text mb-2 text-[#2a5885] flex items-center gap-1.5">
+                Песочница фильтров (Интерактивный тест)
+              </h3>
+              <p className="text-[11.5px] text-vk-text-secondary mb-3">Введите любой рекламный или сомнительный текст ниже. Механизм проверит личное совпадение со словарями фильтрации в реальном времени.</p>
+              
+              <div className="space-y-3">
+                <textarea
+                  rows={3}
+                  value={sandboxText}
+                  onChange={(e) => setSandboxText(e.target.value)}
+                  placeholder="Например: Заходи на мой telegram-канал, тут раздают бесплатные битки и пассивный заработок!"
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white text-[12.5px] p-3 rounded-[4px] border border-transparent focus:border-[#4a76a8] outline-none transition-all leading-normal"
+                />
+                <button
+                  onClick={handleTestText}
+                  disabled={!sandboxText.trim()}
+                  className={`px-4 py-1.5 rounded-[4px] text-xs font-semibold cursor-pointer ${sandboxText.trim() ? 'bg-[#5181b8] text-white hover:bg-[#5b88bd]' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                >
+                  Проверить текст по словарям
+                </button>
+                
+                {sandboxText.trim() && (
+                  <div className="p-3 bg-[#fafbfc] border border-vk-separator/80 rounded mt-2">
+                    <div className="text-[10px] uppercase font-bold text-vk-text-secondary">Результат сканирования:</div>
+                    {automodRules.filter(r => r.isActive).some(r => r.keywords.some((kw: string) => sandboxText.toLowerCase().includes(kw.toLowerCase()))) ? (
+                      (() => {
+                        const ruleMatched = automodRules.find(r => r.isActive && r.keywords.some((kw: string) => sandboxText.toLowerCase().includes(kw.toLowerCase())));
+                        const wordMatched = ruleMatched.keywords.find((kw: string) => sandboxText.toLowerCase().includes(kw.toLowerCase()));
+                        return (
+                          <div className="mt-2 text-red-600 text-[12px] flex items-center gap-1.5">
+                            <AlertCircle size={15} />
+                            <span>
+                              <strong>Блокировка:</strong> Текст совпал с правилом <strong>«{ruleMatched?.name}»</strong> (Совпало слово: <span className="font-mono bg-red-100 px-1 border border-red-200 rounded text-red-700">{wordMatched}</span>).
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="mt-2 text-[#4bb34b] text-[12px] flex items-center gap-1.5">
+                        <CheckCircle size={15} />
+                        <span>Текст абсолютно чист. Будет беспрепятственно опубликован на стене.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <form onSubmit={handleCreateRule} className="bg-vk-white p-4 border border-vk-separator rounded-[2px] space-y-4">
+              <h3 className="text-xs font-bold uppercase text-vk-text-secondary tracking-wider">Создать правило фильтрации</h3>
+              
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-vk-text-secondary">Название триггера</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Например, Продажа софта/Читы"
+                  value={newRuleName}
+                  onChange={(e) => setNewRuleName(e.target.value)}
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white text-[12px] p-2 px-3 rounded-[4px] border border-transparent focus:border-[#5181b8] outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-vk-text-secondary block">Основные триггеры (через запятую)</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="читы, cheat, вх, софт, купить хак"
+                  value={newRuleKeywords}
+                  onChange={(e) => setNewRuleKeywords(e.target.value)}
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white text-[12px] p-2 px-3 rounded-[4px] border border-transparent focus:border-[#5181b8] outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-vk-text-secondary">Выполняемое действие</label>
+                <select
+                  value={newRuleAction}
+                  onChange={(e) => setNewRuleAction(e.target.value)}
+                  className="w-full bg-[#f0f2f5] text-[12px] p-2 rounded-[4px] border border-[#dce1e6] focus:outline-none"
+                >
+                  <option value="delete_ban">Удаление и моментальный бан автора</option>
+                  <option value="flag_pro">Повесить жалобный билет ПРО</option>
+                  <option value="flag_spam">Направить в Спам-очередь на ревью</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#4bb34b] text-white hover:bg-[#52c152] transition-colors py-2 rounded-[4px] text-xs font-semibold text-center cursor-pointer"
+              >
+                Сохранить правило в фильтр
+              </button>
+            </form>
+
+            <div className="bg-vk-white p-4 border border-vk-separator rounded-[2px] space-y-3">
+              <h3 className="text-xs font-bold uppercase text-vk-text-secondary tracking-wider">Эффективность робота</h3>
+              <div className="space-y-2 text-[12.5px]">
+                <div className="flex justify-between">
+                  <span className="text-vk-text-secondary">Всего триггеров:</span>
+                  <span className="font-semibold">{automodRules.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-vk-text-secondary">Активных триггеров:</span>
+                  <span className="font-semibold text-[#4bb34b]">{automodRules.filter(r => r.isActive).length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-vk-text-secondary">Всего пресечений:</span>
+                  <span className="font-semibold text-red-500 font-mono">{automodRules.reduce((acc, r) => acc + (r.matchCount || 0), 0)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    */
+    return null;
+  };
+
+  const renderManagement = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+      <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator">
+        <h1 className="text-[17px] font-medium text-vk-text">Управление разделами</h1>
+        <p className="text-[12.5px] text-vk-text-secondary mt-1">Здесь вы можете настроить видимость разделов в левом меню.</p>
+      </div>
+
+      <div className="bg-vk-white border border-vk-separator rounded-[2px] overflow-hidden">
+        <div className="divide-y divide-vk-separator">
+          {MENU_ITEMS.filter(item => item.id !== 'management').map((item) => {
+            const isVisible = visibleTabs.includes(item.id);
+
+            return (
+              <div key={item.id} className="p-4 flex items-center justify-between hover:bg-[#f5f7f8] transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-[#f0f2f5] rounded-[4px] text-[#2a5885]">
+                    <item.icon size={20} />
+                  </div>
+                  <div>
+                    <div className="text-[13px] font-medium text-vk-text">{item.label}</div>
+                    <div className="text-[11px] text-vk-text-secondary">
+                      {isVisible ? 'Раздел отображается' : 'Раздел скрыт'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => {
+                      setVisibleTabs(prev => 
+                        prev.includes(item.id) 
+                          ? prev.filter(id => id !== item.id) 
+                          : [...prev, item.id]
+                      );
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isVisible ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isVisible ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </motion.div>
+  );
+
+  const renderStatistics = () => {
+    return (
+      <Statistics 
+        users={users} 
+        moderatorHistory={moderatorHistory} 
+        statsData={statsData} 
+      />
+    );
+  };
+
+  const renderAnnouncements = () => {
+    const handleAdd = () => {
+      if (!newAnnouncementTitle.trim() || !newAnnouncementText.trim()) return;
+      const announcement = {
+        id: Date.now().toString(),
+        tag: newAnnouncementTag,
+        title: newAnnouncementTitle,
+        text: newAnnouncementText,
+        date: new Date().toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+        author: currentUser?.name || 'Администратор',
+        isPinned: newAnnouncementTag === 'Важно'
+      };
+      setAnnouncements(prev => {
+        if (prev.some(a => a.id === announcement.id)) return prev;
+        return [announcement, ...prev];
+      });
+      RealtimeService.broadcastAlert(announcement);
+      setIsAddingAnnouncement(false);
+      setNewAnnouncementTitle('');
+      setNewAnnouncementText('');
+      addNotification('Объявление', 'Ваше объявление опубликовано для всех сотрудников');
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+        <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm">
+          <div className="p-4 border-b border-vk-separator bg-[#fafbfc] flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center text-[#2a5885]">
+                <Megaphone size={20} />
+              </div>
+              <div>
+                <h1 className="text-[17px] font-medium text-vk-text">Объявления</h1>
+                <div className="text-[11px] text-vk-text-secondary mt-0.5">Внутренние уведомления для сотрудников</div>
+              </div>
+            </div>
+            {isAdminMode && (
+              <button 
+                onClick={() => setIsAddingAnnouncement(!isAddingAnnouncement)}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-[4px] text-[12.5px] font-medium transition-all ${isAddingAnnouncement ? 'bg-[#f0f2f5] text-vk-text' : 'bg-[#5181b8] text-white hover:bg-[#5b88bd]'}`}
+              >
+                {isAddingAnnouncement ? <BadgeCheck size={16} /> : <Megaphone size={16} />}
+                {isAddingAnnouncement ? 'ОТМЕНА' : 'ОПУБЛИКОВАТЬ'}
+              </button>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {isAddingAnnouncement && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }} 
+                animate={{ height: 'auto', opacity: 1 }} 
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden border-b border-vk-separator bg-[#f7f8fa] p-6 pt-2"
+              >
+                <div className="space-y-5 max-w-3xl mx-auto bg-white p-6 rounded-[4px] border border-vk-separator shadow-inner mt-4">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="grow space-y-1.5">
+                      <label className="text-[11px] font-bold text-vk-text-secondary uppercase ml-1">Заголовок</label>
+                      <input 
+                        type="text" 
+                        value={newAnnouncementTitle}
+                        onChange={(e) => setNewAnnouncementTitle(e.target.value)}
+                        placeholder="Краткое название..."
+                        className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] transition-all"
+                      />
+                    </div>
+                    <div className="w-full md:w-48 space-y-1.5">
+                      <label className="text-[11px] font-bold text-vk-text-secondary uppercase ml-1">Категория</label>
+                      <select 
+                        value={newAnnouncementTag}
+                        onChange={(e) => setNewAnnouncementTag(e.target.value)}
+                        className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] appearance-none"
+                      >
+                        <option>Важно</option>
+                        <option>Инфо</option>
+                        <option>Событие</option>
+                        <option>Техническое</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase ml-1">Содержимое</label>
+                    <textarea 
+                      value={newAnnouncementText}
+                      onChange={(e) => setNewAnnouncementText(e.target.value)}
+                      placeholder="Подробный текст для коллег..."
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] h-32 resize-none transition-all"
+                    />
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-vk-separator">
+                    <div className="text-[11px] text-vk-text-secondary italic">
+                      Будет опубликовано от имени: <span className="font-bold">{currentUser?.name || 'Администратор'}</span>
+                    </div>
+                    <button 
+                      onClick={handleAdd}
+                      className="bg-[#4bb34b] text-white px-8 py-2 rounded-[4px] text-[13px] font-medium hover:bg-[#52c152] transition-all shadow-sm active:scale-95"
+                    >
+                      ОПУБЛИКОВАТЬ ОБЪЯВЛЕНИЕ
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="p-5 space-y-4 bg-white">
+            {announcements.length > 0 ? announcements.slice().sort((a: any, b: any) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0)).map((item: any) => (
+              <div key={item.id} className={`p-5 rounded-[4px] border border-vk-separator transition-all relative group ${item.isPinned ? 'bg-[#5181b8]/5 border-[#5181b8]/20' : 'bg-[#fcfdff] hover:bg-[#f5f7f8]'}`}>
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${item.tag === 'Важно' ? 'bg-[#ff3347]' : 'bg-[#5181b8]'}`}>
+                      {item.tag === 'Важно' ? <ShieldAlert size={14} /> : <Info size={14} />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-[3px] border ${
+                          item.tag === 'Важно' ? 'bg-[#ff3347]/10 text-[#ff3347] border-[#ff3347]/10' : 'bg-[#5181b8]/10 text-[#5181b8] border-[#5181b8]/10'
+                        }`}>{item.tag}</span>
+                        {item.isPinned && <span className="text-[#5181b8] flex items-center gap-1 text-[10px] font-bold uppercase"><Check size={10} strokeWidth={3} /> Закреплено</span>}
+                      </div>
+                      <h3 className="text-[15px] font-semibold text-vk-text mt-1">{item.title}</h3>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] text-vk-text-secondary">{item.date}</div>
+                    <div className="text-[11px] font-medium text-[#2a5885] mt-0.5">{item.author}</div>
+                  </div>
+                </div>
+                <div className="text-[13px] text-vk-text leading-relaxed whitespace-pre-wrap pl-11">
+                  {item.text}
+                </div>
+                {isAdminMode && (
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAnnouncements(prev => prev.filter(a => a.id !== item.id));
+                      }}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )) : (
+              <div className="py-20 text-center flex flex-col items-center gap-4 opacity-50">
+                <Megaphone size={48} strokeWidth={1} />
+                <span className="text-[14px]">Нет активных объявлений</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderWiki = () => {
+    return (
+      <Wiki 
+        wikiArticles={wikiArticles}
+        setWikiArticles={setWikiArticles}
+        wikiCategories={wikiCategories}
+        setWikiCategories={setWikiCategories}
+        wikiRules={wikiRules}
+        setWikiRules={setWikiRules}
+        isStaff={isStaff}
+        addNotification={addNotification}
+        addModeratorLog={addModeratorLog}
+      />
+    );
+  };
+
+  const old_renderWiki = () => {
+    const filteredArticles = wikiArticles.filter(a => {
+      const matchesQuery = a.title.toLowerCase().includes(wikiSearchQuery.toLowerCase()) || 
+                            a.content.toLowerCase().includes(wikiSearchQuery.toLowerCase());
+      const matchesCat = activeWikiCat === 'Все' || a.cat === activeWikiCat;
+      return matchesQuery && matchesCat;
+    });
+
+    const categories = wikiCategories;
+
+    const handleCreateArticle = () => {
+      if (!newWikiArticle.title || !newWikiArticle.content) {
+        addNotification('Ошибка', 'Заполните все поля статьи!');
+        return;
+      }
+      const createdItem = {
+        id: `wiki-${Date.now()}`,
+        title: newWikiArticle.title,
+        cat: newWikiArticle.cat,
+        count: newWikiArticle.pageCount || 1,
+        content: newWikiArticle.content
+      };
+      setWikiArticles(prev => [createdItem, ...prev]);
+      setNewWikiArticle({ title: '', cat: 'Модератор', content: '', pageCount: 1 });
+      setShowAddArticleForm(false);
+      addNotification('Успех', 'Новая статья успешно добавлена в базу знаний');
+      addModeratorLog({
+        type: 'wiki',
+        action: 'Создание статьи Wiki',
+        message: `Создана новая корпоративная статья: "${createdItem.title}" в разделе "${createdItem.cat}"`,
+        targetId: createdItem.id,
+        targetName: createdItem.title
+      });
+    };
+
+    const handleAddCategory = () => {
+      if (!newWikiCatName.trim()) return;
+      if (wikiCategories.includes(newWikiCatName.trim())) {
+        addNotification('Ошибка', 'Категория уже существует');
+        return;
+      }
+      setWikiCategories(prev => [...prev, newWikiCatName.trim()]);
+      addNotification('Добавлено', `Категория "${newWikiCatName.trim()}" успешно добавлена`);
+      addModeratorLog({
+        type: 'wiki',
+        action: 'Добавление категории Wiki',
+        message: `Добавлена новая категория статей в базу знаний: "${newWikiCatName.trim()}"`,
+        targetName: newWikiCatName.trim()
+      });
+      setNewWikiCatName('');
+    };
+
+    const handleDeleteCategory = (catToDelete: string) => {
+      if (catToDelete === 'Все') return;
+      setWikiCategories(prev => prev.filter(c => c !== catToDelete));
+      if (activeWikiCat === catToDelete) setActiveWikiCat('Все');
+      addNotification('Удалено', `Категория "${catToDelete}" удалена`);
+      addModeratorLog({
+        type: 'wiki',
+        action: 'Удаление категории Wiki',
+        message: `Удалена категория Wiki: "${catToDelete}"`,
+        targetName: catToDelete
+      });
+    };
+
+    const handleDeleteArticle = (id: string, title: string) => {
+      setWikiArticles(prev => prev.filter(a => a.id !== id));
+      addNotification('Удалено', `Статья "${title}" успешно удалена`);
+      addModeratorLog({
+        type: 'wiki',
+        action: 'Удаление статьи Wiki',
+        message: `Удалена статья Wiki: "${title}" (ID: ${id})`,
+        targetId: id,
+        targetName: title
+      });
+    };
+
+    if (selectedWikiArticle) {
+      return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+          <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator shadow-sm">
+            <div className="flex items-center gap-4 border-b border-vk-separator pb-6 mb-8">
+              <button 
+                onClick={() => setSelectedWikiArticle(null)} 
+                className="p-2 hover:bg-[#f0f2f5] rounded-full text-[#2a5885] transition-colors"
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="bg-[#5181b8]/15 text-[#2a5885] text-[10px] font-bold uppercase px-2 py-0.5 rounded-[4px] border border-[#5181b8]/20">{selectedWikiArticle.cat}</span>
+                  <span className="text-vk-text-secondary text-[11px]">База знаний • Информационная статья</span>
+                </div>
+                <h1 className="text-[22px] font-bold text-vk-text leading-tight">{selectedWikiArticle.title}</h1>
+              </div>
+            </div>
+            <div className="text-[15px] text-vk-text leading-[1.6] space-y-4 whitespace-pre-line">
+              {selectedWikiArticle.content}
+              
+              <div className="p-6 bg-[#f5f7f8] border-l-4 border-[#5181b8] rounded-[4px] mt-10 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between pb-2 border-b border-vk-separator/50">
+                  <h4 className="text-[13px] font-bold text-[#285473] uppercase tracking-wider flex items-center gap-2">
+                    <ShieldCheck size={18} /> Регламент взаимодействия:
+                  </h4>
+                  {isStaff && (
+                    <button 
+                      onClick={() => {
+                        const newRule1 = prompt("Пункт 1 Регламента:", wikiRules[0]) || wikiRules[0];
+                        const newRule2 = prompt("Пункт 2 Регламента:", wikiRules[1]) || wikiRules[1];
+                        const newRule3 = prompt("Пункт 3 Регламента:", wikiRules[2]) || wikiRules[2];
+                        setWikiRules([newRule1, newRule2, newRule3]);
+                        addNotification('Успех', 'Регламент взаимодействия успешно сохранен');
+                      }}
+                      className="text-[11.5px] text-[#2a5885] font-semibold hover:underline"
+                    >
+                      Редактировать регламент
+                    </button>
+                  )}
+                </div>
+                <ul className="space-y-2 text-[14px]">
+                  {wikiRules.map((rule, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#5181b8] mt-2 shrink-0" />
+                      <span>{rule}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="mt-12 flex justify-between items-center border-t border-vk-separator pt-6">
+              <span className="text-vk-text-secondary text-[12px] italic">Последнее редактирование регламента доступно администраторам</span>
+              <button disabled className="text-vk-text-secondary text-[12.5px] flex items-center gap-2">
+                <FileText size={16} /> Чтение • {selectedWikiArticle.count || 1} стр.
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+        <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-vk-separator bg-[#fafbfc]">
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-[#5181b8]/10 flex items-center justify-center text-[#5181b8]">
+                    <BookOpen size={24} />
+                  </div>
+                  <div>
+                    <h1 className="text-[19px] font-bold text-vk-text">База знаний (Wiki)</h1>
+                    <p className="text-[12px] text-vk-text-secondary">Единый центр инструкций, регламентов и документации</p>
+                  </div>
+                </div>
+                
+                {/* Visual Tab Selection (VK style) */}
+                <div className="flex gap-1.5 self-start md:self-auto bg-[#f0f2f5] p-0.5 rounded-[6px]">
+                  <button 
+                    onClick={() => setWikiSubTab('articles')}
+                    className={`px-4 py-1.5 text-[12px] font-medium rounded-[5px] transition-all ${
+                      wikiSubTab === 'articles' ? 'bg-white text-vk-text shadow-sm' : 'text-vk-text-secondary hover:text-vk-text'
+                    }`}
+                  >
+                    Статьи
+                  </button>
+                  <button 
+                    onClick={() => setWikiSubTab('manage')}
+                    className={`px-4 py-1.5 text-[12px] font-medium rounded-[5px] transition-all flex items-center gap-1 ${
+                      wikiSubTab === 'manage' ? 'bg-white text-vk-text shadow-sm' : 'text-vk-text-secondary hover:text-vk-text'
+                    }`}
+                  >
+                    <Settings size={13} /> Управление разделами
+                  </button>
+                </div>
+             </div>
+
+
+
+             {/* Sub-tab 2: Manage (Administration panel) */}
+             {wikiSubTab === 'manage' && (
+               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="mt-6 p-4 bg-white border border-vk-separator rounded-[4px] space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-[#e7e8ec]">
+                     <Settings size={15} className="text-[#5181b8]" />
+                     <h3 className="text-[13px] font-bold text-vk-text-secondary uppercase tracking-wider">Панель управления разделами и статьями (В строчку)</h3>
+                  </div>
+
+                  {/* Inline creation form for Category */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-[#f5f7f8] rounded-[4px] border border-vk-separator/60">
+                    <div className="flex flex-col">
+                      <span className="text-[12.5px] font-bold text-vk-text">Добавить новый раздел</span>
+                      <span className="text-[11px] text-vk-text-secondary">Будет создан новый подраздел в каталоге Базы знаний</span>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                       <input 
+                         type="text" 
+                         placeholder="Название раздела (например: Работа с жалобами)"
+                         value={newWikiCatName}
+                         onChange={(e) => setNewWikiCatName(e.target.value)}
+                         className="grow bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1 text-[12px] w-full md:w-64 focus:outline-none focus:border-[#5181b8]"
+                       />
+                       <button 
+                         onClick={handleAddCategory}
+                         className="bg-[#4bb34b] hover:bg-[#52c152] text-white px-4 py-1 rounded-[4px] text-[12px] font-medium shrink-0 transition-all"
+                       >
+                         Создать
+                       </button>
+                    </div>
+                  </div>
+
+                  {/* Redone inline list of categories */}
+                  <div className="space-y-1.5 pt-2">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-vk-text-secondary mb-1">Список активных разделов:</h4>
+                    <div className="border border-vk-separator rounded-[4px] overflow-hidden bg-white divide-y divide-vk-separator">
+                      {categories.map(cat => (
+                        <div key={cat} className="flex items-center justify-between p-2.5 px-4 text-[13px] hover:bg-[#fafbfc] transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-[#2a5885]">{cat}</span>
+                            <span className="text-[11px] text-vk-text-secondary">({wikiArticles.filter(a => a.cat === cat).length} статей)</span>
+                          </div>
+                          {cat !== 'Все' ? (
+                            <button 
+                              onClick={() => handleDeleteCategory(cat)}
+                              className="text-[#e64646] hover:underline text-[11.5px] font-medium"
+                            >
+                              Удалить раздел
+                            </button>
+                          ) : (
+                            <span className="text-vk-text-secondary text-[11px] italic font-medium">Системный и обязательный</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Redone inline list of articles with category labels */}
+                  <div className="space-y-1.5 pt-2">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-vk-text-secondary mb-1">Список опубликованных статей:</h4>
+                    <div className="border border-vk-separator rounded-[4px] overflow-hidden bg-white divide-y divide-vk-separator">
+                      {wikiArticles.map(art => (
+                        <div key={art.id} className="flex items-center justify-between p-2.5 px-4 text-[13px] hover:bg-[#fafbfc] transition-colors">
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium text-vk-text">{art.title}</span>
+                            <span className="bg-[#5181b8]/10 text-[#2a5885] text-[10px] font-bold px-1.5 py-0.2 rounded-[2px]">{art.cat}</span>
+                          </div>
+                          <button 
+                            onClick={() => handleDeleteArticle(art.id, art.title)}
+                            className="text-[#e64646] hover:underline text-[11.5px] font-medium"
+                          >
+                            Удалить статью
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+               </motion.div>
+             )}
+
+             {wikiSubTab === 'articles' && (
+               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-6">
+                 <div className="flex gap-2 overflow-x-auto no-scrollbar py-0.5">
+                    {categories.map(cat => (
+                      <button 
+                        key={cat} 
+                        onClick={() => setActiveWikiCat(cat)}
+                        className={`px-4 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all border ${
+                          cat === activeWikiCat ? 'bg-[#5181b8] text-white border-[#5181b8] shadow-sm' : 'bg-[#f0f2f5] text-[#55677d] border-transparent hover:bg-[#e1e5eb]'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                 </div>
+                 
+                 <div className="flex items-center gap-2 self-start md:self-auto w-full md:w-auto">
+                   <div className="relative grow md:w-64">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#5181b8] transition-colors"><Search size={14} /></div>
+                      <input 
+                        type="text" 
+                        placeholder="Быстрый поиск в статьях..."
+                        value={wikiSearchQuery}
+                        onChange={(e) => setWikiSearchQuery(e.target.value)}
+                        className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[6px] pl-9 pr-4 py-1.5 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                      />
+                   </div>
+                   <button 
+                     onClick={() => {
+                       setShowAddArticleForm(!showAddArticleForm);
+                       // Set default category
+                       if (!newWikiArticle.cat) {
+                         const firstCat = categories.find(c => c !== 'Все') || 'Модератор';
+                         setNewWikiArticle({ ...newWikiArticle, cat: firstCat });
+                       }
+                     }}
+                     className="px-4 py-1.5 bg-[#4bb34b] hover:bg-[#52c152] text-white text-[12.5px] rounded-[6px] font-semibold flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap"
+                   >
+                     <PenLine size={14} /> Создать статью
+                   </button>
+                 </div>
+               </div>
+             )}
+
+             {/* Dynamic Article creation inline form in VK style */}
+             {wikiSubTab === 'articles' && showAddArticleForm && (
+               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-[#fafbfc] border border-vk-separator rounded-[4px] shadow-inner mt-4 space-y-4">
+                 <div className="flex items-center justify-between pb-2 border-b border-vk-separator/50">
+                   <div className="flex items-center gap-1.5">
+                     <PenLine size={15} className="text-[#2a5885]" />
+                     <h3 className="text-[13px] font-bold text-vk-text">Новая статья в Базу знаний</h3>
+                   </div>
+                   <button onClick={() => setShowAddArticleForm(false)} className="text-xs text-[#2a5885] hover:underline font-medium">Закрыть форму</button>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                   <div className="space-y-1">
+                     <label className="text-[11.5px] text-vk-text-secondary ml-1 font-bold">Название регламента</label>
+                     <input 
+                       type="text"
+                       placeholder="Например: Инструкция по работе с жалобами"
+                       value={newWikiArticle.title}
+                       onChange={(e) => setNewWikiArticle({ ...newWikiArticle, title: e.target.value })}
+                       className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                     />
+                   </div>
+                   <div className="space-y-1">
+                     <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Раздел базы знаний</label>
+                     <select 
+                       value={newWikiArticle.cat}
+                       onChange={(e) => setNewWikiArticle({ ...newWikiArticle, cat: e.target.value })}
+                       className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                     >
+                       {categories.filter(c => c !== 'Все').map(cat => (
+                         <option key={cat} value={cat}>{cat}</option>
+                       ))}
+                     </select>
+                   </div>
+                   <div className="space-y-1">
+                     <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Количество страниц</label>
+                     <input 
+                       type="number"
+                       min={1}
+                       value={newWikiArticle.pageCount}
+                       onChange={(e) => setNewWikiArticle({ ...newWikiArticle, pageCount: parseInt(e.target.value) || 1 })}
+                       className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                     />
+                   </div>
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Содержание статьи</label>
+                   <textarea 
+                     placeholder="Опишите подробно все пункты и регламенты..."
+                     value={newWikiArticle.content}
+                     onChange={(e) => setNewWikiArticle({ ...newWikiArticle, content: e.target.value })}
+                     className="w-full h-36 bg-white border border-[#dce1e6] rounded-[4px] p-3 text-[12.5px] focus:outline-none focus:border-[#5181b8] resize-none"
+                   />
+                 </div>
+                 <button 
+                   onClick={handleCreateArticle}
+                   className="px-5 py-2 bg-[#4bb34b] hover:bg-[#52c152] text-white rounded-[4px] text-[12.5px] font-bold transition-all shadow-sm flex items-center gap-1.5"
+                 >
+                   Опубликовать статью <ArrowUpRight size={14} />
+                 </button>
+               </motion.div>
+             )}
+
+          </div>
+
+
+             {wikiSubTab === 'articles' && (
+               <div className="p-6 space-y-3">
+                 {filteredArticles.map((item) => (
+                   <div 
+                     key={item.id} 
+                     onClick={() => setSelectedWikiArticle(item)}
+                     className="p-4 border border-vk-separator rounded-[4px] bg-white hover:border-[#5181b8]/40 hover:shadow-sm cursor-pointer transition-all flex items-center justify-between gap-6 group w-full"
+                   >
+                     <div className="flex items-center gap-4 min-w-0">
+                       <div className="w-10 h-10 rounded-full bg-[#5181b8]/5 flex items-center justify-center text-[#5181b8] shrink-0">
+                         <FileText size={18} />
+                       </div>
+                       <div className="min-w-0">
+                         <div className="flex items-center gap-2 mb-0.5">
+                           <span className="bg-[#5181b8]/15 text-[#2a5885] text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-[2px]">{item.cat}</span>
+                           <span className="text-[11px] text-vk-text-secondary">• {item.count || 1} стр.</span>
+                         </div>
+                         <h3 className="text-[14.5px] font-semibold text-[#2a5885] group-hover:underline truncate">{item.title}</h3>
+                         <p className="text-[12px] text-vk-text-secondary line-clamp-1 mt-0.5">{item.content}</p>
+                       </div>
+                     </div>
+                     <div className="shrink-0 flex items-center gap-1.5 text-[12px] text-[#2a5885] font-semibold">
+                       <span>Читать</span>
+                       <ArrowUpRight size={13} className="transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                     </div>
+                   </div>
+                 ))}
+                 {filteredArticles.length === 0 && (
+                   <div className="py-24 text-center bg-white border border-vk-separator rounded-[6px]">
+                     <div className="w-16 h-16 bg-[#f0f2f5] rounded-full flex items-center justify-center mx-auto mb-4 text-[#dce1e6]">
+                       <FileSearch size={32} />
+                     </div>
+                     <h4 className="text-[16px] font-medium text-[#2a5885]">Ничего не найдено</h4>
+                     <p className="text-[13px] text-vk-text-secondary mt-1">Отредактируйте параметры поиска или выберите другую категорию в базе знаний.</p>
+                   </div>
+                 )}
+               </div>
+             )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderSecurity = () => {
+    return (
+      <Security 
+        operatorName={operatorName} 
+        addNotification={addNotification} 
+        addModeratorLog={addModeratorLog} 
+      />
+    );
+  };
+
+  const old_renderSecurity = () => {
+    const filteredLogs = securityLogs.filter(l => 
+      l.user.toLowerCase().includes(securitySearchQuery.toLowerCase()) || 
+      l.ip.includes(securitySearchQuery) ||
+      l.event.toLowerCase().includes(securitySearchQuery.toLowerCase())
+    );
+
+    const handleBlockIP = () => {
+      if (!newBlockedIP.trim()) {
+        addNotification('Ошибка', 'Введите валидный IP-адрес');
+        return;
+      }
+      const newItem = {
+        id: `ip-${Date.now()}`,
+        ip: newBlockedIP.trim(),
+        reason: newBlockedIPReason,
+        date: 'Сегодня, ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        staff: operatorName
+      };
+      setBlockedIPs(prev => [newItem, ...prev]);
+      setNewBlockedIP('');
+      addNotification('Заблокировано', `IP-адрес ${newItem.ip} добавлен в черный список`);
+      addModeratorLog({
+        type: 'security',
+        action: 'Блокировка IP-адреса',
+        message: `IP-адрес ${newItem.ip} заблокирован на шлюзе доступа. Причина: ${newItem.reason}`,
+        targetName: newItem.ip
+      });
+    };
+
+    const handleUnblockIP = (id: string, ip: string) => {
+      setBlockedIPs(prev => prev.filter(item => item.id !== id));
+      addNotification('Разблокировано', `IP-адрес ${ip} удален из черного списка`);
+      addModeratorLog({
+        type: 'security',
+        action: 'Разблокировка IP-адреса',
+        message: `Разблокирован IP-адрес ${ip} оператором по запросу`,
+        targetName: ip
+      });
+    };
+
+    const handleRevokeSuspicious = () => {
+      addNotification('Успех', 'Все подозрительные сессии принудительно сброшены');
+      addModeratorLog({
+        type: 'security',
+        action: 'Сброс сессий операторов',
+        message: `Выполнен экстренный сброс всех активных сессий сторонних операторов с неподтвержденных устройств`,
+      });
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+        {/* Top Header Card */}
+        <div className="bg-vk-white p-6 rounded-[2px] border border-vk-separator shadow-sm">
+          <div className="flex items-center justify-between border-b pb-4 mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center text-[#2a5885]">
+                <Shield size={20} />
+              </div>
+              <div>
+                <h1 className="text-[17px] font-medium text-vk-text">Панель ИБ & Безопасности</h1>
+                <div className="text-[11px] text-vk-text-secondary mt-0.5">Операционное управление доступом, брандмауэром и логами системных событий</div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="relative w-64">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><Search size={14} /></div>
+                <input 
+                  type="text" 
+                  placeholder="Быстрый поиск логов..."
+                  value={securitySearchQuery}
+                  onChange={(e) => setSecuritySearchQuery(e.target.value)}
+                  className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] pl-9 pr-3 py-1.5 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="p-4 bg-gradient-to-br from-[#4bb34b]/5 to-[#4bb34b]/10 border border-[#4bb34b]/20 rounded-[4px] flex items-center gap-4">
+               <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#4bb34b] border border-[#e7e8ec] shadow-sm"><ShieldCheck size={20} /></div>
+               <div>
+                  <div className="text-xl font-bold text-vk-text">124</div>
+                  <div className="text-[10px] uppercase font-bold text-vk-text-secondary">Чистых сессий</div>
+               </div>
+            </div>
+            <div className="p-4 bg-gradient-to-br from-[#ffa000]/5 to-[#ffa000]/10 border border-[#ffa000]/20 rounded-[4px] flex items-center gap-4">
+               <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#ffa000] border border-[#e7e8ec] shadow-sm"><Lock size={20} /></div>
+               <div>
+                  <div className="text-xl font-bold text-vk-text">{blockedIPs.length}</div>
+                  <div className="text-[10px] uppercase font-bold text-vk-text-secondary">IP в черном списке</div>
+               </div>
+            </div>
+            <div className="p-4 bg-gradient-to-br from-[#ff3347]/5 to-[#ff3347]/10 border border-[#ff3347]/20 rounded-[4px] flex items-center gap-4">
+               <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#ff3347] border border-[#e7e8ec] shadow-sm"><FileWarning size={20} /></div>
+               <div>
+                  <div className="text-xl font-bold text-vk-text">3</div>
+                  <div className="text-[10px] uppercase font-bold text-vk-text-secondary">Подозрит. входа</div>
+               </div>
+            </div>
+            <div className="p-4 bg-gradient-to-br from-[#5181b8]/5 to-[#5181b8]/10 border border-[#5181b8]/20 rounded-[4px] flex items-center gap-4">
+               <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#5181b8] border border-[#e7e8ec] shadow-sm"><Terminal size={20} /></div>
+               <div>
+                  <div className="text-xl font-bold text-vk-text">{isBruteForceActive ? 'АКТИВНА' : 'ВЫКЛ'}</div>
+                  <div className="text-[10px] uppercase font-bold text-vk-text-secondary">Защита брутфорса</div>
+               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Operational Card: Logs list */}
+            <div className="lg:col-span-2 space-y-4">
+              <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider">Лог визитов & Аудит авторизаций</h3>
+              <div className="overflow-hidden border border-vk-separator rounded-[4px] shadow-sm">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#f5f7f8] text-[#55677d] text-[11px] uppercase font-bold border-b border-vk-separator">
+                    <tr>
+                      <th className="px-4 py-3">Событие / Устройство</th>
+                      <th className="px-4 py-3">Пользователь</th>
+                      <th className="px-4 py-3">IP-адрес</th>
+                      <th className="px-4 py-3 text-right">Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[13px] divide-y divide-vk-separator bg-white">
+                    {filteredLogs.length > 0 ? filteredLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-[#fafbfc] transition-colors group">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${log.status === 'success' ? 'bg-[#5181b8]/10 text-[#5181b8]' : 'bg-red-50 text-red-500'}`}>
+                               {log.event.includes('Вход') ? <LogIn size={14} /> : <Terminal size={14} />}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-vk-text">{log.event}</div>
+                              <div className="text-[11px] text-vk-text-secondary font-mono">{(log as any).device || 'Chrome / MacOS'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                           <div className="text-[#2a5885] font-medium">{log.user}</div>
+                           <div className="text-[10px] text-vk-text-secondary">Уровень: Доверенный</div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[11.5px] text-vk-text-secondary">{log.ip}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-[4px] border ${
+                            log.status === 'success' ? 'bg-[#4bb34b]/10 text-[#4bb34b] border-[#4bb34b]/20' :
+                            log.status === 'warning' ? 'bg-[#ffa000]/10 text-[#ffa000] border-[#ffa000]/20' :
+                            'bg-[#ff3347]/10 text-[#ff3347] border-[#ff3347]/20'
+                          }`}>
+                            {log.status.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={4} className="py-20 text-center opacity-30 italic">Событий безопасности не найдено</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Right Operational Controls Card */}
+            <div className="space-y-6">
+              {/* Brute force switches and limits */}
+              <div className="p-5 bg-[#fafbfc] border border-vk-separator rounded-[4px] space-y-4 shadow-sm">
+                <h3 className="text-[13px] font-bold text-vk-text uppercase tracking-normal border-b pb-2 flex items-center gap-2">
+                   <Settings size={14} className="text-[#2a5885]" /> Параметры авторизации
+                </h3>
+                
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[13px] font-medium text-vk-text block">Защита от подбора (Брутфорс)</span>
+                    <span className="text-[10.5px] text-vk-text-secondary block">Авто-блокировка подозрительных IP</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setIsBruteForceActive(!isBruteForceActive);
+                      addNotification('Безопасность', !isBruteForceActive ? 'Защита от брутфорса включена' : 'Защита от брутфорса деактивирована');
+                    }}
+                    className={`px-3 py-1 rounded-[4px] text-[11.5px] font-medium transition-colors border ${
+                      isBruteForceActive ? 'bg-[#4bb34b] text-white border-[#4bb34b]' : 'bg-gray-100 text-gray-500 border-gray-300'
+                    }`}
+                  >
+                    {isBruteForceActive ? 'АКТИВНА' : 'ОТКЛ'}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-vk-text-secondary font-semibold uppercase mb-1">Максимум неверных попыток входа</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="number" 
+                      min={1} 
+                      max={20}
+                      value={maxAttempts} 
+                      onChange={(e) => setMaxAttempts(Number(e.target.value))}
+                      className="w-20 bg-white border border-[#dce1e6] rounded-[4px] px-2.5 py-1 text-[13px] focus:outline-none focus:border-[#5181b8]"
+                    />
+                    <button 
+                      onClick={() => addNotification('Сохранено', `Параметр изменен на: ${maxAttempts} попыток`)}
+                      className="bg-[#5181b8] text-white text-[12px] px-3 py-1 rounded-[4px] hover:bg-[#5b88bd] transition-colors"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    onClick={handleRevokeSuspicious}
+                    className="w-full bg-[#ff3347]/10 hover:bg-[#ff3347]/20 text-[#ff3347] border border-[#ff3347]/20 py-2 rounded-[4px] text-[12px] font-medium transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Lock size={12} /> Сбросить сессии операторов
+                  </button>
+                </div>
+              </div>
+
+              {/* Blacklist block / unblock center */}
+              <div className="p-5 bg-white border border-vk-separator rounded-[4px] space-y-4 shadow-sm">
+                <h3 className="text-[13px] font-bold text-vk-text uppercase tracking-normal border-b pb-2 flex items-center gap-1.5 text-red-500">
+                   <Lock size={14} /> Модуль Бранмауэра (FW)
+                </h3>
+
+                {/* Add blocked IP form */}
+                <div className="space-y-2.5">
+                   <div>
+                     <label className="block text-[10.5px] text-vk-text-secondary font-bold uppercase mb-1">Заблокировать IP-адрес</label>
+                     <input 
+                       type="text" 
+                       placeholder="Например: 198.51.100.42"
+                       value={newBlockedIP}
+                       onChange={(e) => setNewBlockedIP(e.target.value)}
+                       className="w-full bg-[#fafbfc] border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                     />
+                   </div>
+                   <div>
+                     <label className="block text-[10.5px] text-vk-text-secondary font-bold uppercase mb-1">Причина блокировки</label>
+                     <select 
+                       value={newBlockedIPReason}
+                       onChange={(e) => setNewBlockedIPReason(e.target.value)}
+                       className="w-full bg-[#fafbfc] border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none"
+                     >
+                        <option value="Атака на API/Брутфорс">Брутфорс / Подбор паролей</option>
+                        <option value="DDoS/Флуд запросами">DDoS / Флуд / Скрейпинг</option>
+                        <option value="Спам сквозь шлюзы">Спам-сессии бот-сети</option>
+                        <option value="Сканирование уязвимостей">Попытки обхода прав доступа</option>
+                     </select>
+                   </div>
+                   <button 
+                     onClick={handleBlockIP}
+                     className="w-full bg-[#4bb34b] hover:bg-[#52c152] text-white font-medium py-1.5 rounded-[4px] text-[12.5px] transition-colors"
+                   >
+                     Внести в черный список
+                   </button>
+                </div>
+
+                {/* List of Blocked IPs */}
+                <div className="space-y-2 max-h-52 overflow-y-auto border-t pt-3">
+                  <span className="text-[11px] text-vk-text-secondary font-bold uppercase block">Заблокированные в пуле</span>
+                  {blockedIPs.map(item => (
+                    <div key={item.id} className="p-2.5 bg-[#fafbfc] border border-vk-separator rounded-[4px] text-[12px] flex justify-between items-center">
+                      <div>
+                        <span className="font-mono font-bold text-vk-text block">{item.ip}</span>
+                        <span className="text-[10px] text-vk-text-secondary block truncate max-w-[130px]">{item.reason}</span>
+                        <span className="text-[9.5px] text-vk-text-secondary block italic mt-0.5">{item.date}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleUnblockIP(item.id, item.ip)}
+                        className="text-[#5181b8] hover:underline text-[11.5px]"
+                      >
+                        Разбанить
+                      </button>
+                    </div>
+                  ))}
+                  {blockedIPs.length === 0 && (
+                    <div className="text-center py-6 text-vk-text-secondary text-[12px] italic">Черный список IP пуст</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderActionLogs = () => {
+    return (
+      <ActionLogs 
+        moderatorHistory={moderatorHistory} 
+        undoAction={undoAction} 
+      />
+    );
+  };
+
+  const old_renderActionLogs = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+      <div className="bg-vk-white p-6 rounded-[4px] border border-vk-separator shadow-sm">
+        <div className="flex items-center justify-between border-b pb-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center text-[#2a5885]">
+              <History size={20} />
+            </div>
+            <div>
+              <h1 className="text-[17px] font-medium text-vk-text">Логи действий</h1>
+              <div className="text-[11px] text-vk-text-secondary mt-0.5">История модерации в реальном времени</div>
+            </div>
+          </div>
+          <button className="text-[12.5px] text-[#2a5885] font-medium hover:underline flex items-center gap-1">
+             <Download size={14} /> Скачать отчет
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {moderatorHistory.length > 0 ? moderatorHistory.slice().reverse().map((log) => (
+            <div key={log.id} className="p-4 bg-[#f5f7f8] border border-vk-separator rounded-[4px] hover:border-[#5181b8]/30 transition-all group">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                   <div className="w-8 h-8 rounded-full bg-white border border-vk-separator flex items-center justify-center shrink-0">
+                      {log.type === 'moderation' ? <Gavel size={14} className="text-[#ff3347]" /> : <CheckCircle size={14} className="text-[#4bb34b]" />}
+                   </div>
+                   <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold text-vk-text">{log.action}</span>
+                        <span className="text-[11px] text-vk-text-secondary">•</span>
+                        <span className="text-[11px] text-vk-text-secondary">{new Date(log.timestamp).toLocaleString('ru-RU')}</span>
+                      </div>
+                      <p className="text-[13px] text-vk-text-secondary mt-1">{log.message}</p>
+                      {log.targetName && (
+                        <div className="flex items-center gap-2 mt-2">
+                           <span className="text-[11px] text-vk-text-secondary">Объект:</span>
+                           <span className="text-[11px] font-medium text-[#2a5885] underline cursor-pointer">{log.targetName}</span>
+                        </div>
+                      )}
+                   </div>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                   <div className="text-[11px] font-medium text-vk-text">{log.operatorName}</div>
+                   <div className="text-[10px] text-vk-text-secondary mt-0.5">ID: {log.operatorId}</div>
+                   <button 
+                     onClick={() => undoAction(log.id)}
+                     className="mt-2 text-[11px] text-[#2a5885] opacity-0 group-hover:opacity-100 font-medium hover:underline transition-opacity"
+                    >
+                      Отменить действие
+                    </button>
+                </div>
+              </div>
+            </div>
+          )) : (
+            <div className="py-20 text-center flex flex-col items-center gap-4 opacity-30">
+               <History size={48} strokeWidth={1} />
+               <div className="text-[14px]">История действий пока пуста</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+
+  const renderMonitoring = () => {
+    return (
+      <Monitoring 
+        monitoringStats={monitoringStats}
+        isShiftActive={isShiftActive}
+        setIsShiftActive={setIsShiftActive}
+        currentUser={currentUser}
+        staffShifts={staffShifts}
+        setStaffShifts={setStaffShifts}
+        addNotification={addNotification}
+        logModeratorAction={logModeratorAction}
+        isSimulating={isSimulating}
+        setIsSimulating={setIsSimulating}
+        simulationCounter={simulationCounter}
+        simulationSpeed={simulationSpeed}
+        setSimulationSpeed={setSimulationSpeed}
+      />
+    );
+  };
+
+  const renderTranslations = () => {
+    return (
+      <Translations
+        translations={translations}
+        setTranslations={setTranslations}
+        addNotification={addNotification}
+      />
+    );
+  };
+
+  const old_renderMonitoring = () => {
+    const chartData = [
+      { time: '10:00', cpu: 20, ram: 40, api: 120 },
+      { time: '10:05', cpu: 25, ram: 42, api: 135 },
+      { time: '10:10', cpu: 22, ram: 45, api: 110 },
+      { time: '10:15', cpu: 30, ram: 43, api: 125 },
+      { time: '10:20', cpu: 24, ram: 45, api: 130 },
+      { time: '10:25', cpu: Number(monitoringStats.cpu.toFixed(0)), ram: Number(monitoringStats.ram.toFixed(0)), api: 115 },
+    ];
+
+    const toggleShift = () => {
+      if (!isShiftActive) {
+        setIsShiftActive(true);
+        const newShift = { id: Date.now().toString(), name: currentUser?.name || 'Вы', start: new Date() };
+        setStaffShifts(prev => [newShift, ...prev]);
+        logModeratorAction('Смена', 'Смена начата');
+        addNotification('Смена начата', 'Ваша активность теперь фиксируется в системе');
+      } else {
+        setIsShiftActive(false);
+        setStaffShifts(prev => prev.map((s, i) => i === 0 ? { ...s, end: new Date() } : s));
+        logModeratorAction('Смена', 'Смена завершена');
+        addNotification('Смена завершена', 'Рабочий день закончен');
+      }
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+        <div className="bg-vk-white p-6 rounded-[4px] border border-vk-separator shadow-sm">
+          <div className="flex items-center justify-between border-b pb-4 mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center text-[#2a5885]">
+                <Activity size={20} />
+              </div>
+              <div>
+                <h1 className="text-[17px] font-medium text-vk-text">Мониторинг системы</h1>
+                <div className="text-[11px] text-vk-text-secondary mt-0.5">Техническое состояние в реальном времени</div>
+              </div>
+            </div>
+            <button 
+              onClick={toggleShift}
+              className={`px-4 py-1.5 rounded-[4px] text-[12.5px] font-medium transition-all flex items-center gap-2 ${isShiftActive ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-[#5181b8] text-white hover:bg-[#5b88bd]'}`}
+            >
+              {isShiftActive ? <LogOut size={16} /> : <LogIn size={16} />}
+              {isShiftActive ? 'ЗАВЕРШИТЬ СМЕНУ' : 'НАЧАТЬ СМЕНУ'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+            <div className="p-4 bg-white border border-vk-separator rounded-[4px] shadow-sm">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[11px] font-bold text-vk-text-secondary uppercase">Загрузка CPU</span>
+                <Cpu size={14} className="text-[#5181b8]" />
+              </div>
+              <div className="text-2xl font-bold text-vk-text">{monitoringStats.cpu.toFixed(1)}%</div>
+              <div className="w-full bg-[#f0f2f5] h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                   initial={{ width: 0 }}
+                   animate={{ width: `${monitoringStats.cpu}%` }}
+                   className={`h-full ${monitoringStats.cpu > 80 ? 'bg-red-500' : 'bg-[#5181b8]'}`}
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-white border border-vk-separator rounded-[4px] shadow-sm">
+              <div className="flex justify-between items-center mb-2">
+                 <span className="text-[11px] font-bold text-vk-text-secondary uppercase">Использование RAM</span>
+                 <Database size={14} className="text-[#4bb34b]" />
+              </div>
+              <div className="text-2xl font-bold text-vk-text">{monitoringStats.ram.toFixed(1)}%</div>
+              <div className="w-full bg-[#f0f2f5] h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                   initial={{ width: 0 }}
+                   animate={{ width: `${monitoringStats.ram}%` }}
+                   className="h-full bg-[#4bb34b]"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-white border border-vk-separator rounded-[4px] shadow-sm">
+               <div className="flex justify-between items-center mb-2">
+                 <span className="text-[11px] font-bold text-vk-text-secondary uppercase">API Latency</span>
+                 <Zap size={14} className="text-[#ffa000]" />
+               </div>
+               <div className="text-2xl font-bold text-vk-text">125ms</div>
+               <div className="text-[10px] text-[#4bb34b] font-bold mt-1">Оптимально</div>
+            </div>
+            <div className="p-4 bg-white border border-vk-separator rounded-[4px] shadow-sm">
+               <div className="flex justify-between items-center mb-2">
+                 <span className="text-[11px] font-bold text-vk-text-secondary uppercase">Текущая смена</span>
+                 <Clock size={14} className="text-[#5181b8]" />
+               </div>
+               <div className="text-[14px] font-bold text-vk-text">{isShiftActive ? 'Активна' : 'Не начата'}</div>
+               <div className="text-[10px] text-vk-text-secondary mt-1">{isShiftActive ? `Начало в ${staffShifts[0]?.start.toLocaleTimeString()}` : '—'}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-[#fcfdff] border border-vk-separator rounded-[4px] p-6 lg:col-span-2">
+               <h3 className="text-[13px] font-bold text-[#2a5885] mb-6 uppercase tracking-wider">Графики производительности</h3>
+               <div className="h-64">
+                 <ResponsiveContainer width="100%" height="100%">
+                   <AreaChart data={chartData}>
+                     <defs>
+                       <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                         <stop offset="5%" stopColor="#5181b8" stopOpacity={0.2}/>
+                         <stop offset="95%" stopColor="#5181b8" stopOpacity={0}/>
+                       </linearGradient>
+                     </defs>
+                     <Tooltip 
+                       contentStyle={{ borderRadius: '4px', border: '1px solid #dce1e6', fontSize: '12px' }}
+                     />
+                     <Area type="monotone" dataKey="cpu" stroke="#5181b8" fillOpacity={1} fill="url(#colorCpu)" name="CPU %" />
+                     <Area type="monotone" dataKey="api" stroke="#ffa000" fillOpacity={0} name="API ms" />
+                   </AreaChart>
+                 </ResponsiveContainer>
+               </div>
+            </div>
+
+            <div className="bg-white border border-vk-separator rounded-[4px] p-4 flex flex-col gap-4">
+               {/* Симулятор активности */}
+               <div className="border-b border-vk-separator pb-4 mb-2">
+                 <div className="flex items-center justify-between mb-2">
+                   <h3 className="text-[11.5px] font-bold text-[#2a5885] uppercase tracking-wider flex items-center gap-1.5">
+                     <span className="relative flex h-2 w-2">
+                       <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isSimulating ? 'bg-red-400' : 'bg-gray-400'} opacity-75`}></span>
+                       <span className={`relative inline-flex rounded-full h-2 w-2 ${isSimulating ? 'bg-red-500' : 'bg-gray-500'}`}></span>
+                     </span>
+                     Симулятор потока
+                   </h3>
+                   <span className="text-[11px] bg-[#f0f2f5] px-2 py-0.5 rounded-[4px] font-mono font-medium text-vk-text-secondary">
+                     +{simulationCounter} симул.
+                   </span>
+                 </div>
+                 <p className="text-[11.5px] text-vk-text-secondary mb-3">
+                   Эмулирует входящий поток новых жалоб пользователей на публикации и тикетов в техподдержку.
+                 </p>
+                 <div className="flex gap-2 mb-3">
+                   <button 
+                     onClick={() => setIsSimulating(!isSimulating)}
+                     className={`w-full py-1.5 px-3 rounded-[4px] text-[12px] font-medium transition-all ${isSimulating ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100' : 'bg-[#4bb34b]/10 text-[#4bb34b] border border-[#4bb34b]/30 hover:bg-[#4bb34b]/20'}`}
+                   >
+                     {isSimulating ? 'Остановить симуляцию' : 'Запустить симуляцию'}
+                   </button>
+                 </div>
+                 {isSimulating && (
+                   <div className="space-y-2">
+                     <div className="text-[10px] uppercase font-bold text-vk-text-secondary">Интенсивность генерации:</div>
+                     <div className="grid grid-cols-3 gap-1.5">
+                       {(['slow', 'normal', 'fast'] as const).map((speed) => (
+                         <button
+                           key={speed}
+                           onClick={() => setSimulationSpeed(speed)}
+                           className={`py-1 px-1.5 rounded text-[10.5px] font-medium border text-center transition-colors ${simulationSpeed === speed ? 'bg-[#5181b8] border-[#5181b8] text-white' : 'bg-white border-vk-separator text-vk-text-secondary hover:bg-[#fafbfc]'}`}
+                         >
+                           {speed === 'slow' ? 'Редкая' : speed === 'normal' ? 'Средняя' : 'Лавина!'}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 )}
+               </div>
+
+               <h3 className="text-[11px] font-bold text-vk-text-secondary uppercase tracking-wider">Управление узлами</h3>
+               <div className="space-y-3">
+                 {[
+                   { id: 'web-srv-01', status: 'online', load: '12%' },
+                   { id: 'web-srv-02', status: 'online', load: '15%' },
+                   { id: 'db-primary', status: 'online', load: '8%' },
+                   { id: 'cache-node', status: 'online', load: '22%' }
+                 ].map(node => (
+                   <div key={node.id} className="p-3 bg-[#fafbfc] border border-vk-separator rounded-[4px] flex items-center justify-between group">
+                     <div>
+                        <div className="text-[12px] font-bold text-[#285473]">{node.id}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                           <div className="w-1.5 h-1.5 rounded-full bg-[#4bb34b]" />
+                           <span className="text-[10px] text-[#4bb34b] font-bold uppercase">{node.status}</span>
+                        </div>
+                     </div>
+                     <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono text-vk-text-secondary">{node.load}</span>
+                        <button 
+                          onClick={() => {
+                            logModeratorAction('Узел', `Принудительная перезагрузка узла ${node.id}`);
+                            addNotification('Команда отправлена', `Узел ${node.id} перезагружается...`);
+                          }}
+                          className="p-1.5 text-[#5181b8] hover:bg-[#5181b8]/10 rounded-[4px]"
+                        >
+                          <RefreshCcw size={14} />
+                        </button>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderQualityControl = () => {
+    const handleNewAudit = () => {
+      if (!qualityAuditData.staff || !qualityAuditData.comment) {
+        addNotification('Ошибка', 'Пожалуйста, заполните имя сотрудника и комментарий аудита');
+        return;
+      }
+      const newAudit = {
+        id: Date.now().toString(),
+        staff: qualityAuditData.staff,
+        status: qualityAuditData.status,
+        score: qualityAuditData.score,
+        date: 'Сегодня',
+        comment: qualityAuditData.comment
+      };
+      setQualityAudits([newAudit, ...qualityAudits]);
+      setIsQualityModalOpen(false);
+      setQualityAuditData({ staff: '', score: 5, comment: '', status: 'Пройдено', duration: 2.0 });
+      addNotification('Аудит завершен', `Результат проверки сотрудника ${newAudit.staff} сохранен`);
+      addModeratorLog({
+        type: 'system',
+        action: 'Контроль качества',
+        message: `Создан аудит для сотрудника ${newAudit.staff} (Оценка: ${newAudit.score}/5)`,
+      });
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6 relative">
+        <div className="bg-vk-white p-6 rounded-[4px] border border-vk-separator shadow-sm">
+          <div className="flex items-center justify-between border-b border-vk-separator pb-4 mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center text-[#2a5885]">
+                <FileSearch size={20} />
+              </div>
+              <div>
+                <h1 className="text-[17px] font-medium text-vk-text">Отдел качества (QA)</h1>
+                <div className="text-[11px] text-vk-text-secondary mt-0.5">Система контроля качества и аудита сотрудников</div>
+              </div>
+            </div>
+            <button 
+              onClick={() => setIsQualityModalOpen(true)}
+              className="bg-[#5181b8] text-white px-4 py-1.5 rounded-[4px] text-[12.5px] font-medium hover:bg-[#5b88bd] transition-colors"
+            >
+               НОВЫЙ АУДИТ
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            {[
+              { val: '98.2%', lbl: 'Выполнение KPI', color: 'text-[#4bb34b]' },
+              { val: '1:42м', lbl: 'Среднее время', color: 'text-[#2a5885]' },
+              { val: '0.4%', lbl: 'Осп. решений', color: 'text-[#ff3347]' },
+              { val: `${120 + qualityAudits.length}`, lbl: 'Аудитов/мес', color: 'text-[#5181b8]' }
+            ].map((stat, i) => (
+              <div key={i} className="p-4 bg-white border border-vk-separator rounded-[6px] shadow-sm flex flex-col items-center justify-center">
+                 <div className={`text-2xl font-bold ${stat.color} mb-1`}>{stat.val}</div>
+                 <div className="text-[10px] uppercase font-bold text-vk-text-secondary tracking-wider">{stat.lbl}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+             <div className="flex items-center justify-between">
+                <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider">Последние проверки</h3>
+                <div className="text-[11px] text-vk-text-secondary">Показано {qualityAudits.length}</div>
+             </div>
+             <div className="space-y-3">
+               {qualityAudits.map((check) => (
+                  <div key={check.id} className="p-4 bg-[#fcfdff] border border-vk-separator rounded-[6px] hover:shadow-md transition-all group relative">
+                    <div className="flex items-start justify-between mb-3">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-[#f0f2f5] border border-vk-separator flex items-center justify-center text-[#818c99]"><User size={20} /></div>
+                          <div>
+                             <div className="text-[14px] font-bold text-vk-text">{check.staff}</div>
+                             <div className="text-[11px] text-vk-text-secondary">{check.date} 2024</div>
+                          </div>
+                       </div>
+                       <div className="text-right">
+                          <div className={`text-[11px] font-bold px-2 py-0.5 rounded-[4px] border ${
+                            check.score >= 4 ? 'bg-[#4bb34b]/10 text-[#4bb34b] border-[#4bb34b]/20' : 'bg-[#ffa000]/10 text-[#ffa000] border-[#ffa000]/20'
+                          }`}>
+                            {check.status.toUpperCase()}
+                          </div>
+                          <div className="flex gap-0.5 mt-2 justify-end">
+                             {[1,2,3,4,5].map(s => <Star key={s} size={10} className={`${s <= check.score ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'}`} />)}
+                          </div>
+                       </div>
+                    </div>
+                    <div className="pl-13 pr-4">
+                       <div className="p-3 bg-white border border-[#f0f2f5] rounded-[4px] relative">
+                          <Quote size={12} className="absolute -top-1.5 -left-1.5 text-[#dce1e6]" />
+                          <p className="text-[13px] text-vk-text-secondary leading-relaxed serif italic">«{check.comment}»</p>
+                       </div>
+                    </div>
+                  </div>
+               ))}
+             </div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {isQualityModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white rounded-[8px] w-full max-w-md border border-vk-separator shadow-2xl overflow-hidden"
+              >
+                <div className="p-4 border-b border-vk-separator bg-[#f0f2f5] flex items-center justify-between">
+                  <h2 className="text-[16px] font-medium">Новый аудит качества</h2>
+                  <button onClick={() => setIsQualityModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-[12px] font-bold text-vk-text-secondary uppercase mb-1">Сотрудник</label>
+                    <select 
+                      value={qualityAuditData.staff}
+                      onChange={(e) => setQualityAuditData({...qualityAuditData, staff: e.target.value})}
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px]"
+                    >
+                      <option value="">Выберите сотрудника...</option>
+                      {Array.from(new Set([
+                        'Сотрудник #4',
+                        'Агент #2',
+                        'Модератор #1',
+                        'Агент #1',
+                        ...users.map(u => u.name)
+                      ])).map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-bold text-vk-text-secondary uppercase mb-1">Оценка</label>
+                    <div className="flex gap-2">
+                       {[1,2,3,4,5].map(s => (
+                         <button 
+                           key={s} 
+                           onClick={() => setQualityAuditData({...qualityAuditData, score: s})}
+                           className={`p-2 rounded-[4px] border ${qualityAuditData.score === s ? 'bg-[#5181b8] text-white border-[#5181b8]' : 'bg-white text-vk-text-secondary border-vk-separator'}`}
+                         >
+                           <Star size={16} className={qualityAuditData.score >= s ? 'fill-current' : ''} />
+                         </button>
+                       ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-bold text-vk-text-secondary uppercase mb-1">Статус</label>
+                    <select 
+                      value={qualityAuditData.status}
+                      onChange={(e) => setQualityAuditData({...qualityAuditData, status: e.target.value})}
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px]"
+                    >
+                      <option value="Пройдено">Пройдено</option>
+                      <option value="Требует внимания">Требует внимания</option>
+                      <option value="Критично">Критично</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-bold text-vk-text-secondary uppercase mb-1">Комментарий аудитора</label>
+                    <textarea 
+                      value={qualityAuditData.comment}
+                      onChange={(e) => setQualityAuditData({...qualityAuditData, comment: e.target.value})}
+                      placeholder="Укажите сильные и слабые стороны работы..."
+                      className="w-full h-24 bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] resize-none"
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end gap-2">
+                  <button 
+                    onClick={() => setIsQualityModalOpen(false)}
+                    className="px-4 py-1.5 text-[12px] font-medium text-[#55677d] hover:bg-[#e5ebf1] rounded-[4px]"
+                  >
+                    Отмена
+                  </button>
+                  <button 
+                    onClick={handleNewAudit}
+                    className="px-4 py-1.5 text-[12px] font-medium bg-[#5181b8] text-white hover:bg-[#5b88bd] rounded-[4px]"
+                  >
+                    Сохранить аудит
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    );
+  };
+
+  const renderTicketContent = (ticket: Ticket, onBack?: () => void, forceUserView: boolean = false) => {
+    const targetUser = users.find(u => u.id === ticket.userId || u.name === ticket.userName);
+    const isAgentView = isStaff && !forceUserView;
+
+    return (
+      <div className="max-w-[700px] mx-auto mt-6 space-y-4">
+        {/* Navigation Breadcrumbs / Back button */}
+        <div className="flex items-center justify-between text-[12.5px] text-[#55677d] px-1 bg-transparent">
+          <div className="flex items-center gap-1.5">
+            {onBack && (
+              <button 
+                onClick={onBack} 
+                className="hover:underline text-[#2a5885] transition-colors flex items-center"
+              >
+                {isAgentView ? 'Все обращения' : 'Мои вопросы'}
+              </button>
+            )}
+            <span className="text-[#b2bcd0] select-none">&gt;</span>
+            <span className="font-semibold text-[#000000]">Вопрос</span>
+          </div>
+          
+          {isAgentView && ticket.status === 'answered' && (
+            <button 
+              onClick={getNextTicketInQueue}
+              className="bg-[#f0f2f5] hover:bg-[#e4e6e9] text-[#2a5885] p-1 py-1.5 px-3 rounded-[4px] text-[12px] font-medium transition-colors flex items-center gap-1.5"
+            >
+              Следующий <ArrowUpRight size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Unified Ticket Container */}
+        <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 md:p-6 space-y-6">
+          
+          {/* Header Title & Status Badge / Actions Menu */}
+          <div className="flex justify-between items-start border-b border-[#e7e8ec] pb-4 gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center flex-wrap gap-2">
+                <h1 className="text-[17px] font-bold text-[#000000] leading-tight tracking-tight">
+                  {ticket.title}
+                </h1>
+                <div className={`px-1.5 py-0.5 rounded-[2px] text-[9.5px] font-bold uppercase tracking-wider ${ticket.status === 'new' ? 'bg-[#faeaea] text-[#e64646]' : 'bg-[#e7f8ef] text-[#4bb34b]'}`}>
+                   {ticket.status === 'new' ? 'В очереди' : 'Отвечен'}
+                </div>
+                {ticket.source === 'service_profile_chat' && (
+                  <span className="px-1.5 py-0.5 rounded-[2px] text-[9.5px] font-bold uppercase tracking-wider bg-[#eef3f8] text-[#2a5885] border border-[#c5d4e8]">
+                    Чат служебного профиля
+                  </span>
+                )}
+                {/* Dynamically assign Urgency and Category if not set and display them */}
+                {ticket.status === 'new' && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1 sm:mt-0">
+                    <span className={`px-1.5 py-0.5 rounded-[2px] text-[9.5px] font-bold uppercase ${
+                      (ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'high' ? 'bg-[#faeaea] text-[#e64646] border border-[#e64646]/15' :
+                      (ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'medium' ? 'bg-[#fff7ed] text-[#c2410c] border border-[#c2410c]/15' :
+                      'bg-[#f0f9ff] text-[#0369a1] border border-[#0369a1]/15'
+                    }`}>
+                      Приоритет: {(ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'high' ? 'Высокий' : (ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'medium' ? 'Средний' : 'Обычный'}
+                    </span>
+                    <span className="text-[10px] bg-[#f8fafc] border border-vk-separator px-1.5 py-0.5 rounded-[2px] font-medium text-vk-text-secondary">
+                      Тема: {ticket.category || (Number(ticket.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(ticket.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность')}
+                    </span>
+                    <span className="text-[10.5px] font-mono font-bold text-[#e64646] bg-red-50 px-1.5 py-0.5 rounded-[2px] border border-red-100 flex items-center gap-1">
+                      <Clock size={11} /> SLA: {(ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'high' ? '02:40' : (ticket.urgency || (Number(ticket.id.slice(-1)) % 3 === 0 ? 'high' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'medium' : 'low')) === 'medium' ? '07:15' : '13:50'} мин
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!isAgentView && (
+                <p className="text-[12px] text-[#656565]">
+                  ID Обращения: #{ticket.id.slice(-6)} 
+                  {ticket.description && <span className="text-[#828282]"> • {ticket.description}</span>}
+                </p>
+              )}
+            </div>
+
+            {/* Actions and Category Badge Area */}
+            <div className="flex flex-col items-end shrink-0 gap-2 select-none">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#2a5885] bg-[#5181b8]/10 px-2.5 py-1 rounded-[3px] border border-[#5181b8]/15" title="Текущая открытая категория обращения">
+                📁 Категория: {ticket.category || (Number(ticket.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(ticket.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность')}
+              </span>
+              {isAgentView ? (
+                <div className="relative">
+                  <button 
+                    onClick={() => setOpenUserMenuId(openUserMenuId === ticket.userId ? null : ticket.userId)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] text-[12px] font-semibold transition-all ${openUserMenuId === ticket.userId ? 'bg-[#5b88bd] text-white border border-[#5b88bd]' : 'bg-[#fff] border border-[#dce1e6] text-[#2a5885] hover:bg-[#fafbfc]'}`}
+                  >
+                    <Settings size={14} /> {openUserMenuId === ticket.userId ? 'Закрыть' : 'Действия'}
+                  </button>
+
+                <AnimatePresence>
+                  {openUserMenuId === ticket.userId && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setOpenUserMenuId(null)} />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                        className="absolute right-0 top-full mt-2 w-56 bg-white border border-[#dce1e6] rounded-[4px] shadow-lg z-50 py-1 text-left"
+                      >
+                         <div className="px-3 py-1.5 text-[10px] font-bold text-[#818c99] uppercase select-none border-b border-[#f0f2f5] mb-1">
+                           Действия с автором
+                         </div>
+                         
+                         <button onClick={() => { 
+                           const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                           setUserActionTarget(u);
+                           const [firstName, ...lastNameParts] = u.name.split(' ');
+                           setRequestFields({ ...requestFields, name: firstName, surname: lastNameParts.join(' ') });
+                           setOpenUserMenuId(null); 
+                           setIsCreateRequestModalOpen(true);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Создать Заявку</button>
+                         
+                         <button onClick={() => { 
+                           const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                           setUserActionTarget(u);
+                           setOpenUserMenuId(null); 
+                           setIsCreateComplaintModalOpen(true);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Создать жалобу</button>
+                         
+                         <button onClick={() => { 
+                           const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                           setSelectedUserData(u);
+                           setOpenUserMenuId(null); 
+                           setActiveTab('profile');
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Просмотреть Профиль</button>
+                         
+                         <div className="border-t border-[#f0f2f5] my-1" />
+
+                         <button onClick={() => {
+                           if (targetUser) {
+                             const [first, ...lastParts] = targetUser.name.split(' ');
+                             setEditFirstName(first);
+                             setEditLastName(lastParts.join(' '));
+                             setEditStatus(targetUser.status || '');
+                             setEditLogin(targetUser.login || '');
+                             setEditPassword('');
+                             setIsEditingInfo(true);
+                             setInfoUser(targetUser);
+                             setActiveTab('users');
+                           }
+                           setOpenUserMenuId(null);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
+                           Карточка сотрудника
+                         </button>
+
+                         <button onClick={() => {
+                           if (targetUser) {
+                             const newState = !targetUser.isVerified;
+                             setUsers(prev => prev.map(u => u.id === targetUser.id ? { ...u, isVerified: newState } : u));
+                             addNotification('Верификация', newState ? 'Верификация установлена' : 'Верификация снята');
+                           }
+                           setOpenUserMenuId(null);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
+                           {targetUser?.isVerified ? 'Снять верификацию' : 'Верифицировать'}
+                         </button>
+
+                         <button onClick={() => {
+                           if (targetUser) {
+                             setComplaintsModalUser(targetUser);
+                           }
+                           setOpenUserMenuId(null);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
+                           Жалобы ({targetUser?.spamCount || 0})
+                         </button>
+
+                         <button onClick={() => {
+                           if (targetUser) {
+                             handleMarkAsPorn(targetUser);
+                           }
+                           setOpenUserMenuId(null);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
+                           Пометить (18+ порно)
+                         </button>
+
+                         <div className="border-t border-[#f0f2f5] my-1" />
+
+                         <button onClick={() => {
+                           if (targetUser) {
+                             if (targetUser.isBlocked) {
+                               setUsers(prev => prev.map(u => u.id === targetUser.id ? { ...u, isBlocked: false, profileBlockInfo: undefined } : u));
+                               addNotification('Разблокировка', 'Пользователь разблокирован');
+                             } else {
+                               setSelectedUserData(targetUser);
+                               setIsProfileBlockModalOpen(true);
+                             }
+                           }
+                           setOpenUserMenuId(null);
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
+                           {targetUser?.isBlocked ? 'Разблокировать' : 'Заблокировать'}
+                         </button>
+
+                         <button onClick={() => { 
+                           const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                           handleDeleteProfile(u);
+                           setOpenUserMenuId(null); 
+                         }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-red-600 hover:bg-red-50 font-medium transition-colors">Удалить Профиль</button>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Messages Stream */}
+          <div className="space-y-5 divide-y divide-[#f0f2f5]">
+            {ticket.messages.map((msg, i) => {
+              const isStaffMsg = msg.sender === 'staff';
+              const ratingKey = `${ticket.id}-${i}`;
+              const rating = ticketRatings[ratingKey];
+
+              return (
+                <div key={i} className={`flex gap-4 items-start ${i > 0 ? 'pt-5' : ''}`}>
+                  {/* Avatar */}
+                  {isStaffMsg ? (
+                    ticket.source === 'service_profile_chat' && ticket.serviceProfileAvatar ? (
+                      <div className="w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#d3e2f0]" title={ticket.serviceProfileName || 'Служебный профиль'}>
+                        <img src={ticket.serviceProfileAvatar} alt={ticket.serviceProfileName || 'Поддержка'} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                    ) : (
+                    <div className="w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#d3e2f0]" title="Агент поддержки">
+                      <img src={operatorAvatar || "images.png"} alt="Агент поддержки" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                    )
+                  ) : (
+                    <div 
+                      onClick={() => {
+                        if (isAgentView && targetUser) {
+                          setSelectedUserData(targetUser);
+                          setActiveTab('profile');
+                        }
+                      }}
+                      className={`w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#e7e8ec] bg-gray-100 ${isAgentView ? 'cursor-pointer hover:opacity-85 transition-opacity' : ''}`}
+                    >
+                      <UserAvatar user={targetUser} avatarUrl={ticket.userAvatar} className="w-full h-full" />
+                    </div>
+                  )}
+
+                  {/* Message Content */}
+                  <div className="grow space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      {isStaffMsg ? (
+                        <span className="text-[13px] font-bold text-[#204060]">
+                          {msg.operatorName || `${operatorName} #${operatorId}`}
+                        </span>
+                      ) : (
+                        isAgentView ? (
+                          <span 
+                            onClick={() => {
+                              if (targetUser) {
+                                setSelectedUserData(targetUser);
+                                setActiveTab('profile');
+                              }
+                            }}
+                            className="text-[13px] font-bold text-[#2a5885] hover:underline cursor-pointer"
+                          >
+                            {ticket.userName}
+                          </span>
+                        ) : (
+                          <span className="text-[13px] font-bold text-[#2a5885]">
+                            {ticket.userName}
+                          </span>
+                        )
+                      )}
+                    </div>
+
+                    <div className="text-[13px] text-[#000000] leading-normal whitespace-pre-line font-sans antialiased py-0.5">
+                      {msg.text}
+                    </div>
+
+                    {/* Footer with time and rating action */}
+                    <div className="flex items-center justify-between mt-1 text-[11px] text-[#828282] select-none">
+                      <span>{msg.time}</span>
+                      
+                      {!isAgentView && isStaffMsg && (
+                        <div className="text-[11px]">
+                          {rating === 'positive' && (
+                            <span className="text-[#818c99] italic">Вы оставили положительный отзыв</span>
+                          )}
+                          {rating === 'negative' && (
+                            <span className="text-[#818c99] italic">Вы оставили отрицательный отзыв</span>
+                          )}
+                          {!rating && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#818c99]">Это помогло?</span>
+                              <button 
+                                onClick={() => {
+                                  setTicketRatings(prev => ({ ...prev, [ratingKey]: 'positive' }));
+                                  addNotification('Отзыв принят', 'Спасибо за оценку качества поддержки!');
+                                }}
+                                className="text-[#2a5885] hover:underline font-medium hover:text-[#5181b8] transition-all"
+                              >
+                                Да
+                              </button>
+                              <span className="text-gray-300">•</span>
+                              <button 
+                                onClick={() => {
+                                  setTicketRatings(prev => ({ ...prev, [ratingKey]: 'negative' }));
+                                  addNotification('Отзыв принят', 'Мы учтем ваши замечания.');
+                                }}
+                                className="text-[#2a5885] hover:underline font-medium hover:text-[#5181b8] transition-all"
+                              >
+                                Нет
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {isAgentView && isStaffMsg && rating && (
+                        <span className="text-[11px] text-[#818c99] italic">
+                          Оценка: {rating === 'positive' ? 'Положительная' : 'Отрицательная'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Response Composer */}
+          <div className="pt-4 border-t border-[#e7e8ec]">
+            {isAgentView && (
+              <div className="mb-3 space-y-1.5 bg-[#fafbfc] p-3 border border-vk-separator rounded-[4px]">
+                <div className="text-[11px] font-semibold text-[#55677d] uppercase tracking-wider flex items-center gap-1">
+                  <Zap size={12} className="text-[#ff9e00]" /> Быстрые шаблоны ответов:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'Смена пароля и 2FA', text: 'Здравствуйте! Для обеспечения безопасности вашего аккаунта мы временно ограничили активность. Пожалуйста, смените пароль и обязательно подключите двухфакторную аутентификацию (2FA) для предотвращения взлома.' },
+                    { label: 'Требования к галочке', text: 'Здравствуйте! Проверили вашу заявку. Чтобы получить верификацию, в профиле должно быть указано настоящее имя по документам, установлена чёткая личная фотография и отсутствовать флуд. Подайте заявку повторно после исправлений.' },
+                    { label: 'Ошибка платежа голосов', text: 'Приветствуем! Информация о списании передана нашему финансовому шлюзу. Обычно средства поступают моментально, но из-за задержек со стороны вашего банка-эмитент транзакция может обрабатываться до 24 часов.' },
+                    { label: 'Блокировка за спам-фильтр', text: 'Уважаемый пользователь! Ваша страница попала под фильтр за рассылку рекламных ссылок и подозрительные накрутки лайков. Снятие блокировки произойдёт автоматически после успешной смены пароля на новый.' },
+                    { label: 'Известный баг (в тех.отдел)', text: 'Благодарим за ваше сообщение! Мы воспроизвели данную неполадку в плеере и передали техническому отделу для устранения. Ожидайте патч в ближайшем автоматическом обновлении платформы.' }
+                  ].map((tpl, tIdx) => (
+                    <button
+                      key={tIdx}
+                      onClick={() => setReplyText(tpl.text)}
+                      className="text-[11px] text-[#2a5885] bg-white hover:bg-[#e4e6e9] px-2 py-1 rounded-[3px] border border-vk-separator transition-colors font-medium cursor-pointer"
+                    >
+                      {tpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="border border-[#e7e8ec] rounded-[4px] bg-white overflow-hidden focus-within:border-[#5181b8] transition-all shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+              <textarea 
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder={isAgentView ? "Комментировать или сформировать ответ специалиста.." : "Комментарий.."}
+                className="w-full bg-white px-3 py-3 text-[13px] text-[#000000] placeholder-[#828282] focus:outline-none resize-none h-24 font-sans"
+              />
+              <div className="bg-[#fafbfc] border-t border-[#f0f2f5] px-3 py-2.5 flex justify-between items-center">
+                <div className="flex gap-4 text-[#9fb3c8]">
+                  <button className="hover:text-[#5181b8] transition-colors" title="Добавить фото">
+                    <Camera size={18} />
+                  </button>
+                  <button className="hover:text-[#5181b8] transition-colors" title="Добавить документ">
+                    <FileText size={18} />
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  {isAgentView && (
+                    <button 
+                      onClick={() => {
+                        const updatedTickets = tickets.map(t => {
+                          if (t.id === ticket.id) {
+                            return {
+                              ...t,
+                              status: 'answered' as const
+                            };
+                          }
+                          return t;
+                        });
+                        setTickets(updatedTickets);
+                        setActiveSupportTickets(prev => prev.filter(at => at.id !== ticket.id));
+                        setReplyText('');
+                        addNotification('Тикет закрыт', 'Обращение закрыто без ответа');
+                        if (onBack) onBack();
+                        else {
+                          setOpenedTicket(null);
+                          setActiveTab('support');
+                        }
+                      }} 
+                      className="px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[4px] text-[12px] font-medium transition-colors"
+                    >
+                      Закрыть без ответа
+                    </button>
+                  )}
+                  
+                  <button 
+                    onClick={() => {
+                      if (!replyText.trim()) return;
+                      const now = new Date();
+                      const HHMM = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      
+                      if (isAgentView) {
+                        const updatedTickets = tickets.map(t => {
+                          if (t.id === ticket.id) {
+                            let updated: Ticket;
+                            if (t.source === 'service_profile_chat' && t.serviceProfileId) {
+                              const serviceProfile = users.find(u => u.id === t.serviceProfileId);
+                              updated = appendStaffMessageToServiceTicket(
+                                t,
+                                replyText.trim(),
+                                serviceProfile?.name || t.serviceProfileName || 'Поддержка'
+                              );
+                              syncStaffReplyToServiceChat(updated, replyText.trim());
+                            } else {
+                              updated = {
+                                ...t,
+                                status: 'answered' as const,
+                                messages: [...t.messages, { sender: 'staff' as const, text: replyText, time: `сегодня в ${HHMM}`, operatorName: `${operatorName} #${operatorId}` }]
+                              };
+                            }
+                            if (openedTicket?.id === t.id) setOpenedTicket(updated);
+                            if (activeTicket?.id === t.id) setActiveTicket(updated);
+                            
+                            pushPlatformNotifications(
+                              buildSupportReplyNotification(t.userId, t.id, t.title)
+                            );
+
+                            return updated;
+                          }
+                          return t;
+                        });
+                        setTickets(updatedTickets);
+                        setActiveSupportTickets(prev => prev.filter(at => at.id !== ticket.id));
+                        setReplyText('');
+                        addNotification('Ответ отправлен', 'Пользователь получит уведомление');
+                      } else {
+                        const updated = {
+                          ...ticket,
+                          messages: [
+                            ...ticket.messages,
+                            { sender: 'user' as const, text: replyText, time: `сегодня в ${HHMM}` }
+                          ],
+                          status: 'new' as const
+                        };
+                        setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
+                        setViewingTicketFromNotification(updated);
+                        setReplyText('');
+                        addNotification('Отправлено', 'Ваш ответ передан специалисту');
+                      }
+                    }}
+                    className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-5 py-1.5 rounded-[4px] text-[12px] font-medium transition-colors"
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
+            {isAgentView && (
+              <div className="mt-4 bg-[#f5f7f8] border border-vk-separator rounded-[4px] p-4 text-left">
+                <div className="text-[11px] font-bold text-[#55677d] uppercase tracking-wider mb-2 flex items-center gap-1 select-none">
+                  📁 Передать обращение (кликните на категорию для перевода в нужный отдел):
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {supportCategories.map((cat) => {
+                    const currentCatName = ticket.category || (Number(ticket.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(ticket.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(ticket.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность');
+                    const isActive = currentCatName === cat.name;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          if (isActive) {
+                            addNotification('Внимание', `Обращение уже находится в категории ${cat.name}`);
+                            return;
+                          }
+                          
+                          // Update ticket category
+                          const updatedTickets = tickets.map(t => {
+                            if (t.id === ticket.id) {
+                              return { ...t, category: cat.name };
+                            }
+                            return t;
+                          });
+                          setTickets(updatedTickets);
+                          
+                          // Also update state variables of active open tickets
+                          if (openedTicket && openedTicket.id === ticket.id) {
+                            setOpenedTicket({ ...openedTicket, category: cat.name });
+                          }
+                          if (activeTicket && activeTicket.id === ticket.id) {
+                            setActiveTicket({ ...activeTicket, category: cat.name });
+                          }
+                          
+                          addNotification('Передано', `Обращение перенесено в департамент: ${cat.name}`);
+                        }}
+                        className={`text-[12px] px-3 py-1.5 rounded-[4px] font-medium transition-all cursor-pointer border ${
+                          isActive
+                            ? 'bg-[#dae2ea] border-[#c0cbda] text-[#285473]'
+                            : 'bg-white border-[#dce1e6] text-[#2a5885] hover:bg-[#e4e6e9] hover:text-[#5181b8]'
+                        }`}
+                      >
+                        {cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  const renderVerification = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+      <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center">
+            <BadgeCheck size={20} className="text-[#5181b8]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-[17px] font-medium">Верификация</h1>
+              <span className="bg-[#5181b8]/10 text-[#5181b8] text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] tracking-wide">Специалист</span>
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <div className="text-[11px] text-vk-text-secondary font-normal flex items-center gap-2">
+                Режим работы: 
+                <button 
+                  onClick={() => setIsVerificationStarted(!isVerificationStarted)}
+                  className={`px-3 py-1 rounded-[4px] text-[11px] font-medium transition-all ${
+                    isVerificationStarted 
+                      ? 'bg-[#e5ebf1] text-[#55677d] hover:bg-[#dfe6ed]' 
+                      : 'bg-[#5181b8] text-white hover:bg-[#5b88bd]'
+                  }`}
+                >
+                  {isVerificationStarted ? 'Завершить работу' : 'Начать работу'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="text-right">
+           <div className="text-vk-text-secondary text-[11px]">В очереди: {verificationRequests.length}</div>
+           <div className="text-[#2a5885] text-[11px] font-medium">Вами обработано: {processedCount}</div>
+        </div>
+      </div>
+
+      {isVerificationStarted ? (
+        <div className="space-y-4">
+          {verificationRequests.length === 0 ? (
+            <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center space-y-4">
+               <Check size={48} className="mx-auto text-vk-separator" />
+               <p className="text-vk-text-secondary text-[12.5px]">Все заявки обработаны</p>
+            </div>
+          ) : (
+            verificationRequests.map(req => {
+              const targetUser = users.find(u => u.login === req.senderLogin || u.id === req.senderId);
+              return (
+                <div key={req.id} className="bg-vk-white p-5 rounded-[2px] border border-vk-separator space-y-4 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar user={targetUser} avatarUrl={targetUser?.avatar} className="w-8 h-8 border border-vk-separator" />
+                  <div>
+                    <div 
+                      className="text-[12.5px] font-bold text-[#2a5885]"
+                    >
+                      Заявка от 
+                      <span 
+                        onClick={() => {
+                          const target = users.find(u => u.login === req.senderLogin || u.id === req.senderId);
+                          if (target) {
+                            setSelectedUserData(target);
+                            setActiveTab('profile');
+                          }
+                        }} 
+                        className="ml-1 cursor-pointer hover:underline text-[#2a5885] font-bold"
+                      >
+                        {req.userName}
+                      </span>
+                      {req.senderLogin && req.senderLogin !== req.userName && (
+                        <span 
+                          onClick={() => {
+                            const target = users.find(u => u.login === req.senderLogin || u.id === req.senderId);
+                            if (target) {
+                              setSelectedUserData(target);
+                              setActiveTab('profile');
+                            }
+                          }}
+                          className="ml-1 cursor-pointer hover:underline opacity-70 font-normal"
+                        >
+                          (@{req.senderLogin})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[12.5px] text-vk-text leading-relaxed bg-[#f7f8fa] p-4 border border-vk-separator rounded-[2px]">«{req.text || 'Нет текста'}»</div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button onClick={() => handleVerificationAction(req.id, 'approve')} className="px-4 py-1.5 bg-[#4bb34b] text-white rounded-[2px] text-[12px] font-medium hover:bg-[#52c152] transition-colors shadow-sm">Одобрить</button>
+                  <button onClick={() => handleVerificationAction(req.id, 'temp')} className="px-4 py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12px] font-medium hover:bg-[#5b88bd] transition-colors shadow-sm">Одобрить временно</button>
+                  <button onClick={() => handleVerificationAction(req.id, 'deny')} className="px-4 py-1.5 bg-[#faeaea] text-[#e64646] rounded-[2px] text-[12px] font-medium hover:bg-[#f5e1e1] transition-colors border border-red-100">Отклонить</button>
+                  <button onClick={() => handleVerificationAction(req.id, 'deny-reason')} className="px-4 py-1.5 bg-[#f0f2f5] text-[#55677d] rounded-[2px] text-[12px] font-medium hover:bg-[#dfe6ed] transition-colors">Отклонить с причиной</button>
+                </div>
+              </div>
+            );
+          })
+          )}
+        </div>
+      ) : (
+        <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center space-y-5">
+           <BadgeCheck size={64} className="mx-auto text-vk-separator" />
+           <p className="text-vk-text-secondary text-[12.5px] max-w-xs mx-auto">Нажмите кнопку «Начать работу», чтобы приступить к рассмотрению заявок.</p>
+           <button onClick={() => setIsVerificationStarted(true)} className="bg-[#5181b8] text-white px-8 py-2 rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd]">Начать работу</button>
+        </div>
+      )}
+    </motion.div>
+  );
+
+  const filteredFeedPosts = useMemo(() => {
+    let result = [...feedPosts];
+
+    if (enableFeedModes) {
+      if (feedMode === 'discussing') {
+        // РАЗДЕЛ 2: Обсуждают (active discussion signals)
+        result = result.slice().sort((a, b) => {
+          const aComments = a.comments?.length || 0;
+          const bComments = b.comments?.length || 0;
+          const aLikes = a.likes || 0;
+          const bLikes = b.likes || 0;
+          
+          const scoreA = aComments * 20 + aLikes * 3 + (a.visualPriority === 'discussion' ? 40 : 0);
+          const scoreB = bComments * 20 + bLikes * 3 + (b.visualPriority === 'discussion' ? 40 : 0);
+          return scoreB - scoreA;
+        });
+      } else if (feedMode === 'studying') {
+        // РАЗДЕЛ 3: Изучают (long reading, deep formats, high content density)
+        result = result.slice().sort((a, b) => {
+          const formatBonusA = a.postFormat === 'RESEARCH' ? 120 : a.postFormat === 'ANALYSIS' ? 90 : a.postFormat === 'SOLUTION' ? 60 : 0;
+          const formatBonusB = b.postFormat === 'RESEARCH' ? 120 : b.postFormat === 'ANALYSIS' ? 90 : b.postFormat === 'SOLUTION' ? 60 : 0;
+          
+          const readingTimeBonusA = Math.min(100, (a.text?.length || 0) / 8);
+          const readingTimeBonusB = Math.min(100, (b.text?.length || 0) / 8);
+          
+          const saveBonusA = (a.likes || 0) * 4;
+          const saveBonusB = (b.likes || 0) * 4;
+
+          const scoreA = formatBonusA + readingTimeBonusA + saveBonusA;
+          const scoreB = formatBonusB + readingTimeBonusB + saveBonusB;
+          return scoreB - scoreA;
+        });
+      } else if (feedMode === 'recommending') {
+        // РАЗДЕЛ 4: Рекомендуют (usefulness signals, author trust rating, community approval)
+        result = result.slice().sort((a, b) => {
+          const userA = users.find(u => u.name === a.authorName);
+          const userB = users.find(u => u.name === b.authorName);
+          const trustA = userA ? (userA.trustLevel || 0.8) : 0.8;
+          const trustB = userB ? (userB.trustLevel || 0.8) : 0.8;
+
+          const scoreA = (a.likes || 0) * 10 + (a.isApproved ? 100 : 0) + trustA * 100 + (a.comments?.length || 0) * 4;
+          const scoreB = (b.likes || 0) * 10 + (b.isApproved ? 100 : 0) + trustB * 100 + (b.comments?.length || 0) * 4;
+          return scoreB - scoreA;
+        });
+      } else {
+        // РАЗДЕЛ 1: Все (Standard content stream with personalization boosting)
+        result = result.slice().sort((a, b) => {
+          const topicA = getPostTopic(a.id);
+          const topicB = getPostTopic(b.id);
+          
+          const isAuthorSubscribedA = mySubscriptions.includes(a.authorName) || myFriends.includes(a.authorName) || (a.id && mySubscriptions.some(uid => a.id.startsWith(`post-${uid}-`)));
+          const isAuthorSubscribedB = mySubscriptions.includes(b.authorName) || myFriends.includes(b.authorName) || (b.id && mySubscriptions.some(uid => b.id.startsWith(`post-${uid}-`)));
+          
+          const isTopicSelectedA = currentUser?.onboardingCompleted && currentUser?.interests?.includes(topicA);
+          const isTopicSelectedB = currentUser?.onboardingCompleted && currentUser?.interests?.includes(topicB);
+          
+          const isDiscussionFollowedA = mySubscribedDiscussions.includes(a.id);
+          const isDiscussionFollowedB = mySubscribedDiscussions.includes(b.id);
+
+          let scoreA = 0;
+          if (isAuthorSubscribedA) scoreA += 1000;
+          if (isTopicSelectedA) scoreA += 500;
+          if (isDiscussionFollowedA) scoreA += 300;
+
+          let scoreB = 0;
+          if (isAuthorSubscribedB) scoreB += 1000;
+          if (isTopicSelectedB) scoreB += 500;
+          if (isDiscussionFollowedB) scoreB += 300;
+
+          if (scoreB !== scoreA) {
+            return scoreB - scoreA;
+          }
+          
+          // Fallback to recent popular
+          return (b.likes || 0) - (a.likes || 0);
+        });
+      }
+    } else {
+      // Standard ordering when enableFeedModes is false
+      result = result.slice().sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    }
+
+    // Filter by selected format inside current section on-the-fly
+    if (feedFormatFilter !== 'ALL') {
+      result = result.filter(p => (p.postFormat || 'OPINION') === feedFormatFilter);
+    }
+    
+    return result;
+  }, [feedPosts, feedMode, enableFeedModes, feedFormatFilter, currentUser, mySubscriptions, myFriends, mySubscribedDiscussions, users]);
+
+  const handlePublishPost = (
+    thought: string,
+    context?: string,
+    media?: string,
+    visualPriority?: 'text' | 'media' | 'discussion',
+    postFormat?: 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION',
+    title?: string
+  ): boolean => {
+    if (!currentUser) {
+      setIsRegistered(false);
+      return false;
+    }
+
+    if (currentUser.isServiceProfile) {
+      addNotification('Ограничение', 'Служебные профили не могут создавать публикации');
+      return false;
+    }
+
+    const inputText = thought.trim();
+    if (!inputText) return false;
+
+    // 1. Check Spam Decisions
+    const isSpamContent = spamDecisions.some(
+      d => d.postText.trim().toLowerCase() === inputText.toLowerCase()
+    );
+
+    if (isSpamContent) {
+      const u = users.find(usr => usr.id === currentUser.id);
+      if (u) {
+        const newSpamCount = (u.spamCount || 0) + 1;
+        const shouldBlock = newSpamCount >= 3;
+
+        setUsers(prev => prev.map(usr => usr.id === u.id ? {
+          ...usr,
+          spamCount: newSpamCount,
+          isSpamBadge: true,
+          isBlocked: shouldBlock ? true : usr.isBlocked,
+          profileBlockInfo: shouldBlock ? {
+            reason: 'Спам',
+            duration: 'Навсегда',
+            comment: 'Ваши публикации нарушали правила нашей платформы, так как содержали нежелательную информацию',
+            blockedBy: 'Агент Поддержки',
+            examples: { posts: true, name: false, status: false, other: false }
+          } : usr.profileBlockInfo
+        } : usr));
+
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          spamCount: newSpamCount,
+          isSpamBadge: true,
+          isBlocked: shouldBlock ? true : prev.isBlocked,
+          profileBlockInfo: shouldBlock ? {
+            reason: 'Спам',
+            duration: 'Навсегда',
+            comment: 'Ваши публикации нарушали правила нашей платформы, так как содержали нежелательную информацию',
+            blockedBy: 'Агент Поддержки',
+            examples: { posts: true, name: false, status: false, other: false }
+          } : prev.profileBlockInfo
+        } : null);
+
+        const logEntry = {
+          id: `log-auto-spam-${Date.now()}`,
+          action: `Пытался отправить спам: «${inputText}». Авто-удаление. Получен статус SPAM (${newSpamCount}/3).${shouldBlock ? ' Пользователь ЗАБЛОКИРОВАН.' : ''}`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+      }
+      addNotification('Система спама', 'Данная публикация заблокирована как спам!');
+      return false;
+    }
+
+    // 2. Automoderator Rules check
+    const automodMatch = automodRules.find(r => r.isActive && r.keywords.some(kw => inputText.toLowerCase().includes(kw.toLowerCase())));
+    if (automodMatch) {
+      setAutomodRules(prev => prev.map(r => r.id === automodMatch.id ? { ...r, matchCount: r.matchCount + 1 } : r));
+      addNotification('Автомодератор 🤖', `Пост заблокирован по правилу: "${automodMatch.name}"`);
+
+      if (automodMatch.action === 'delete_ban') {
+        setUsers(prev => prev.map(usr => usr.id === currentUser.id ? {
+          ...usr,
+          isBlocked: true,
+          profileBlockInfo: {
+            reason: `Правило: ${automodMatch.name}`,
+            duration: 'Навсегда',
+            comment: `Ваша публикация заблокирована автоматической системой за нарушение правила: ${automodMatch.name}`,
+            blockedBy: 'Автомодератор 🤖',
+            examples: { posts: true, name: false, status: false, other: false }
+          }
+        } : usr));
+
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          isBlocked: true,
+          profileBlockInfo: {
+            reason: `Правило: ${automodMatch.name}`,
+            duration: 'Навсегда',
+            comment: `Ваша публикация заблокирована автоматической системой за нарушение правила: ${automodMatch.name}`,
+            blockedBy: 'Автомодератор 🤖',
+            examples: { posts: true, name: false, status: false, other: false }
+          }
+        } : null);
+
+        const logEntry = {
+          id: `log-automod-block-${Date.now()}`,
+          action: `Пользователь ${currentUser.name} заблокирован по правилу «${automodMatch.name}» за публикацию: «${inputText}»`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+      } else if (automodMatch.action === 'flag_spam') {
+        const newComplaint = {
+          id: `spam-comp-${Date.now()}`,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userAvatar: currentUser.avatar || 'images.png',
+          type: 'content',
+          content: `[Автомодератор] Нарушение правил спама: «${inputText}»`,
+          details: `Обнаружено совпадение с правилом спама: ${automodMatch.name}`,
+          timestamp: new Date().toISOString(),
+          dept: 'Спам'
+        };
+        setSpamComplaints(prev => [newComplaint, ...prev]);
+
+        const logEntry = {
+          id: `log-automod-spam-${Date.now()}`,
+          action: `Текст «${inputText}» отклонён и отправлен в спам-очередь по правилу «${automodMatch.name}»`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+      } else if (automodMatch.action === 'flag_pro') {
+        const newComplaint = {
+          id: `pro-comp-${Date.now()}`,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userAvatar: currentUser.avatar || 'images.png',
+          type: 'content',
+          content: `[Автомодератор] Нарушение правил ПРО: «${inputText}»`,
+          details: `Обнаружена токсичность по правилу: ${automodMatch.name}`,
+          timestamp: new Date().toISOString(),
+          dept: 'Модерация'
+        };
+        setComplaints(prev => [newComplaint, ...prev]);
+
+        const logEntry = {
+          id: `log-automod-pro-${Date.now()}`,
+          action: `Текст «${inputText}» перенаправлен в ПРО по правилу «${automodMatch.name}»`,
+          timestamp: new Date()
+        };
+        setProfileModerationLogs(prev => [logEntry, ...prev]);
+      }
+      return false;
+    }
+
+    const analyzedTopics = TopicScoreService.analyzePost('', inputText, allTopics);
+    const maxPostIdNum = feedPosts.reduce((max, p) => {
+      const match = p.id.match(/^post_(\d+)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        return val > max ? val : max;
+      }
+      return max;
+    }, 0);
+    const newPost: FeedPost = {
+      id: `post_${maxPostIdNum + 1}`,
+      authorName: currentUser.name,
+      authorAvatar: currentUser.avatar || '',
+      title: title,
+      text: inputText,
+      image: media,
+      likes: 0,
+      timestamp: 'только что',
+      comments: [],
+      context: context,
+      visualPriority: visualPriority,
+      isApproved: true,
+      postFormat: postFormat || 'OPINION',
+      topicScores: analyzedTopics,
+      topicClassificationSource: 'AUTO' as const,
+      topicHistory: [
+        {
+          timestamp: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          action: 'Автоматический анализ при публикации',
+          source: 'AUTO' as const
+        }
+      ]
+    };
+
+    setFeedPosts(prev => {
+      if (prev.some(p => p.id === newPost.id)) return prev;
+      return [newPost, ...prev];
+    });
+    RealtimeService.broadcastPost(newPost);
+    recordActivity('writing');
+    addNotification('Пост опубликован', 'Ваша запись успешно опубликована!');
+
+    const subscribers = userSubscribers[currentUser.id] || [];
+    pushPlatformNotifications(
+      ...subscribers.map(subscriberId =>
+        buildAuthorPostNotification(subscriberId, {
+          id: currentUser.id,
+          name: currentUser.name,
+          avatar: currentUser.avatar || '',
+        }, newPost.id, inputText)
+      )
+    );
+    return true;
+  };
+
+  const renderPostTextContent = (post: FeedPost, isFeed: boolean) => {
+    if (!post.text) return null;
+    
+    const textStr = post.text.trim();
+    const hasHtml = /<[a-z][\s\S]*>/i.test(textStr);
+
+    // Stored explicit title takes precedence
+    const titleText = post.title || '';
+    const bodyText = textStr;
+
+    // Premium styling for modern body text (Craft/Apple style)
+    const textClass = !isFeed ? 'text-[14px] text-zinc-750 font-normal leading-relaxed' :
+      enableFeedModes && feedMode === 'studying'
+        ? 'text-[15px] font-sans text-zinc-800 bg-teal-50/5 p-3 rounded border border-teal-100/30 font-normal leading-relaxed text-justify'
+        : 'text-[14px] text-zinc-700 font-normal leading-relaxed';
+
+    // If explicit title is not stored, we fall back to extracting the first line as before
+    const lines = textStr.split('\n');
+    const firstLine = lines[0] || '';
+    const remainder = lines.slice(1).join('\n').trim();
+    const hasExtractedTitle = !titleText && firstLine.length > 0 && firstLine.length < 130 && lines.length > 1;
+    
+    const finalTitle = titleText || (hasExtractedTitle ? firstLine : '');
+    const finalBodyText = titleText ? bodyText : (hasExtractedTitle ? remainder : textStr);
+
+    const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
+    const formatBadgeEl = (
+      <span className="inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border bg-zinc-50/90 border-zinc-200 text-zinc-500 whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none">
+        {formatInfo.label}
+      </span>
+    );
+
+    return (
+      <div className="px-4 pt-3.5 pb-2.5 space-y-2.5 select-text">
+        {/* 1. Title (Enlarged, Incorporating Format Badge) */}
+        {finalTitle ? (
+          <h3 className="text-[19px] md:text-[21px] font-black text-zinc-900 leading-snug tracking-tight text-left select-text">
+            {formatBadgeEl}
+            <span className="align-middle">{finalTitle}</span>
+          </h3>
+        ) : null}
+
+        {/* 2. Text */}
+        <div className="text-left select-text leading-relaxed">
+          {hasHtml ? (
+            <div 
+              className={`rich-text-content leading-relaxed transition-all prose prose-slate max-w-none text-left select-text ${textClass}`}
+              dangerouslySetInnerHTML={{ __html: finalBodyText }}
+            />
+          ) : (
+            <p className={`whitespace-pre-line leading-relaxed transition-all select-text ${textClass}`}>
+              {!finalTitle && formatBadgeEl}
+              <span className="align-middle">{finalBodyText}</span>
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPostTopicProfile = (post: FeedPost) => {
+    const isEmployee = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
+    
+    const topics = post.topicScores || [];
+    if (topics.length === 0) return null;
+    
+    // Format topics as e.g. "Игры 60%, Дизайн 42%" (for employees) or "Игры · Дизайн" (for standard users)
+    const sortedTopics = [...topics].sort((a, b) => b.score - a.score);
+    const formattedText = sortedTopics.map(pt => {
+      if (isEmployee) {
+        return `${pt.topic} ${pt.score}%`;
+      } else {
+        return pt.topic;
+      }
+    }).join(' · ');
+    
+    return (
+      <div className="text-[11.5px] text-zinc-500/90 text-left leading-normal font-normal select-text flex items-center gap-1 flex-wrap">
+        <span className="text-zinc-400 font-semibold select-none">Темы:</span>
+        <span className="text-zinc-600">{formattedText}</span>
+      </div>
+    );
+  };
+
+  const renderUnifiedPostCard = (post: FeedPost, isFeed: boolean) => {
+    if (!post.text) return null;
+    const textStr = post.text.trim();
+    const hasHtml = /<[a-z][\s\S]*>/i.test(textStr);
+
+    const titleText = post.title || '';
+    const bodyText = textStr;
+
+    const textClass = !isFeed ? 'text-[14.5px] text-zinc-850 font-normal leading-relaxed' :
+      enableFeedModes && feedMode === 'studying'
+        ? 'text-[15.5px] font-sans text-zinc-850 bg-teal-50/5 p-3 rounded border border-teal-100/30 font-normal leading-relaxed text-justify'
+        : 'text-[14.5px] text-[#2c2d30] font-normal leading-relaxed';
+
+    const lines = textStr.split('\n');
+    const firstLine = lines[0] || '';
+    const remainder = lines.slice(1).join('\n').trim();
+    const hasExtractedTitle = !titleText && firstLine.length > 0 && firstLine.length < 130 && lines.length > 1;
+
+    const finalTitle = titleText || (hasExtractedTitle ? firstLine : '');
+    const finalBodyText = titleText ? bodyText : (hasExtractedTitle ? remainder : textStr);
+
+    const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
+    const formatBadgeEl = (
+      <span className="inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border bg-zinc-50 border-zinc-200/80 text-zinc-500 whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none">
+        {formatInfo.label}
+      </span>
+    );
+
+    const authorUser = users.find(u => u.name === post.authorName);
+    const authorSettings = authorUser?.publicSettings || publicSettings;
+    const resolvedAuthor = authorUser 
+      ? { name: authorUser.name, avatar: authorUser.avatar } 
+      : { name: post.authorName, avatar: post.authorAvatar };
+
+    const isFeedAnonymous = authorSettings?.profileMode === 'anonymous';
+    const isPhotoInFeedHidden = authorSettings?.showProfilePhotoInFeed === false;
+
+    const displayAuthorName = resolvedAuthor?.name || post.authorName;
+    const renderedAvatarUrl = (isFeedAnonymous || isPhotoInFeedHidden || !resolvedAuthor?.avatar) ? '' : resolvedAuthor.avatar;
+
+    const feedAuthorUser = {
+      ...authorUser,
+      id: authorUser?.id || `u-${post.id}`,
+      name: displayAuthorName,
+      avatar: renderedAvatarUrl,
+      trustLevel: authorUser?.trustLevel || 0.88,
+      isVerified: !isFeedAnonymous && authorUser?.isVerified,
+      isBlocked: authorUser?.isBlocked || false,
+      regDate: authorUser?.regDate || 'сегодня'
+    };
+
+    const topicsOnCard = post.topicScores || [];
+    const sortedTopicsOnCard = [...topicsOnCard].sort((a, b) => b.score - a.score);
+    const topTopicsOnCard = sortedTopicsOnCard.slice(0, 3);
+    const isEmployee = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
+    const formattedTopicsText = topTopicsOnCard.length > 0
+      ? topTopicsOnCard.map(pt => `${pt.topic} ${pt.score}%`).join(' · ')
+      : '';
+
+    return (
+      <div 
+        key={post.id} 
+        id={`post-${post.id}`}
+        onClick={(e) => handlePostCardClickWithAlt(e, post.text)}
+        className="bg-vk-white rounded-xl border border-zinc-200/60 overflow-hidden shadow-xs hover:border-[#cbcdd4] transition-all duration-200 flex flex-col gap-3.5 text-left font-sans p-4"
+      >
+        {/* Row 1: Author & Metadata Line (Primary priority at top) */}
+        <div className="flex items-center justify-between font-sans select-none">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (e.altKey) {
+                  handlePostCardClickWithAlt(e, post.authorName, 'name');
+                  return;
+                }
+                const u = users.find(usr => usr.name === post.authorName) || { id: `u-${post.id}`, name: post.authorName, avatar: post.authorAvatar, trustLevel: 0.88, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                setSelectedUserData(u);
+                setActiveTab('profile');
+              }} 
+              className="w-10 h-10 rounded-full overflow-hidden border border-zinc-150 cursor-pointer shrink-0"
+            >
+              {renderedAvatarUrl ? (
+                <UserAvatar user={feedAuthorUser} avatarUrl={renderedAvatarUrl} className="w-full h-full grayscale-[12%] opacity-90" />
+              ) : (
+                <div className="w-full h-full bg-zinc-100 flex items-center justify-center text-zinc-400 text-[10px]">👤</div>
+              )}
+            </div>
+
+            <div className="flex flex-col min-w-0 leading-tight">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.altKey) {
+                      handlePostCardClickWithAlt(e, post.authorName, 'name');
+                      return;
+                    }
+                    const u = users.find(usr => usr.name === post.authorName) || { id: `u-${post.id}`, name: post.authorName, avatar: post.authorAvatar, trustLevel: 0.88, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                    setSelectedUserData(u);
+                    setActiveTab('profile');
+                  }} 
+                  className="text-[13.5px] font-bold text-zinc-800 hover:text-blue-500 cursor-pointer transition-colors truncate max-w-[150px]"
+                >
+                  {displayAuthorName}
+                </span>
+                {!isFeedAnonymous && authorUser?.isVerified && <VerifiedBadge size={13.5} className="text-[#5181b8] shrink-0" />}
+                {isFeedAnonymous && (
+                  <span className="text-[8.5px] bg-[#f4f4f5]/5 ml-0.5 text-zinc-400 font-normal px-1 rounded border border-zinc-150/40">анонимно</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
+                <span>{post.timestamp}</span>
+                {isEmployee && (
+                  <>
+                    <span>·</span>
+                    <span className="text-[9px] font-mono text-zinc-450 bg-[#f4f4f5] border border-zinc-150/40 px-1 rounded select-all font-normal tracking-tight">
+                      ID: {post.id}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Actions Trigger */}
+          <div className="relative flex items-center shrink-0">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setOpenUserMenuId(openUserMenuId === post.id ? null : post.id); }}
+              className="p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650 rounded transition-colors"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            <AnimatePresence>
+              {openUserMenuId === post.id && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpenUserMenuId(null); }} />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    className="absolute right-0 mt-1 w-48 bg-white border border-zinc-200 rounded shadow-lg z-50 py-1"
+                  >
+                    <button onClick={(e) => {
+                      e.stopPropagation();
+                      const newComplaint: Complaint = {
+                        id: `c-feed-${Date.now()}`,
+                        userId: `u-feed-${post.id}`,
+                        userName: post.authorName,
+                        userAvatar: post.authorAvatar,
+                        type: 'Жалоба из ленты',
+                        content: post.text || 'Жалоба на изображение в посте',
+                        rating: '0.75',
+                        image: post.image,
+                        moderatedBy: post.moderatedBy
+                      };
+                      setComplaints(prev => [newComplaint, ...prev]);
+                      setOpenUserMenuId(null);
+                      addNotification('Жалоба отправлена', 'Ваша жалоба передана в отдел Модерации');
+
+                      if (currentUser) {
+                        const outgoingItem: ComplaintHistoryItem = {
+                          id: `ch-out-${Date.now()}`,
+                          type: 'outgoing',
+                          content: post.text || 'Жалоба на изображение в посте',
+                          decision: 'В очереди на рассмотрение',
+                          moderator: 'Система',
+                          timestamp: new Date().toLocaleString(),
+                          status: 'Обрабатывается'
+                        };
+                        setUsers(prev => prev.map(u => u.id === currentUser.id ? { 
+                          ...u, 
+                          complaintHistory: [outgoingItem, ...(u.complaintHistory || [])] 
+                        } : u));
+                        setCurrentUser(prev => prev ? { 
+                          ...prev, 
+                          complaintHistory: [outgoingItem, ...(prev.complaintHistory || [])] 
+                        } : null);
+                      }
+                    }} className="w-full text-left px-3 py-2 text-[12.5px] text-red-650 hover:bg-red-50 flex items-center gap-2 border-none bg-transparent cursor-pointer">
+                      <ShieldAlert size={14} /> Пожаловаться
+                    </button>
+                    
+                    {isEmployee && (
+                      <>
+                        <div className="border-t border-zinc-100 my-1 font-sans" />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenUserMenuId(null);
+                            const analyzed = TopicScoreService.analyzePost('', post.text || '', allTopics);
+                            setFeedPosts(prev => prev.map(p => p.id === post.id ? {
+                              ...p,
+                              topicScores: analyzed,
+                              topicClassificationSource: 'AUTO' as const,
+                              topicHistory: [
+                                {
+                                  timestamp: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                                  action: 'Автоматический пересчет',
+                                  source: 'AUTO' as const,
+                                  moderator: currentUser?.name
+                                },
+                                ...(p.topicHistory || [])
+                              ]
+                            } : p));
+                            addNotification('Модерация', 'Тематики успешно пересчитаны.');
+                          }}
+                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
+                        >
+                          <span>Пересчитать тематики</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenUserMenuId(null);
+                            setTopicScoreEditPost(post);
+                          }}
+                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
+                        >
+                          <span>Настроить тематики</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenUserMenuId(null);
+                            setTopicScoreExplainPost(post);
+                            setTopicScoreExplainUserVal(currentUser);
+                          }}
+                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
+                        >
+                          <span>Почему это показано?</span>
+                        </button>
+                      </>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Row 2: Unified content presentation layout (Format Badge + Title and text flow) */}
+        <div className="text-left select-text font-sans flex flex-col gap-2">
+          {finalTitle ? (
+            <h3 className="text-[17px] md:text-[18px] font-extrabold text-zinc-900 leading-snug tracking-tight select-text">
+              {formatBadgeEl}
+              <span className="align-middle select-text">{finalTitle}</span>
+            </h3>
+          ) : null}
+
+          <div className="text-left select-text leading-relaxed">
+            {hasHtml ? (
+              <div 
+                className={`rich-text-content leading-relaxed transition-all prose prose-slate max-w-none text-left select-text ${textClass}`}
+                dangerouslySetInnerHTML={{ __html: finalBodyText }}
+              />
+            ) : (
+              <p className={`whitespace-pre-line leading-relaxed transition-all select-text ${textClass}`}>
+                {!finalTitle && formatBadgeEl}
+                <span className="align-middle select-text">{finalBodyText}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Inline attachments (if any) */}
+        {post.image && (
+          ((post.visualPriority === 'text' || (enableFeedModes && feedMode === 'read')) && !attachmentVisiblePostIds[post.id]) ? (
+            <div className="mx-4 my-1 p-2 px-3 border border-dashed border-teal-200 bg-teal-50/10 rounded-[3px] flex items-center justify-between text-[11px] text-[#55677d] select-none font-sans">
+              <span className="flex items-center gap-1.5 font-medium">
+                📎 Медиа-вложение скрыто (в приоритете текст и мысли на платформе)
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAttachmentVisiblePostIds(prev => ({ ...prev, [post.id]: true }));
+                }}
+                className="text-teal-700 hover:underline font-semibold bg-white p-0.5 px-1.5 border border-teal-200 rounded text-[10.5px]"
+              >
+                Показать медиа
+              </button>
+            </div>
+          ) : (
+            <div className="border-y border-zinc-150 bg-[#fafafa] overflow-hidden max-h-[300px] flex items-center justify-center select-none">
+              {post.image.startsWith('http') ? (
+                <img 
+                  src={post.image} 
+                  className="w-full object-cover max-h-[300px]" 
+                  alt="Вложение" 
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/attachment/600/400';
+                  }}
+                />
+              ) : (
+                <ImagePlaceholder className="w-full aspect-video" forceGrayscale={currentDisplayUser?.isDeleted} />
+              )}
+            </div>
+          )
+        )}
+
+        {/* Custom classification metadata */}
+        {formattedTopicsText && (
+          <div className="px-4 text-[11px] text-zinc-400 font-sans tracking-tight font-normal leading-tight opacity-75 text-left select-none pt-1">
+            Тематика: {formattedTopicsText}
+          </div>
+        )}
+
+        {/* Priority 5: Compact Actions / Voting Footer Section (▲ and ▼ only, with dynamic iOS styling) */}
+        <div className="px-4 py-2 bg-zinc-50/50 border-t border-zinc-100 flex items-center justify-between gap-4 font-sans select-none">
+          <div className="flex-1 flex items-center gap-2">
+            {!(post.isLiked || post.isDownvoted) ? (
+              <>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, isLiked: true, likes: (p.likes || 0) + 1 } : p));
+                    addNotification('Сигнал ▲ принят', 'Спасибо за ваш вклад в оценку качества следа!');
+                  }}
+                  className="flex-1 py-1.5 px-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:bg-emerald-50 hover:border-emerald-250 hover:text-emerald-600 transition-all font-bold flex items-center justify-center cursor-pointer text-[14px] text-zinc-400"
+                  title="▲ Положительный сигнал качества следа"
+                >
+                  ▲
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, isDownvoted: true } : p));
+                    addNotification('Сигнал ▼ принят', 'Спасибо! Обратная связь передана алгоритму для улучшения качества.');
+                  }}
+                  className="flex-1 py-1.5 px-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:bg-amber-50 hover:border-amber-250 hover:text-amber-600 transition-all font-bold flex items-center justify-center cursor-pointer text-[14px] text-zinc-400"
+                  title="▼ Сигнал алгоритму о неудачной тематике или соответствии"
+                >
+                  ▼
+                </button>
+              </>
+            ) : (
+              <>
+                <div 
+                  className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 ${post.isLiked ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' : 'bg-zinc-50/60 border-zinc-200 text-zinc-400 opacity-60'}`}
+                >
+                  <span className="text-emerald-500">▲</span> {post.likes || 0}
+                </div>
+                <div 
+                  className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 ${post.isDownvoted ? 'bg-amber-50 border-amber-300 text-amber-700 font-bold' : 'bg-zinc-50/60 border-zinc-200 text-zinc-400 opacity-60'}`}
+                >
+                  <span className="text-amber-500">▼</span> {Math.floor((post.likes || 10) * 0.12) + (post.isDownvoted ? 1 : 0)}
+                </div>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePostAttentionSignal(post.id);
+            }}
+            className={`flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors cursor-pointer ${
+              post.boostedUsers?.includes(currentUser?.id || currentUser?.name)
+                ? 'text-amber-600 font-bold'
+                : 'text-zinc-400 hover:text-amber-500'
+            }`}
+            title="Заслуживает внимания"
+          >
+            <Flame size={14} className={post.boostedUsers?.includes(currentUser?.id || currentUser?.name) ? 'fill-amber-500 text-amber-500' : 'text-zinc-400'} />
+            <span>Заслуживает внимания</span>
+            {post.attentionScore !== undefined && post.attentionScore > 0 && (
+              <span className="text-[10px] bg-amber-50 border border-amber-100 text-amber-600 px-1 py-0.2 rounded font-mono font-bold">
+                {post.attentionScore}
+              </span>
+            )}
+          </button>
+
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              const input = document.getElementById(`post-comment-${post.id}`);
+              input?.focus();
+            }}
+            className="flex items-center gap-1.5 text-[11.5px] font-semibold text-zinc-400 hover:text-blue-500 transition-colors cursor-pointer"
+          >
+            <MessageSquare size={14} />
+            <span>({post.comments?.length || 0})</span>
+          </button>
+        </div>
+
+        {/* Staff Moderation block */}
+        {isStaff && !post.isApproved && (
+          <div className="px-4 pb-3 flex flex-wrap gap-2 border-t border-zinc-100 pt-3">
+            <button 
+              disabled={!!post.moderatedBy}
+              onClick={() => {
+                const u = users.find(user => user.name === post.authorName);
+                if (u) {
+                  const newSpamCount = (u.spamCount || 0) + 1;
+                  const shouldBlock = newSpamCount >= 3;
+                  
+                  setUsers(prev => prev.map(usr => usr.id === u.id ? {
+                    ...usr,
+                    spamCount: newSpamCount,
+                    isSpamBadge: true,
+                    isBlocked: shouldBlock ? true : usr.isBlocked,
+                    profileBlockInfo: shouldBlock ? {
+                      reason: 'Спам',
+                      duration: 'Навсегда',
+                      comment: 'Ваши публикации нарушали правила нашей платформы, так как содержали нежелательную информацию',
+                      blockedBy: operatorName || 'Агент Поддержки',
+                      examples: { posts: true, name: false, status: false, other: false }
+                    } : usr.profileBlockInfo
+                  } : usr));
+
+                  setFeedPosts(prev => prev.filter(p => p.id !== post.id));
+
+                  if (shouldBlock) {
+                    addNotification('Пользователь заблокирован', 'Пользователь заблокирован за спам (3/3)');
+                  } else {
+                    addNotification('Модерация', `На пост повешена отметка СПАМ (${newSpamCount}/3)`);
+                  }
+                } else {
+                  setFeedPosts(prev => prev.filter(p => p.id !== post.id));
+                  addNotification('Модерация', 'Пост удален');
+                }
+              }} 
+              className={`px-2.5 py-1 rounded-[4px] text-[10px] font-bold border uppercase transition-all ${!!post.moderatedBy ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-[#5181b8] text-white border-transparent hover:bg-[#5b88bd]'}`}
+            >
+              Это спам
+            </button>
+            <button 
+              disabled={!!post.moderatedBy}
+              onClick={() => {
+                setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, moderatedBy: currentUser?.name || 'Сотрудник', isApproved: true } : p));
+                addNotification('Модерация', 'Пост одобрен и скрыт из ленты модерации');
+              }} 
+              className={`px-2.5 py-1 rounded-[4px] text-[10px] font-bold border uppercase transition-all ${!!post.moderatedBy ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-[#5181b8] text-white border-transparent hover:bg-[#5b88bd]'}`}
+            >
+              Одобрить
+            </button>
+            <button 
+              disabled={!!post.moderatedBy}
+              onClick={() => {
+                setFeedPosts(prev => prev.filter(p => p.id !== post.id));
+                addNotification('Модерация', 'Пост удален из ленты');
+              }} 
+              className={`px-2.5 py-1 rounded-[4px] text-[10px] font-bold border uppercase transition-all ${!!post.moderatedBy ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-[#5181b8] text-white border-transparent hover:bg-[#5b88bd]'}`}
+            >
+              Удалить
+            </button>
+            <button 
+              disabled={!!post.moderatedBy}
+              onClick={() => {
+                const u = users.find(u => u.name === post.authorName);
+                if (u) {
+                  setSelectedUserData(u);
+                  setIsProfileBlockModalOpen(true);
+                } else {
+                  addNotification('Ошибка', 'Пользователь не найден в базе для блокировки');
+                }
+              }} 
+              className={`px-2.5 py-1 rounded-[4px] text-[10px] font-bold border uppercase transition-all ${!!post.moderatedBy ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-[#5181b8] text-white border-transparent hover:bg-[#5b88bd]'}`}
+            >
+              Заблокировать
+            </button>
+            <button 
+              disabled={!!post.moderatedBy}
+              onClick={() => {
+                const dummyForDept: Complaint = {
+                  id: `forward-${Date.now()}`,
+                  userId: `u-${post.id}`,
+                  userName: post.authorName,
+                  userAvatar: post.authorAvatar,
+                  content: post.text || 'Перенаправление из ленты',
+                  dept: 'Модерация',
+                  type: 'Лента: Перенаправление',
+                  rating: '0.85',
+                  selected: true,
+                  moderatedBy: post.moderatedBy
+                };
+                setComplaints(prev => [dummyForDept, ...prev]);
+                setIsMassDeptModalOpen(true);
+              }} 
+              className={`px-2.5 py-1 rounded-[4px] text-[10px] font-bold border uppercase transition-all ${!!post.moderatedBy ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-[#5181b8] text-white border-transparent hover:bg-[#5b88bd]'}`}
+            >
+              В отдел
+            </button>
+            {post.moderatedBy && (
+              <div className="w-full mt-2 text-[11px] text-zinc-500 font-sans select-text">Промодерировал сотрудник «{post.moderatedBy}»</div>
+            )}
+          </div>
+        )}
+
+        <DiscussionComments
+          postId={post.id}
+          comments={(post.comments || []).map(c => ({
+            id: c.id,
+            authorId: c.authorId,
+            authorName: c.authorName,
+            authorAvatar: c.authorAvatar || '',
+            text: c.text,
+            timestamp: c.timestamp,
+            type: (c as any).type,
+            parentCommentId: c.parentCommentId,
+            firesCount: c.firesCount,
+            negativeReactions: c.negativeReactions,
+            positiveAttentionPct: c.positiveAttentionPct,
+            fireUsers: c.fireUsers,
+            negativeUsers: c.negativeUsers,
+          }))}
+          onAddComment={(text, type, parentCommentId) => {
+            const commentId = `comment-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+            const newComment = {
+              id: commentId,
+              authorId: currentUser?.id,
+              authorName: currentUser?.name || 'Пользователь',
+              authorAvatar: currentUser?.avatar || 'images.png',
+              text: text,
+              timestamp: 'только что',
+              type: type,
+              parentCommentId,
+              firesCount: 0,
+              negativeReactions: 0,
+              positiveAttentionPct: 100,
+              fireUsers: []
+            };
+            setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, comments: [...(p.comments || []), newComment] } : p));
+            recordActivity('discussing');
+            notifyDiscussionComment(post.id, commentId, text, parentCommentId);
+          }}
+          isSubscribed={mySubscribedDiscussions.includes(post.id)}
+          onToggleSubscribe={() => handleToggleDiscussionSubscribe(post.id)}
+          currentUser={currentUser}
+          users={users}
+          commentsDisabled={isServiceProfileUser(currentUser)}
+          onUserSelect={(u) => {
+            setSelectedUserData(u);
+            setActiveTab('profile');
+          }}
+          onCommentReact={(commentId, rxType) => handleCommentReact(post.id, commentId, rxType)}
+        />
+      </div>
+    );
+  };
+
+  const renderFeed = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+      {/* Paradigm Feed Modes Selector */}
+      <FeedModeSelector
+        currentMode={feedMode}
+        onModeChange={(mode) => {
+          setFeedMode(mode);
+          recordActivity('reading');
+        }}
+        isEnabled={enableFeedModes}
+        onToggleEnabled={setEnableFeedModes}
+      />
+
+      {/* Unified Post Composer */}
+      <PostComposer
+        currentUser={currentUser}
+        onPublish={handlePublishPost}
+        disabled={isServiceProfileUser(currentUser)}
+      />
+
+      {/* Publication Formats Filter - Compact Dropdown */}
+      <div className="flex justify-start items-center py-1 select-none">
+        <PostFormatFilter selectedFormat={feedFormatFilter} onChange={setFeedFormatFilter} />
+      </div>
+
+      <div className="bg-vk-white p-4 rounded-xl border border-zinc-200/60 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+        <div>
+          <h1 className="text-[15px] font-bold text-zinc-900">
+            {enableFeedModes ? (
+              feedMode === 'all' ? 'Все материалы ленты' :
+              feedMode === 'discussing' ? 'Активно обсуждают' :
+              feedMode === 'studying' ? 'Глубоко изучают' :
+              'Рекомендуют сообществом'
+            ) : 'Лента публикаций'}
+          </h1>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        {filteredFeedPosts.length > 0 ? (
+          <>
+            {filteredFeedPosts.slice(0, visiblePostsCount).map(post => renderUnifiedPostCard(post, true))}
+            {feedPosts.length > visiblePostsCount && (
+              <button 
+                onClick={() => setVisiblePostsCount(prev => prev + 30)}
+                className="w-full py-3 bg-vk-white hover:bg-gray-50 text-[#2a5885] border border-vk-separator rounded-[2px] font-medium text-[12.5px] transition-all flex items-center justify-center gap-2"
+              >
+                Показать ещё публикации ({feedPosts.length - visiblePostsCount} осталось)
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="col-span-full bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
+            <LayoutGrid size={48} className="text-[#dce1e6]" />
+            <p className="text-vk-text-secondary text-[12.5px]">В ленте пока ничего нет</p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+
+  const renderDiscussedNow = () => (
+    <DiscussedNow
+      feedPosts={feedPosts}
+      currentUser={currentUser}
+      users={users}
+      setFeedPosts={setFeedPosts}
+      setCurrentUser={setCurrentUser}
+      addNotification={addNotification}
+      onUserSelect={(u) => {
+        setSelectedUserData(u);
+        setActiveTab('profile');
+      }}
+    />
+  );
+
+  const renderSinglePostPage = () => {
+    const post = feedPosts.find(p => p.id === postId);
+    if (!post) {
+      return (
+        <div className="bg-white border border-[#e7e8ec] rounded-2xl p-12 text-center flex flex-col items-center gap-6">
+          <div className="p-3 bg-rose-50 text-rose-500 rounded-full">
+            <X size={24} />
+          </div>
+          <div>
+            <h3 className="font-bold text-zinc-950 text-sm">Публикация не найдена</h3>
+            <p className="text-zinc-500 text-xs mt-1">Она могла быть скрыта модерацией или удалена автором.</p>
+          </div>
+          <button 
+            onClick={() => navigate('/feed')}
+            className="px-4 py-2 bg-[#4F7DF3] text-white rounded-xl text-xs font-semibold hover:opacity-90 cursor-pointer"
+          >
+            В ленту
+          </button>
+        </div>
+      );
+    }
+    
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+        <div className="flex items-center justify-between bg-white border border-[#e7e8ec] rounded-2xl px-5 py-3 shadow-sm">
+          <button
+            onClick={() => navigate('/feed')}
+            className="flex items-center gap-2 text-xs font-semibold text-[#2a5885] hover:opacity-85 transition-opacity cursor-pointer"
+          >
+            ← Назад в ленту публикаций
+          </button>
+          <span className="text-[11px] font-bold text-zinc-400 font-mono select-none uppercase">ПОСТ ID: {postId}</span>
+        </div>
+        <div>
+          {renderUnifiedPostCard(post, false)}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderSettingsPage = () => {
+    return (
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        className="bg-white border border-[#e7e8ec] rounded-2xl p-6 space-y-6 shadow-sm text-left font-sans"
+      >
+        <div className="border-b border-[#f0f2f5] pb-4 flex justify-between items-center">
+          <div>
+            <h2 className="text-sm font-bold text-[#2a5885] uppercase tracking-wider">Параметры приватности и профиля</h2>
+            <p className="text-[11.5px] text-zinc-500 mt-1">Настройте свои публичные личные данные и видимость на Следы</p>
+          </div>
+          <button
+            onClick={() => {
+              setIsPrivacyModalOpen(true);
+            }}
+            className="px-3 py-1.5 bg-[#4F7DF3]/8 hover:bg-[#4F7DF3]/15 text-[#4F7DF3] text-xs font-semibold rounded-xl transition-all cursor-pointer"
+          >
+            Открыть полную панель
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-zinc-700">Имя и Фамилия</label>
+            <input
+              type="text"
+              value={publicSettings.displayName || currentUser?.name || ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                const newSettings = { ...publicSettings, displayName: val };
+                setPublicSettings(newSettings);
+                if (currentUser) {
+                  const updatedU = { ...currentUser, publicSettings: newSettings, name: val || currentUser.name };
+                  setCurrentUser(updatedU);
+                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
+                }
+              }}
+              className="w-full bg-[#fdfdfd] hover:bg-zinc-50 focus:bg-white text-zinc-800 px-3.5 py-2 rounded-xl border border-zinc-200 focus:border-[#4a76a8] text-xs transition-colors outline-none"
+              placeholder="Введите новое имя..."
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-zinc-700">О себе (Описание профиля)</label>
+            <textarea
+              value={publicSettings.bio || currentUser?.status || ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                const newSettings = { ...publicSettings, bio: val };
+                setPublicSettings(newSettings);
+                if (currentUser) {
+                  const updatedU = { ...currentUser, publicSettings: newSettings, status: val };
+                  setCurrentUser(updatedU);
+                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
+                }
+              }}
+              className="w-full bg-[#fdfdfd] hover:bg-zinc-50 focus:bg-white text-zinc-800 px-3.5 py-2 rounded-xl border border-zinc-200 focus:border-[#4a76a8] text-xs transition-colors outline-none min-h-[80px]"
+              placeholder="Расскажите о себе..."
+            />
+          </div>
+
+          <div className="p-4 bg-[#4f7df3]/5 rounded-xl border border-[#4f7df3]/10 space-y-3">
+            <h4 className="text-xs font-bold text-[#4F7DF3]">Быстрые настройки приватности</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs select-none">
+              <label className="flex items-center gap-2.5 cursor-pointer text-zinc-700 hover:text-zinc-900">
+                <input 
+                  type="checkbox" 
+                  checked={publicSettings.showName !== false}
+                  onChange={(e) => {
+                    const newSettings = { ...publicSettings, showName: e.target.checked };
+                    setPublicSettings(newSettings);
+                    if (currentUser) {
+                      const updatedU = { ...currentUser, publicSettings: newSettings };
+                      setCurrentUser(updatedU);
+                    }
+                  }}
+                  className="rounded text-[#4F7DF3]"
+                />
+                Показывать моё реальное имя
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-zinc-700 hover:text-zinc-900">
+                <input 
+                  type="checkbox" 
+                  checked={publicSettings.showAvatar !== false}
+                  onChange={(e) => {
+                    const newSettings = { ...publicSettings, showAvatar: e.target.checked };
+                    setPublicSettings(newSettings);
+                    if (currentUser) {
+                      const updatedU = { ...currentUser, publicSettings: newSettings };
+                      setCurrentUser(updatedU);
+                    }
+                  }}
+                  className="rounded text-[#4F7DF3]"
+                />
+                Показывать аватар
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-zinc-700 hover:text-zinc-900">
+                <input 
+                  type="checkbox" 
+                  checked={publicSettings.showActivity !== false}
+                  onChange={(e) => {
+                    const newSettings = { ...publicSettings, showActivity: e.target.checked };
+                    setPublicSettings(newSettings);
+                    if (currentUser) {
+                      const updatedU = { ...currentUser, publicSettings: newSettings };
+                      setCurrentUser(updatedU);
+                    }
+                  }}
+                  className="rounded text-[#4F7DF3]"
+                />
+                Отображать шкалу активности
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-zinc-700 hover:text-zinc-900">
+                <input 
+                  type="checkbox" 
+                  checked={publicSettings.showDiscussions !== false}
+                  onChange={(e) => {
+                    const newSettings = { ...publicSettings, showDiscussions: e.target.checked };
+                    setPublicSettings(newSettings);
+                    if (currentUser) {
+                      const updatedU = { ...currentUser, publicSettings: newSettings };
+                      setCurrentUser(updatedU);
+                    }
+                  }}
+                  className="rounded text-[#4F7DF3]"
+                />
+                Разрешить участие в обсуждениях
+              </label>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-zinc-100 flex justify-between items-center">
+            <span className="text-[10px] text-zinc-400 font-mono">Сохраняется автоматически</span>
+            <button
+              onClick={() => {
+                addNotification('Сохранено', 'Настройки приватности обновлены успешно!');
+                navigate('/');
+              }}
+              className="px-5 py-2.5 bg-[#4F7DF3] text-white hover:bg-[#4F7DF3]/90 font-bold text-xs rounded-xl transition-all cursor-pointer shadow-md shadow-blue-100"
+            >
+              Вернуться в профиль
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderAdminDashboardPage = () => {
+    const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
+    if (!isEmployeeUser) {
+      return (
+        <div className="bg-white border border-[#e7e8ec] rounded-2xl p-12 text-center flex flex-col items-center gap-4">
+          <div className="p-3 bg-rose-50 text-rose-500 rounded-full">
+            <LogOut size={24} />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-zinc-950 text-sm">Доступ заблокирован</h3>
+            <p className="text-zinc-500 text-xs mt-1">Этот раздел предназначен только для верифицированных сотрудников администрации.</p>
+          </div>
+          <button 
+            onClick={() => navigate('/')}
+            className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-semibold cursor-pointer"
+          >
+            На главную
+          </button>
+        </div>
+      );
+    }
+
+    const adminTabsList = [
+      { id: 'spam', label: 'Антиспам база', desc: 'Управление заблокированными подсетями и жалобами на контент' },
+      { id: 'support', label: 'Поддержка', desc: 'Просмотр и распределение тикетов от пользователей' },
+      { id: 'appeals', label: 'Апелляции на баны', desc: 'Рассмотрение заявок на разблокировку аккаунтов' },
+      { id: 'verification', label: 'Верификация', desc: 'Анализ заявок на получение синей галочки для авторов' },
+      { id: 'announcements', label: 'Объявления', desc: 'Публикация регламентов и новостей для сотрудников' },
+      { id: 'wiki', label: 'База знаний Wiki', desc: 'Инструкции и методические рекомендации администрации' },
+      { id: 'security', label: 'Безопасность', desc: 'Защита от фишинга, контроль подозрительных IP-сетей и сессий' },
+      { id: 'action-logs', label: 'Логи действий', desc: 'Абсолютный аудит всех решений персонала компании' },
+      { id: 'monitoring', label: 'Тех. мониторинг', desc: 'Здоровье СУБД, нагрузка API и пинг сервисов доставки' },
+      { id: 'personnel', label: 'Сотрудники', desc: 'Управление штатом модераторов, ролями и активностями' },
+    ];
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left font-sans">
+        <div className="bg-white border border-[#e7e8ec] rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-[#2a5885] uppercase tracking-wider">Панель управления администратора</h2>
+          <p className="text-zinc-500 text-xs mt-1">Вам доступны расширенные административные возможности платформы в соответствии с вашим должностным статусом.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {adminTabsList.map(tab => (
+            <div 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className="bg-white border border-[#e7e8ec] p-4 rounded-2xl hover:border-[#4F7DF3] transition-all cursor-pointer flex flex-col justify-between group h-full"
+            >
+              <div className="space-y-1">
+                <h3 className="text-xs font-bold text-zinc-900 group-hover:text-[#4F7DF3] transition-colors">{tab.label}</h3>
+                <p className="text-zinc-500 text-[11px] leading-relaxed">{tab.desc}</p>
+              </div>
+              <div className="text-[10px] text-[#4F7DF3] font-semibold flex items-center gap-1 mt-3">
+                Войти в раздел →
+              </div>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const render404Page = () => {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="bg-white border border-[#e7e8ec] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-6 min-h-[400px] select-none"
+      >
+        <div className="p-4 bg-zinc-50 rounded-full border border-zinc-150 animate-bounce">
+          <Footprints size={48} className="text-[#4F7DF3] transform -rotate-12 animate-pulse" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-xl font-black text-zinc-900 tracking-tight">404 — След растерялся</h1>
+          <p className="text-zinc-500 text-[12px] max-w-sm mx-auto">
+            К сожалению, след засыпало листьями, запрашиваемый вами раздел был перемещен или удален из системы.
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/')}
+          className="px-5 py-2 text-white font-semibold text-xs rounded-xl bg-[#4F7DF3] hover:bg-[#4F7DF3]/90 transform active:scale-95 transition-all shadow-md shadow-blue-100 cursor-pointer"
+        >
+          Вернуться на главную
+        </button>
+      </motion.div>
+    );
+  };
+
+  const handlePostComment = (postId: string, text: string) => {
+    const newComment = {
+      id: `c-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+      authorName: currentUser?.name || 'Пользователь',
+      authorAvatar: currentUser?.avatar || '',
+      text: text,
+      timestamp: 'только что',
+      firesCount: 0,
+      negativeReactions: 0,
+      positiveAttentionPct: 100,
+      fireUsers: []
+    };
+    setFeedPosts(prev => prev.map(p => p.id === postId ? { ...p, comments: [...(p.comments || []), newComment] } : p));
+  };
+
+  const handleCommentReact = (postId: string, commentId: string, reactionType: 'up' | 'down') => {
+    if (!currentUser) {
+      addNotification('Ошибка', 'Зарегистрируйтесь для оценки комментариев');
+      return;
+    }
+
+    setFeedPosts(prevPosts => {
+      return prevPosts.map(p => {
+        if (p.id !== postId) return p;
+        const updatedComments = (p.comments || []).map(c => {
+          if (c.id !== commentId) return c;
+
+          let fires = c.firesCount || 0;
+          let negs = c.negativeReactions || 0;
+          let upvoters = [...(c.fireUsers || [])];
+          let downvoters = [...(c.negativeUsers || [])];
+
+          const upIndex = upvoters.findIndex((u: any) => u.userId === currentUser.id);
+          const downIndex = downvoters.findIndex((u: any) => u.userId === currentUser.id);
+
+          if (reactionType === 'up') {
+            if (upIndex !== -1) {
+              // Untoggle up
+              fires = Math.max(0, fires - 1);
+              upvoters.splice(upIndex, 1);
+              addNotification('Оценка убрана', 'Вы отменили свою оценку комментария.');
+            } else {
+              // Toggle up
+              fires += 1;
+              upvoters.push({
+                userId: currentUser.id,
+                userName: currentUser.name,
+                userAvatar: currentUser.avatar || '',
+                timestamp: new Date().toLocaleString('ru-RU')
+              });
+              if (downIndex !== -1) {
+                negs = Math.max(0, negs - 1);
+                downvoters.splice(downIndex, 1);
+              }
+              addNotification('Оценка принята ⬆️', 'Спасибо за оценку комментария!');
+            }
+          } else if (reactionType === 'down') {
+            if (downIndex !== -1) {
+              // Untoggle down
+              negs = Math.max(0, negs - 1);
+              downvoters.splice(downIndex, 1);
+              addNotification('Оценка убрана', 'Вы отменили свою оценку комментария.');
+            } else {
+              // Toggle down
+              negs += 1;
+              downvoters.push({
+                userId: currentUser.id,
+                userName: currentUser.name,
+                userAvatar: currentUser.avatar || '',
+                timestamp: new Date().toLocaleString('ru-RU')
+              });
+              if (upIndex !== -1) {
+                fires = Math.max(0, fires - 1);
+                upvoters.splice(upIndex, 1);
+              }
+              addNotification('Оценка принята ⬇️', 'Спасибо за оценку комментария!');
+            }
+          }
+
+          const total = fires + negs;
+          const pct = total > 0 ? Math.round((fires / total) * 100) : 100;
+
+          return {
+            ...c,
+            firesCount: fires,
+            negativeReactions: negs,
+            positiveAttentionPct: pct,
+            fireUsers: upvoters,
+            negativeUsers: downvoters
+          };
+        });
+        return { ...p, comments: updatedComments };
+      });
+    });
+  };
+
+  const handlePostAttentionSignal = (postId: string) => {
+    if (!currentUser) {
+      addNotification('Авторизация', 'Пожалуйста, войдите в аккаунт, чтобы проголосовать.');
+      return;
+    }
+
+    const signalsUsed = currentUser.postSignalsUsed || 0;
+    
+    // Find post in state to check if user already boosted it
+    const targetPost = feedPosts.find(p => p.id === postId);
+    if (!targetPost) return;
+
+    const boostedUsers = targetPost.boostedUsers || [];
+    const alreadyBoosted = boostedUsers.includes(currentUser.id || currentUser.name);
+
+    if (alreadyBoosted) {
+      addNotification('Голос учтен', 'Вы уже отправляли сигнал «Заслуживает внимания» для этой публикации.');
+      return;
+    }
+
+    // Process limit (for posts, maximum 3 times a day)
+    if (signalsUsed >= 3) {
+      addNotification('Следы Premium', 'Оформите подписку Следы Premium в разделе «Это обсуждают» для отправки дополнительных сигналов!');
+      return;
+    }
+
+    // Increment post's attentionScore
+    setFeedPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      const currentAttention = p.attentionScore !== undefined ? p.attentionScore : ((p.likes || 0) * 2);
+      return {
+        ...p,
+        attentionScore: currentAttention + 20,
+        boostedUsers: [...(p.boostedUsers || []), currentUser.id || currentUser.name]
+      };
+    }));
+
+    // Update current user's signal usage count
+    setCurrentUser((curr: any) => {
+      if (!curr) return null;
+      return {
+        ...curr,
+        postSignalsUsed: (curr.postSignalsUsed || 0) + 1
+      };
+    });
+
+    addNotification('Сигнал принят! 🔥', 'Добавлено +20 к уровню общественного внимания публикации.');
+  };
+
+  const renderRegistration = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[400px] mx-auto mt-10 bg-vk-white p-8 rounded-[4px] border border-vk-separator space-y-6">
+      <div className="text-center">
+        <h1 className="text-[20px] font-medium text-vk-text">{isLoginView ? 'Вход' : 'Регистрация'}</h1>
+        <p className="text-[13px] text-vk-text-secondary mt-1">{isLoginView ? 'Используйте логин и пароль' : 'Создайте новый аккаунт'}</p>
+      </div>
+
+      {isLoginView && loginRejectReason && (
+        <div className="bg-[#fff9cc] text-vk-text text-[12px] px-3 py-2 rounded-[2px] text-center font-normal border border-[#fff2cc] leading-tight">
+          <div className="font-bold mb-0.5 text-[11px] uppercase tracking-wide opacity-70 text-[#7a6b00]">Доступ отклонен</div>
+          {loginRejectReason}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Логин</label>
+          <input 
+            type="text" 
+            placeholder="Ваш логин" 
+            className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+            value={regForm.login}
+            onChange={(e) => setRegForm({ ...regForm, login: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Пароль</label>
+          <input 
+            type="password" 
+            placeholder="Ваш пароль" 
+            className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+            value={regForm.password}
+            onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+          />
+        </div>
+        
+        {!isLoginView && (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Имя</label>
+              <input 
+                type="text" 
+                placeholder="Ваше имя" 
+                className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                value={regForm.name}
+                onChange={(e) => setRegForm({ ...regForm, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Статус</label>
+              <input 
+                type="text" 
+                placeholder="Что у вас нового?" 
+                className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                value={regForm.status}
+                onChange={(e) => setRegForm({ ...regForm, status: e.target.value })}
+              />
+            </div>
+          </>
+        )}
+
+        <button 
+          onClick={async () => {
+            if (regForm.login && (regForm.password || isLoginView)) {
+              if (isLoginView) {
+                try {
+                  const loggedUser = await authService.login(regForm.login, regForm.password);
+                  
+                  // Keep access restriction and recovery safety checks if the user demands not breaking existing features
+                  const existingUser = users.find(u => u.id === loggedUser.id || u.login === loggedUser.login) || loggedUser;
+                  
+                  if (existingUser.isAccessRestricted) {
+                    setLoginRejectReason(`Доступ закрыт модератором: ${existingUser.accessRestrictedReason}`);
+                    return;
+                  }
+
+                  // Recovery logic
+                  if (existingUser.recoveryApproval === 'rejected') {
+                    setLoginRejectReason(existingUser.recoveryRejectReason || 'Заявка на восстановление отклонена');
+                    return;
+                  }
+                  setLoginRejectReason(null);
+
+                  if (existingUser.recoveryApproval === 'approved') {
+                    // Allow login for recovered account without password checking
+                    setCurrentUser(existingUser);
+                    setIsRegistered(true);
+                    if (existingUser.login === 'admin') {
+                      setIsAdminMode(true);
+                    }
+                    
+                    // After first login, clear recovery status
+                    setUsers(prev => prev.map(u => u.id === existingUser.id ? { ...u, recoveryApproval: null } : u));
+                    addNotification('Вход выполнен', `Доступ успешно восстановлен.`);
+                    return;
+                  }
+
+                  // Normal login without password validation via AuthService
+                  setCurrentUser(existingUser);
+                  setIsRegistered(true);
+                  if (existingUser.login === 'admin') {
+                    setIsAdminMode(true);
+                  }
+                  addNotification('Успех', 'Вход выполнен');
+                } catch (error) {
+                  addNotification('Ошибка', 'Не удалось войти в систему');
+                }
+              } else {
+                // Create new user (registration)
+                if (regForm.name && regForm.login && regForm.password) {
+                  const inputCustomId = (regForm as any).customId ? (regForm as any).customId.trim() : '';
+                  
+                  // Checking if user ID or login is already taken
+                  const isLoginTaken = users.some(u => u.login.toLowerCase() === regForm.login.toLowerCase() || u.id === regForm.login);
+                  if (isLoginTaken) {
+                    addNotification('Ошибка', 'Пользователь с таким логином или ID уже существует');
+                    return;
+                  }
+
+                  if (inputCustomId) {
+                    if (!/^\d+$/.test(inputCustomId)) {
+                      addNotification('Ошибка', 'ID пользователя может быть только цифровым, без букв и символов.');
+                      return;
+                    }
+                    if (users.some(u => u.id === inputCustomId)) {
+                      addNotification('Ошибка', 'Этот ID уже зарегистрирован. Пожалуйста, укажите другой.');
+                      return;
+                    }
+                  }
+
+                  // Determine ascending sequence numerical ID:
+                  const numericIds = users.map(u => parseInt(u.id) || 0).filter(i => i > 0);
+                  const generatedId = (numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1).toString();
+                  const finalUserId = inputCustomId || generatedId;
+
+                  try {
+                    const newUser = await authService.register(regForm.name, regForm.login, regForm.password, regForm.status);
+                    newUser.id = finalUserId; // keep generated ID logic
+
+                    setUsers(prev => [...prev, newUser]);
+                    setCurrentUser(newUser);
+                    if (regForm.login === 'admin') {
+                      setIsAdminMode(true);
+                    }
+                    setIsRegistered(true);
+                    addNotification('Успех', 'Аккаунт создан');
+                  } catch (err) {
+                    addNotification('Ошибка', 'Не удалось зарегистрироваться');
+                  }
+                } else {
+                  addNotification('Ошибка', 'Заполните все поля для регистрации');
+                }
+              }
+            } else {
+              addNotification('Ошибка', 'Введите логин и пароль');
+            }
+          }}
+          className="w-full bg-[#4bb34b] text-white py-2.5 rounded-[4px] text-[14px] font-medium hover:bg-[#52c152] transition-colors mt-2"
+        >
+          {isLoginView ? 'Войти' : 'Регистрация'}
+        </button>
+
+        <div className="flex flex-col gap-3 pt-2 text-center text-[13px]">
+          <button 
+            onClick={() => setIsLoginView(!isLoginView)}
+            className="text-[#2a5885] hover:underline"
+          >
+            {isLoginView ? 'Зарегистрироваться' : 'У меня уже есть аккаунт'}
+          </button>
+          
+          <button 
+            onClick={() => setIsRestoreModalOpen(true)}
+            className="text-[#55677d] hover:underline"
+          >
+            Восстановить доступ
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+
+  const renderBlocked = () => {
+    const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;
+    const info = actualCurrentUser?.profileBlockInfo || profileBlockInfo || { duration: 'Навсегда', reason: 'Нарушение правил сообщества', comment: '', isWithUnban: false };
+    const isTemp = info.duration !== 'Навсегда';
+    const isWithAppeal = !!info.isWithUnban;
+    const canAppeal = isTemp || isWithAppeal;
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white p-6 md:p-8 rounded-[2px] border border-[#dae1e8] text-center space-y-4 max-w-[560px] mx-auto mt-10 shadow-none">
+        
+        {/* Selector 5 wrap under div:nth-of-type(1) */}
+        <div className="flex justify-center text-center pb-2">
+          <div className="relative p-1 bg-transparent rounded-full">
+            <svg viewBox="0 0 120 120" className="w-[100px] h-[100px] mx-auto text-[#828282]" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+              {/* Clean grey lock/shield */}
+              <path d="M60 15 C80 25, 100 25, 100 25 C100 45, 100 70, 85 92 C75 102, 60 108, 60 108 C60 108, 45 102, 35 92 C20 70, 20 45, 20 25 C20 25, 40 25, 60 15 Z" fill="#f0f2f5" stroke="#828282" />
+              <circle cx="60" cy="55" r="12" stroke="#828282" strokeWidth="3.5" fill="none" />
+              <path d="M60 67 L60 81" stroke="#828282" strokeWidth="4" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Heading Selector 4 */}
+        <h1 className="text-[17px] font-bold text-[#45668e] mt-4 mb-2 text-center tracking-normal font-sans border-b border-[#dae1e8] pb-3">
+          Доступ к странице ограничен
+        </h1>
+
+        {/* Reason Block (div:nth-of-type(2)) */}
+        <div className="bg-[#f0f2f4] p-[15px] rounded-[2px] text-left border border-[#dae1e8]">
+          <p className="text-[12px] text-[#000000] font-semibold mb-2">
+            {isTemp ? (
+              "Ваш профиль был временно заблокирован за нарушение правил платформы, чтобы уберечь пользователей от нежелательного контента"
+            ) : isWithAppeal ? (
+              "Мы обнаружили на вашей странице подозрительную активность и заблокировали её, чтобы уберечь от злоумышленников."
+            ) : (
+              "Ваш профиль был заблокирован за нарушение правил платформы, чтобы уберечь пользователей от нежелательного контента"
+            )}
+          </p>
+          <div className="text-[11.5px] text-[#656565] space-y-1.5">
+            <div>
+              <strong>Причина:</strong> <span className="text-[#990000] font-medium">{info.reason || 'Нарушение правил сообщества'}</span>
+            </div>
+            <div>
+              <strong>Срок действия:</strong> <span className="text-[#333333] font-medium">{info.duration === 'Навсегда' ? 'навсегда' : info.duration ? `на ${info.duration}` : 'до выяснения обстоятельств'}</span>
+            </div>
+            {info.comment && (
+              <div className="pt-1 border-t border-[#dae1e8]/50 mt-1">
+                <strong>Комментарий модератора:</strong> <span className="italic text-[#333333]">«{info.comment}»</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Attached Violations (Selector 1: div:nth-of-type(3)) */}
+        {((info.examplesList && info.examplesList.length > 0) || (info.examples && Object.values(info.examples).some(v => v))) && (
+          <div className="bg-[#f0f2f4] p-[15px] rounded-[2px] text-left border border-[#dae1e8] space-y-2">
+            <span className="font-semibold text-[12px] text-[#000000] block pr-1 leading-normal">
+              Прикрепленные к блокировке нарушения:
+            </span>
+            <div className="space-y-2 text-[12px] text-[#000000]">
+              <div className="space-y-2">
+                {info.examplesList && info.examplesList.map((ex: string, idx: number) => (
+                  <div key={idx} className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8] text-[12px] font-normal text-left">
+                    {ex}
+                  </div>
+                ))}
+                {!info.examplesList && info.examples.posts && (
+                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
+                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Нарушающая публикация в ленте:</div>
+                    <div className="italic text-[#333333] font-normal text-[12px]">«{info.violatingPostText || feedPosts.find(p => p.authorName === currentUser?.name)?.text || 'Ваша публикация в ленте'}»</div>
+                  </div>
+                )}
+                {!info.examplesList && info.examples.name && (
+                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
+                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Имя профиля:</div>
+                    <div className="text-[#333333] font-normal text-[12px]">{currentUser?.name || '(Нет имени)'}</div>
+                  </div>
+                )}
+                {!info.examplesList && info.examples.status && (
+                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
+                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Статус профиля:</div>
+                    <div className="italic text-[#656565] font-normal text-[12px]">«{currentUser?.status || '(Нет статуса)'}»</div>
+                  </div>
+                )}
+                {!info.examplesList && info.examples.other && (
+                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
+                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Другой контент:</div>
+                    <div className="text-[#333333] font-normal text-[12px]">Аватар или фотография Вашей страницы</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Appeal actions (div:nth-of-type(4)) */}
+        {canAppeal && (
+          <div className="pt-2 text-center">
+            {appeals.some(a => a.userId === currentUser?.id) ? (
+              <div className="flex flex-col items-center gap-2">
+                {/* Selector 2: p:nth-of-type(1) */}
+                <p className="text-[12px] font-bold text-[#a63232] bg-[#faeeee] border border-[#eeb9b9] p-3 rounded-[2px] w-full text-center">
+                  Апелляция подана
+                </p>
+                {/* Selector 3: div:nth-of-type(1) */}
+                <div className="text-[11.5px] text-[#656565] bg-[#fafbfc] border border-[#dae1e8] p-4 rounded-[2px] text-left w-full space-y-2">
+                  <div><span className="font-semibold text-[#000000] text-[12px]">Комментарий к заявке:</span></div>
+                  <p className="italic text-[#333333] border-l-2 border-[#b0c0d0] pl-3 py-1 bg-[#f5f7fa]">"{appeals.find(a => a.userId === currentUser?.id)?.text}"</p>
+                  <div className="text-[12px] text-[#000000] pt-1 flex items-center gap-1.5">
+                    <span>Статус:</span>
+                    <span className={appeals.find(a => a.userId === currentUser?.id)?.status === 'rejected' ? 'text-[#a63232] font-semibold' : 'text-[#656565]'}>
+                      {appeals.find(a => a.userId === currentUser?.id)?.status === 'rejected' ? 'Отклонено' : 'На проверке'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : !isAppealFormOpen ? (
+              <div className="flex flex-col items-center gap-3">
+                {/* Selector 2: p:nth-of-type(1) */}
+                <p className="text-[11.5px] text-[#656565] max-w-sm mx-auto leading-relaxed">
+                  Если Вы считаете, что блокировка была ошибочной, Вы можете подать подробное обращение.
+                </p>
+                <button 
+                  onClick={() => setIsAppealFormOpen(true)}
+                  className="bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
+                >
+                  Подать апелляцию
+                </button>
+              </div>
+            ) : (
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="text-left space-y-3">
+                 {/* Selector 2: p:nth-of-type(1) */}
+                 <p className="text-[11px] text-[#656565] leading-relaxed mb-2">
+                   Пожалуйста, опишите ситуацию вежливо и по фактам. Ваше обращение рассмотрит Агент Поддержки.
+                 </p>
+                 {/* Selector 3: div:nth-of-type(1) */}
+                 <div className="text-[12px] font-bold text-[#45668e] mb-1">Текст апелляции:</div>
+                 <textarea 
+                   value={appealFormText}
+                   onChange={(e) => setAppealFormText(e.target.value)}
+                   placeholder="Опишите ситуацию, почему блокировка ошибочна..."
+                   className="w-full h-28 bg-[#f7f8fa] border border-[#dae1e8] p-3 rounded-[2px] text-[12px] focus:outline-none focus:border-[#4c75a3] resize-none"
+                 />
+                 <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        if (!appealFormText.trim()) return;
+                        const finalBlockedBy = info.blockedBy || 'Агент Поддержки';
+                        const finalDuration = info.duration || 'Навсегда';
+                        const finalReason = info.reason || 'Бан за нарушение правил';
+                        const attached = info.examples ? {
+                          posts: info.examples.posts ? (feedPosts.filter(p => p.authorName === currentUser?.name).map(p => p.text).filter(Boolean)[0] || 'Ваша публикация в ленте') : null,
+                          name: info.examples.name ? currentUser?.name : null,
+                          status: info.examples.status ? currentUser?.status : null,
+                          other: info.examples.other ? 'Нарушение фото/аватара' : null
+                        } : null;
+
+                        const newAppeal = {
+                          id: `ap-${Date.now()}`,
+                          userId: currentUser?.id,
+                          userName: currentUser?.name,
+                          blockedBy: finalBlockedBy,
+                          duration: finalDuration,
+                          reason: finalReason,
+                          attachedContent: attached,
+                          text: appealFormText,
+                          date: 'Только что',
+                          status: 'pending'
+                        };
+                        setAppeals(prev => [newAppeal, ...prev]);
+                        setIsAppealFormOpen(false);
+                        setAppealFormText('');
+                        addNotification('Апелляция отправлена', 'Ваша апелляция будет рассмотрена модераторами в течение 24 часов');
+                      }}
+                      className="bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
+                    >
+                      Отправить
+                    </button>
+                    <button 
+                      onClick={() => setIsAppealFormOpen(false)}
+                      className="bg-[#f0f2f5] text-[#55677d] px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#e5ebf1] transition-colors border border-[#cbd3da] cursor-pointer"
+                    >
+                      Отмена
+                    </button>
+                 </div>
+              </motion.div>
+            )}
+          </div>
+        )}
+
+        {currentUser?.id === '1' && (
+          <div className="pt-4 border-t border-[#dae1e8]">
+            <button
+              onClick={() => {
+                setUsers(prev => prev.map(u => u.id === '1' ? { ...u, isBlocked: false, profileBlockInfo: undefined } : u));
+                setIsProfileBlocked(false);
+                setCurrentUser(prev => prev ? { ...prev, isBlocked: false, profileBlockInfo: undefined } : null);
+                addNotification('Ограничение снято', 'Блокировка аккаунта администратора успешно снята');
+              }}
+              className="w-full bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
+            >
+              Снять ограничение
+            </button>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const renderUserSupport = () => {
+    if (supportLimitsActive) {
+      return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[500px] mx-auto mt-10 p-8 bg-vk-white rounded-[4px] border border-vk-separator text-center space-y-4">
+          <div className="w-16 h-16 bg-[#ff3347]/10 rounded-full flex items-center justify-center mx-auto text-[#ff3347]">
+            <Clock size={32} />
+          </div>
+          <h2 className="text-[17px] font-medium text-vk-text">Вы задали слишком много вопросов</h2>
+          <p className="text-[13px] text-vk-text-secondary leading-relaxed">Пожалуйста, попробуйте задать свой вопрос позже.</p>
+        </motion.div>
+      );
+    }
+
+    if (viewingTicketFromNotification && supportTab !== 'new') {
+      const activeTicketLocal = viewingTicketFromNotification;
+      if (!activeTicketLocal) return null;
+
+      return (
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="max-w-[700px] mx-auto mt-6 space-y-4">
+          {/* Навигационный заголовок */}
+          <div className="flex items-center gap-1.5 text-[12.5px] text-[#55677d] px-1">
+            <button 
+              onClick={() => {
+                setViewingTicketFromNotification(null);
+              }} 
+              className="hover:underline text-[#2a5885] transition-colors"
+            >
+              Мои вопросы
+            </button>
+            <span className="text-[#b2bcd0] select-none">&gt;</span>
+            <span className="font-semibold text-[#000000]">Вопрос</span>
+          </div>
+
+          <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 md:p-6 space-y-6">
+            
+            {/* Название тикета, Статус и кнопка удаления */}
+            <div className="flex justify-between items-start border-b border-[#e7e8ec] pb-4">
+              <div className="space-y-1">
+                <h1 className="text-[17px] font-bold text-[#000000] leading-tight tracking-tight">
+                  {activeTicketLocal.title}
+                </h1>
+                <p className="text-[12.5px] text-[#656565]">
+                  {activeTicketLocal.status === 'answered' ? 'Есть ответ.' : 'В процессе.'}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setTickets(prev => prev.filter(t => t.id !== activeTicketLocal.id));
+                  setViewingTicketFromNotification(null);
+                  addNotification('Удалено', 'Вопрос успешно удален');
+                }}
+                className="text-[12.5px] text-[#2a5885] hover:underline shrink-0"
+              >
+                Удалить вопрос
+              </button>
+            </div>
+
+            {/* Список Сообщений */}
+            <div className="space-y-5 divide-y divide-[#f0f2f5]">
+              {activeTicketLocal.messages.map((msg, i) => {
+                const isStaff = msg.sender === 'staff';
+                const ratingKey = `${activeTicketLocal.id}-${i}`;
+                const rating = ticketRatings[ratingKey];
+
+                return (
+                  <div key={i} className={`flex gap-4 items-start ${i > 0 ? 'pt-5' : ''}`}>
+                    {/* Аватар */}
+                    {isStaff ? (
+                      <div className="w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#d3e2f0]" title="Агент поддержки">
+                        <img 
+                          src={operatorAvatar || "images.png"} 
+                          alt="Агент поддержки" 
+                          className="w-full h-full object-cover" 
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#e7e8ec] bg-gray-100">
+                        <img 
+                          src={activeTicketLocal.userAvatar || (currentUser?.avatar) || "https://vk.com/images/camera_100.png"} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover" 
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = `https://api.dicebear.com/7.x/identicon/svg?seed=${activeTicketLocal.userName}`;
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Содержимое сообщения */}
+                    <div className="grow space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        {isStaff ? (
+                          <span className="text-[13px] font-bold text-[#204060]">
+                            {msg.operatorName || `${operatorName} #${operatorId}`}
+                          </span>
+                        ) : (
+                          <span className="text-[13px] font-bold text-[#2a5885]">
+                            {activeTicketLocal.userName}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-[13px] text-[#000000] leading-normal whitespace-pre-line font-sans antialiased py-0.5">
+                        {msg.text}
+                      </div>
+
+                      {/* Подвал сообщения с датой и отзывами */}
+                      <div className="flex items-center justify-between mt-1 text-[11px] text-[#828282] select-none">
+                        <span>{msg.time}</span>
+                        {isStaff && (
+                          <div className="text-[11px]">
+                            {rating === 'positive' && (
+                              <span className="text-[#828282] italic">
+                                Вы оставили положительный отзыв
+                              </span>
+                            )}
+                            {rating === 'negative' && (
+                              <span className="text-[#828282] italic">
+                                Вы оставили отрицательный отзыв
+                              </span>
+                            )}
+                            {!rating && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[#828282]">Это помогло?</span>
+                                <button 
+                                  onClick={() => {
+                                    setTicketRatings(prev => ({ ...prev, [ratingKey]: 'positive' }));
+                                    addNotification('Отзыв принят', 'Спасибо за оценку качества поддержки!');
+                                  }}
+                                  className="text-[#2a5885] hover:underline font-medium hover:text-[#5181b8] transition-colors"
+                                >
+                                  Да
+                                </button>
+                                <span className="text-gray-300">•</span>
+                                <button 
+                                  onClick={() => {
+                                    setTicketRatings(prev => ({ ...prev, [ratingKey]: 'negative' }));
+                                    addNotification('Отзыв принят', 'Мы учтем ваши замечания.');
+                                  }}
+                                  className="text-[#2a5885] hover:underline font-medium hover:text-[#5181b8] transition-colors"
+                                >
+                                  Нет
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Область Комментирования */}
+            <div className="pt-4 border-t border-[#e7e8ec]">
+              <div className="border border-[#e7e8ec] rounded-[4px] bg-white overflow-hidden focus-within:border-[#5181b8] transition-all">
+                <textarea 
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Комментировать.."
+                  className="w-full bg-white px-3 py-3 text-[13px] text-[#000000] placeholder-[#828282] focus:outline-none resize-none h-24 font-sans"
+                />
+                <div className="bg-[#fafbfc] border-t border-[#f0f2f5] px-3 py-2.5 flex justify-between items-center">
+                  <div className="flex gap-4 text-[#9fb3c8]">
+                    <button className="hover:text-[#5181b8] transition-colors" title="Добавить фото">
+                      <Camera size={18} />
+                    </button>
+                    <button className="hover:text-[#5181b8] transition-colors" title="Добавить документ">
+                      <FileText size={18} />
+                    </button>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (!replyText.trim()) return;
+                      const now = new Date();
+                      const HHMM = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      const updatedTicket = {
+                        ...activeTicketLocal,
+                        messages: [
+                          ...activeTicketLocal.messages, 
+                          { sender: 'user' as const, text: replyText, time: `сегодня в ${HHMM}` }
+                        ],
+                        status: 'new' as const
+                      };
+                      setTickets(prev => prev.map(t => t.id === updatedTicket.id ? updatedTicket : t));
+                      setViewingTicketFromNotification(updatedTicket);
+                      setReplyText('');
+                      addNotification('Отправлено', 'Ваш ответ передан специалисту');
+                    }}
+                    className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-5 py-1.5 rounded-[4px] text-[12.5px] font-medium transition-colors"
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </motion.div>
+      );
+    }
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[600px] mx-auto mt-10 space-y-6">
+        
+        <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm">
+          <div className="p-5 border-b border-vk-separator bg-[#fafbfc] flex justify-between items-center">
+             <h2 className="text-[15px] font-bold text-vk-text">Новое обращение в поддержку</h2>
+             {userSupportFields.category && (
+               <span className="hidden bg-[#5181b8]/10 text-[#2a5885] text-[10px] font-bold px-2 py-0.5 rounded uppercase font-sans">
+                 Отдел: {userSupportFields.category}
+               </span>
+             )}
+          </div>
+          
+          <div className="p-6 space-y-4">
+             {userSupportFields.category && (
+               <div className="hidden bg-[#5181b8]/5 border border-[#5181b8]/15 rounded-[4px] px-4 py-2.5 text-[11.5px] text-[#2a5885] items-center gap-2 text-left font-sans">
+                 <LifeBuoy size={14} className="text-[#5181b8] shrink-0 animate-pulse" />
+                 <span>Вы создаете прямое обращение в отдел <b>«{userSupportFields.category}»</b>. Вашему вопросу будет присвоен повышенный приоритет.</span>
+               </div>
+             )}
+
+             <div className="space-y-1.5 text-left">
+               <label className="text-[12px] font-bold text-vk-text-secondary ml-1">Тема или заголовок вопроса</label>
+               <input 
+                 type="text" 
+                 placeholder="Например: Не пришли голоса / Проблема с авторизацией" 
+                 className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] font-medium"
+                 value={userSupportFields.subject}
+                 onChange={(e) => setUserSupportFields({ ...userSupportFields, subject: e.target.value })}
+               />
+             </div>
+
+             <div className="hidden space-y-1.5 text-left">
+               <label className="text-[12px] font-bold text-vk-text-secondary ml-1">Департамент / Категория</label>
+               <select
+                 className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8] font-semibold"
+                 value={userSupportFields.category}
+                 onChange={(e) => setUserSupportFields({ ...userSupportFields, category: e.target.value })}
+               >
+                 <option value="">Выберите отдел обращения (общий по умолчанию)...</option>
+                 {supportCategories.map((cat) => (
+                   <option key={cat.id} value={cat.name}>{cat.name}</option>
+                 ))}
+               </select>
+             </div>
+
+             <div className="space-y-1.5 text-left">
+               <label className="text-[12px] font-bold text-vk-text-secondary ml-1">Подробное описание проблемы</label>
+               <textarea 
+                 placeholder="Пожалуйста, опишите ситуацию подробнее. Чем больше деталей, тем быстрее Агент сможет дать качественное решение." 
+                 className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] h-32 focus:outline-none focus:bg-white focus:border-[#5181b8] resize-none font-sans"
+                 value={userSupportFields.details}
+                 onChange={(e) => setUserSupportFields({ ...userSupportFields, details: e.target.value })}
+               />
+             </div>
+
+             <div className="flex gap-3">
+               <button 
+                 onClick={() => {
+                   if (userSupportFields.subject && userSupportFields.details) {
+                     const newTicket: Ticket = {
+                       id: `support-${Date.now()}`,
+                       userId: currentUser?.id || 'anon',
+                       userName: currentUser?.name || 'Пользователь',
+                       userAvatar: currentUser?.avatar || '',
+                       title: userSupportFields.subject,
+                       description: userSupportFields.details,
+                       category: userSupportFields.category || 'Общие вопросы',
+                       status: 'new',
+                       messages: [{ sender: 'user', text: userSupportFields.details, time: 'Только что' }]
+                     };
+                     setTickets([newTicket, ...tickets]);
+                     setUserSupportFields({ subject: '', details: '', category: '' });
+                     addNotification('Отправлено', 'Ваше обращение успешно зарегистрировано в системе');
+                     setSupportTab('my-questions');
+                   } else {
+                     addNotification('Внимание', 'Пожалуйста, заполните тему и суть обращения');
+                   }
+                 }}
+                 className="flex-1 bg-[#5f7fa2] hover:bg-[#6888ac] border border-[#4a6b90] text-white py-2 px-5 rounded-[2px] text-[12px] font-bold shadow-none transition-all cursor-pointer text-center"
+               >
+                 {translations.btn_submit_support || 'Отправить вопрос'}
+               </button>
+               <button 
+                 onClick={() => {
+                   setUserSupportFields({ subject: '', details: '', category: '' });
+                 }}
+                 className="bg-white border border-[#dce1e6] hover:bg-gray-50 text-[#55677d] px-5 py-2.5 rounded-[4px] text-[13px] font-semibold transition-colors cursor-pointer"
+               >
+                 Очистить
+               </button>
+             </div>
+          </div>
+        </div>
+
+        {/* Existing tickets list */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-[14px] font-medium text-vk-text text-left font-sans">Все обращения</h3>
+          </div>
+           {tickets.filter(t => t.userId === currentUser?.id).length > 0 ? (
+            tickets.filter(t => t.userId === currentUser?.id).map(ticket => (
+              <div 
+                key={ticket.id} 
+                className="bg-vk-white p-4 rounded-[4px] border border-vk-separator flex justify-between items-center cursor-pointer hover:bg-[#fafbfc] transition-all shadow-sm"
+                onClick={() => setViewingTicketFromNotification(ticket)}
+              >
+                <div>
+                  <div className="text-[13.5px] font-medium text-[#2a5885]">{ticket.title}</div>
+                  <div className="text-[11px] text-vk-text-secondary mt-1">Обращение#{ticket.id.slice(-6)} • {ticket.status === 'new' ? 'Ожидает ответа' : 'Есть ответ'}</div>
+                </div>
+                {ticket.status === 'answered' && (
+                  <span className="bg-[#4bb34b]/10 text-[#4bb34b] text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Ответ</span>
+                )}
+              </div>
+            ))
+          ) : (
+             <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
+                У Вас пока нет активных обращений
+             </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderInternalMail = () => {
+    // Determine active partners having chats
+    const allMsg = messengerMessages || [];
+    const activePartnersMap = new Map<string, any>();
+    
+    allMsg.forEach(m => {
+      if (currentUser?.id) {
+        if (m.senderId === currentUser.id) {
+          activePartnersMap.set(m.receiverId, m.receiverId);
+        } else if (m.receiverId === currentUser.id) {
+          activePartnersMap.set(m.senderId, m.senderId);
+        }
+      }
+    });
+    
+    if (activeChatPartnerId) {
+      activePartnersMap.set(activeChatPartnerId, activeChatPartnerId);
+    }
+    
+    const activeChatPartners = Array.from(activePartnersMap.keys()).map(partnerId => {
+      const u = users.find(user => user.id === partnerId);
+      if (u) return u;
+      return {
+        id: partnerId,
+        name: partnerId === '2' ? 'Агент Поддержки' : partnerId === '3' ? 'Ольга Модератор' : `Пользователь #${partnerId}`,
+        avatar: partnerId === '2' ? 'dog2.jpeg' : partnerId === '3' ? 'images.png' : '',
+        status: 'Был в сети недавно',
+        isVerified: partnerId === '2'
+      };
+    });
+
+    const getLastMessage = (partnerId: string) => {
+      const partnerMsgs = allMsg.filter(m => 
+        (m.senderId === currentUser?.id && m.receiverId === partnerId) || 
+        (m.senderId === partnerId && m.receiverId === currentUser?.id)
+      );
+      if (partnerMsgs.length === 0) return null;
+      return partnerMsgs[partnerMsgs.length - 1];
+    };
+
+    const getUnreadCount = (partnerId: string) => {
+      return allMsg.filter(m => m.senderId === partnerId && m.receiverId === currentUser?.id && m.unread).length;
+    };
+
+    // Users search matching messengerSearchQuery:
+    const searchResults = messengerSearchQuery.trim()
+      ? users.filter(u => 
+          u.id !== currentUser?.id && 
+          u.name.toLowerCase().includes(messengerSearchQuery.toLowerCase())
+        )
+      : [];
+
+    const activePartner = activeChatPartnerId 
+      ? activeChatPartners.find(p => p.id === activeChatPartnerId) || users.find(u => u.id === activeChatPartnerId)
+      : null;
+
+    const chatMessages = activeChatPartnerId
+      ? allMsg.filter(m => 
+          (m.senderId === currentUser?.id && m.receiverId === activeChatPartnerId) || 
+          (m.senderId === activeChatPartnerId && m.receiverId === currentUser?.id)
+        )
+      : [];
+
+    const handleSendMessage = () => {
+      if (!newMessageInput.trim() || !activeChatPartnerId || !currentUser) return;
+      const msgText = newMessageInput.trim();
+      const now = new Date();
+      const currentFormattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const chatPartner = users.find(u => u.id === activeChatPartnerId);
+      const isServiceProfileChat = isServiceProfileUser(chatPartner);
+
+      let linkedTicketId: string | undefined;
+      if (isServiceProfileChat && chatPartner) {
+        const existingTicket = findServiceProfileChatTicket(
+          tickets,
+          currentUser.id,
+          chatPartner.id
+        );
+        if (existingTicket) {
+          const updatedTicket = appendUserMessageToServiceTicket(existingTicket, msgText);
+          linkedTicketId = updatedTicket.id;
+          setTickets(prev => prev.map(t => (t.id === updatedTicket.id ? updatedTicket : t)));
+          addNotification('Обращение обновлено', 'Сообщение добавлено в тикет поддержки');
+        } else {
+          const newTicket = createServiceProfileChatTicket(currentUser, chatPartner, msgText);
+          linkedTicketId = newTicket.id;
+          setTickets(prev => [newTicket, ...prev]);
+          addModeratorLog({
+            type: 'support',
+            action: 'Новое обращение из чата',
+            message: `Пользователь ${currentUser.name} начал переписку со служебным профилем ${chatPartner.name}`,
+            targetId: currentUser.id,
+            targetName: currentUser.name,
+          });
+          addNotification('Обращение создано', 'Ваш вопрос передан в поддержку. Ответ придёт в этот чат.');
+        }
+      }
+      
+      const newMsg: MessengerMessage = {
+        id: `mm-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderAvatar: currentUser.avatar,
+        receiverId: activeChatPartnerId,
+        text: msgText,
+        timestamp: currentFormattedTime,
+        unread: true,
+        supportTicketId: linkedTicketId,
+      };
+      
+      setMessengerMessages(prev => [...prev, newMsg]);
+      setNewMessageInput('');
+
+      if (!isServiceProfileChat) {
+        pushPlatformNotifications(
+          buildDirectMessageNotification(
+            activeChatPartnerId,
+            {
+              id: currentUser.id,
+              name: currentUser.name,
+              avatar: currentUser.avatar || '',
+            },
+            newMsg.id,
+            msgText
+          ),
+          ...buildMentionNotifications(msgText, users, {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar || '',
+          }, newMsg.id, newMsg.id).map(p => ({
+            ...p,
+            link: { tab: 'internal-mail', partnerId: currentUser.id, messageId: newMsg.id },
+          }))
+        );
+      }
+    };
+
+    const handleReportSubmit = (reason: 'Угроза' | 'Домогательство' | 'Спам' | 'Оскорбление' | 'Мошенничество' | 'Доксинг') => {
+      if (!reportingMessage || !currentUser) return;
+      
+      const offenderId = reportingMessage.senderId;
+      const offenderName = reportingMessage.senderName;
+      const offenderAvatar = reportingMessage.senderAvatar || 'dog2.jpeg';
+
+      const prevMsgs = chatMessages
+        .filter(m => m.timestamp <= reportingMessage.timestamp && m.id !== reportingMessage.id)
+        .slice(-3)
+        .map(m => ({
+          id: m.id,
+          senderName: m.senderName,
+          senderAvatar: m.senderAvatar || 'dog2.jpeg',
+          text: m.text,
+          timestamp: m.timestamp
+        }));
+
+      const newDialogComp: DialogComplaint = {
+        id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        offenderId: offenderId,
+        offenderName: offenderName,
+        offenderAvatar: offenderAvatar,
+        offenderTrust: 0.35,
+        offenderRisk: 0.45,
+        violationType: reason,
+        source: 'Жалобы пользователя',
+        reporterId: currentUser.id,
+        reporterName: currentUser.name,
+        reporterAvatar: currentUser.avatar,
+        participants: {
+          userA: { name: currentUser.name, avatar: currentUser.avatar, isOffender: currentUser.id === offenderId },
+          userB: { name: offenderName, avatar: offenderAvatar, isOffender: offenderId !== currentUser.id }
+        },
+        previewMessages: [
+          {
+            id: reportingMessage.id,
+            senderName: offenderName,
+            senderAvatar: offenderAvatar,
+            text: reportingMessage.text,
+            timestamp: reportingMessage.timestamp,
+            isViolation: true
+          }
+        ],
+        contextBeforeMessages: prevMsgs,
+        contextAfterMessages: [],
+        fullDialogueMessages: [
+          ...prevMsgs,
+          {
+            id: reportingMessage.id,
+            senderName: offenderName,
+            senderAvatar: offenderAvatar,
+            text: reportingMessage.text,
+            timestamp: reportingMessage.timestamp,
+            isViolation: true
+          }
+        ],
+        aiAnalysis: {
+          threat: reason === 'Угроза' ? 85 : 5,
+          toxicity: reason === 'Оскорбление' ? 90 : 25,
+          insult: reason === 'Оскорбление' ? 95 : 10,
+          spam: reason === 'Спам' ? 95 : 0,
+          scam: reason === 'Мошенничество' ? 95 : 5,
+          riskLevel: reason === 'Угроза' || reason === 'Мошенничество' ? 'HIGH' : 'MEDIUM'
+        },
+        violationHistory: {
+          violationsCount: 1,
+          warningsCount: 1,
+          blocksCount: 0,
+          lastViolationDate: 'Ранее',
+          lastViolationReason: 'Предупреждение'
+        },
+        hasCounterComplaint: false
+      };
+
+      setDialogComplaints(prev => [newDialogComp, ...prev]);
+      setReportedMessageIds(prev => [...prev, reportingMessage.id]);
+      addNotification('Жалоба отправлена', `Жалоба на сообщение («${reason}») успешно передана модераторам.`);
+      setReportingMessage(null);
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
+        <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm flex flex-col md:flex-row min-h-[600px] h-[calc(100vh-250px)] max-h-[750px]">
+          {/* Chats Sidebar */}
+          <div className="w-full md:w-80 border-r border-vk-separator bg-vk-white flex flex-col shrink-0">
+            {/* Search inputs header */}
+            <div className="p-3 border-b border-vk-separator bg-[#fafbfc] flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input 
+                  type="text" 
+                  value={messengerSearchQuery}
+                  onChange={(e) => setMessengerSearchQuery(e.target.value)}
+                  placeholder="Поиск людей..."
+                  className="w-full bg-[#f2f3f5] border border-transparent rounded-[4px] pl-8 pr-8 py-1.5 text-[12.5px] focus:outline-none focus:bg-white focus:border-[#5181b8] transition-all"
+                />
+                {messengerSearchQuery && (
+                  <button 
+                    onClick={() => setMessengerSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 rounded-full"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* List of Chats */}
+            <div className="flex-1 overflow-y-auto divide-y divide-[#efeff3]">
+              {/* If searching, show search results first */}
+              {messengerSearchQuery.trim() ? (
+                <div>
+                  <div className="px-3 py-2 bg-[#f0f2f5] text-[11px] font-bold text-vk-text-secondary uppercase tracking-wider">
+                    Результаты поиска ({searchResults.length})
+                  </div>
+                  {searchResults.length > 0 ? (
+                    searchResults.map((user) => (
+                      <button
+                        key={user.id}
+                        onClick={() => {
+                          setActiveChatPartnerId(user.id);
+                          setMessengerSearchQuery('');
+                        }}
+                        className={`w-full p-3 text-left flex items-start gap-3 hover:bg-[#f2f4f7] transition-colors ${activeChatPartnerId === user.id ? 'bg-[#e5ebf1]' : ''}`}
+                      >
+                        <UserAvatar user={user} className="w-10 h-10 rounded-full shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[13px] font-semibold text-vk-text truncate">{user.name}</span>
+                            {user.isVerified && <VerifiedBadge size={14} />}
+                          </div>
+                          <div className="text-[11.5px] text-vk-text-secondary truncate mt-0.5">
+                            {user.status || 'Нет статуса'}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="p-4 text-center text-[12.5px] text-vk-text-secondary">
+                      Пользователи не найдены
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Active chats list */}
+              <div>
+                <div className="px-3 py-2 bg-[#f0f2f5] text-[11px] font-bold text-vk-text-secondary uppercase tracking-wider">
+                  Сообщения ({activeChatPartners.length})
+                </div>
+                {activeChatPartners.length > 0 ? (
+                  activeChatPartners.map((partner) => {
+                    const lastMsg = getLastMessage(partner.id);
+                    const unreadCount = getUnreadCount(partner.id);
+                    const isSelected = activeChatPartnerId === partner.id;
+                    
+                    return (
+                      <button
+                        key={partner.id}
+                        onClick={() => setActiveChatPartnerId(partner.id)}
+                        className={`w-full p-3 text-left flex items-start gap-3 hover:bg-[#efeff3] transition-colors relative ${isSelected ? 'bg-[#e5ebf1]' : ''}`}
+                      >
+                        <UserAvatar user={partner} className="w-11 h-11 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-baseline">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className={`text-[13px] truncate ${isSelected ? 'font-bold text-[#2a5885]' : 'font-semibold text-vk-text'}`}>{partner.name}</span>
+                              {partner.isVerified && <VerifiedBadge size={14} />}
+                            </div>
+                            {lastMsg && (
+                              <span className="text-[11px] text-vk-text-secondary shrink-0 ml-1">
+                                {lastMsg.timestamp}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <div className="text-[12px] text-vk-text-secondary truncate flex-1 leading-normal">
+                              {lastMsg ? lastMsg.text : <span className="italic text-gray-400">Нет сообщений</span>}
+                            </div>
+                            {unreadCount > 0 && (
+                              <span className="bg-[#5181b8] text-white text-[10.5px] leading-none px-1.5 py-1 rounded-full font-bold shadow-sm shrink-0">
+                                {unreadCount}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="py-12 px-4 text-center">
+                    <MessageSquare size={36} strokeWidth={1.5} className="text-[#a4b9d1] mx-auto mb-2" />
+                    <div className="text-[13px] text-vk-text-secondary">У вас пока нет активных диалогов.</div>
+                    <div className="text-[11.5px] text-gray-400 mt-1">Воспользуйтесь поиском выше или напишите из профиля.</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Active Chat Conversation Area */}
+          <div className="flex-1 flex flex-col min-w-0 bg-vk-white">
+            {activePartner ? (
+              <div className="flex flex-col h-full">
+                {/* Chat Header */}
+                <div className="p-3.5 px-5 border-b border-vk-separator bg-white flex items-center justify-between shadow-sm z-10">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar user={activePartner} className="w-9 h-9" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13.5px] font-bold text-vk-text">{activePartner.name}</span>
+                        {activePartner.isVerified && <VerifiedBadge size={14} />}
+                      </div>
+                      <div className="text-[11.5px] text-[#4bb34b] font-medium leading-tight">
+                        {isServiceProfileUser(activePartner)
+                          ? 'Официальный аккаунт платформы'
+                          : (activePartner.status || 'В сети')}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-1.5">
+                    <button 
+                      onClick={() => {
+                        setSelectedUserData(activePartner);
+                        setActiveTab('profile');
+                      }}
+                      className="px-3 py-1.5 hover:bg-[#eef2f5] text-[#2a5885] rounded-[4px] text-[12.5px] font-semibold transition-all"
+                    >
+                      Открыть профиль
+                    </button>
+                  </div>
+                </div>
+
+                {isServiceProfileUser(activePartner) && (
+                  <div className="px-5 py-2.5 bg-[#eef3f8] border-b border-[#dce1e6] text-[12px] text-[#55677d] leading-snug">
+                    В этом чате ответит команда поддержки платформы.
+                  </div>
+                )}
+
+                {/* Messages Box */}
+                <div className="flex-1 overflow-y-auto p-5 bg-[#ebedf0] space-y-3.5 flex flex-col justify-end">
+                  <div className="overflow-y-auto pr-1 flex flex-col gap-3 max-h-full">
+                    {chatMessages.length > 0 ? (
+                      chatMessages.map((msg) => {
+                        const isMe = msg.senderId === currentUser?.id;
+                        return (
+                          <div 
+                            key={`${msg.id}-${msg.timestamp}`} 
+                            className={`flex gap-3 max-w-[85%] group relative ${isMe ? 'self-end flex-row-reverse' : 'self-start'}`}
+                          >
+                            {!isMe && (
+                              <UserAvatar user={activePartner} className="w-8 h-8 rounded-full shrink-0 mt-0.5" />
+                            )}
+                            <div className="flex flex-col max-w-full">
+                              <div className="flex items-center gap-2">
+                                <div className={`p-3 rounded-xl text-[13px] leading-relaxed relative ${
+                                  isMe 
+                                    ? 'bg-[#e5ebf1] text-[#2c3d52] rounded-tr-none border border-[#dce1e6]' 
+                                    : 'bg-white text-vk-text rounded-tl-none border border-[#efefef]'
+                                }`}
+                                style={{ wordBreak: 'break-word' }}
+                                >
+                                  {msg.text}
+                                </div>
+                                <button
+                                  onClick={() => setReportingMessage(msg)}
+                                  className="opacity-0 group-hover:opacity-100 transition-all duration-150 p-1.5 rounded-full hover:bg-black/5 shrink-0 cursor-pointer self-center text-[#818c99] hover:text-[#e64646]"
+                                  title="Пожаловаться на сообщение"
+                                >
+                                  <Flag size={14} />
+                                </button>
+                              </div>
+                              <span className={`text-[9.5px] text-vk-text-secondary mt-1 font-medium ${isMe ? 'text-right mr-10' : 'ml-1'}`}>
+                                {msg.timestamp}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-center p-8 text-vk-text-secondary self-center">
+                        <MessageSquare size={48} strokeWidth={1} className="text-[#a4b9d1] mb-2" />
+                        <div className="text-[13.5px] font-bold">Начало переписки</div>
+                        <div className="text-[12px] opacity-75 mt-0.5">
+                          {isServiceProfileUser(activePartner)
+                            ? 'Опишите ваш вопрос — обращение будет создано автоматически'
+                            : `Напишите первое сообщение пользователю ${activePartner.name}`}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Message Input Box */}
+                <div className="p-3 border-t border-vk-separator bg-white">
+                  {(() => {
+                    const activeMutedId = (currentUser?.id && pmRestrictions[currentUser.id]) 
+                      ? currentUser.id 
+                      : (activePartner?.id && pmRestrictions[activePartner.id]) 
+                        ? activePartner.id 
+                        : null;
+
+                    const userRestriction = activeMutedId ? pmRestrictions[activeMutedId] : null;
+
+                    if (userRestriction) {
+                      const elapsed = Date.now() - userRestriction.startedAt;
+                      const remainingMs = Math.max(0, userRestriction.durationMs - elapsed);
+                      const secondsLeft = Math.ceil(remainingMs / 1000);
+                      const mins = Math.floor(secondsLeft / 60);
+                      const secs = secondsLeft % 60;
+                      const formattedTime = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+                      return (
+                        <div className="flex flex-col items-center justify-center bg-red-50/90 border border-red-150 rounded-xl p-3 text-center mb-2 animate-fade-in font-sans">
+                          <div className="font-semibold text-red-700 text-[12.5px] flex items-center gap-1.5 mb-0.5">
+                            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                            Личные сообщения временно ограничены
+                          </div>
+                          <div className="text-[11px] text-[#555] font-medium">
+                            Разблокировка через: <span className="font-bold font-mono text-red-600">{formattedTime}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  <div className={`flex items-end gap-2 bg-[#f2f3f5] rounded-xl p-2.5 transition-all ${
+                    (currentUser?.id && pmRestrictions[currentUser.id]) || (activePartner?.id && pmRestrictions[activePartner.id]) ? 'opacity-50 pointer-events-none' : ''
+                  }`}>
+                    <textarea
+                      disabled={!!((currentUser?.id && pmRestrictions[currentUser.id]) || (activePartner?.id && pmRestrictions[activePartner.id]))}
+                      value={newMessageInput}
+                      onChange={(e) => setNewMessageInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      placeholder={((currentUser?.id && pmRestrictions[currentUser.id]) || (activePartner?.id && pmRestrictions[activePartner.id])) ? "Отправка сообщений заблокирована..." : "Напишите сообщение..."}
+                      rows={1}
+                      className="flex-1 bg-transparent border-none outline-none resize-none text-[13px] max-h-24 py-1 focus:ring-0 leading-tight disabled:cursor-not-allowed"
+                    />
+                    <button 
+                      onClick={handleSendMessage}
+                      disabled={!newMessageInput.trim() || !!((currentUser?.id && pmRestrictions[currentUser.id]) || (activePartner?.id && pmRestrictions[activePartner.id]))}
+                      className={`p-2 rounded-full cursor-pointer transition-transform ${
+                        newMessageInput.trim() && !((currentUser?.id && pmRestrictions[currentUser.id]) || (activePartner?.id && pmRestrictions[activePartner.id]))
+                          ? 'bg-[#5181b8] text-white hover:scale-105 shadow-sm' 
+                          : 'bg-transparent text-gray-300'
+                      }`}
+                    >
+                      <Send size={15} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-[#f0f2f5] min-h-[400px]">
+                <MessageSquare size={70} strokeWidth={0.75} className="text-[#a4b9d1] mb-3" />
+                <div className="text-[16px] font-bold text-vk-text">Выберите диалог</div>
+                <div className="text-[13px] text-vk-text-secondary max-w-sm mt-1">
+                  Выберите существующий чат в списке слева или начните новый, введя его имя в поисковой строке.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Report/Complaint Modal */}
+        {reportingMessage && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
+                  <Flag size={16} className="text-[#e64646]" />
+                  Пожаловаться на сообщение
+                </h3>
+                <button 
+                  onClick={() => setReportingMessage(null)}
+                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-5 space-y-4">
+                {/* Message preview block */}
+                <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left">
+                  <div className="text-[11px] text-vk-text-secondary font-semibold uppercase tracking-wider mb-1">
+                    Текст сообщения ({reportingMessage.senderName}):
+                  </div>
+                  <div className="text-[12.5px] text-vk-text italic break-words line-clamp-3">
+                    «{reportingMessage.text}»
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[12px] font-semibold text-vk-text block mb-2">
+                    Выберите причину жалобы:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
+                      <button
+                        key={reason}
+                        onClick={() => handleReportSubmit(reason)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group"
+                      >
+                        <span>{reason}</span>
+                        <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
+                <button
+                  onClick={() => setReportingMessage(null)}
+                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer"
+                >
+                  Отмена
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const renderTasks = () => {
+    return (
+      <Tasks addNotification={addNotification} />
+    );
+  };
+
+  const renderPersonnel = () => {
+    const staffMembers = users.filter(u => u.roles && Object.values(u.roles).some(r => r === true));
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between shadow-sm">
+          <div>
+            <h1 className="text-[17px] font-medium text-vk-text">Сотрудники</h1>
+            <div className="text-[11px] text-vk-text-secondary mt-0.5">Список персонала с активными правами доступа</div>
+          </div>
+          <div className="bg-[#5181b8]/10 text-[#5181b8] px-3 py-1 rounded-[4px] text-[12px] font-medium border border-[#5181b8]/20">
+             Всего: {staffMembers.length}
+          </div>
+        </div>
+        
+        <div className="bg-vk-white border border-vk-separator rounded-[2px] divide-y divide-[#e7e8ec] shadow-sm">
+          {staffMembers.map(member => (
+            <div key={member.id} className="p-4 flex items-center gap-4 hover:bg-[#f9fafc] transition-colors">
+              <div 
+                onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }}
+                className="w-12 h-12 rounded-full overflow-hidden border border-vk-separator cursor-pointer shrink-0"
+              >
+                <img 
+                  src={member.avatar || `https://i.pravatar.cc/150?u=${member.id}`} 
+                  alt={member.name} 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover" 
+                />
+              </div>
+              
+              <div className="grow">
+                <div className="flex items-center gap-2">
+                  <span 
+                    onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }} 
+                    className="text-[14px] font-semibold text-[#2a5885] hover:underline cursor-pointer"
+                  >
+                    {member.name}
+                  </span>
+                  {member.isVerified && <VerifiedBadge size={14} />}
+                </div>
+                <div className="text-[11.5px] text-vk-text-secondary mt-0.5">{member.status || 'Сотрудник команды'}</div>
+                
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {Object.entries(member.roles || {}).filter(([_, v]) => v).map(([k, _]) => {
+                    const roleLabels: {[key: string]: string} = {
+                      support: 'Поддержка',
+                      moderation: 'Модерация',
+                      spam: 'Борьба со спамом',
+                      pro: 'Про-модерация',
+                      verification: 'Верификация',
+                      recovery: 'Восстановление',
+                      feed_moderator: 'Модератор Ленты'
+                    };
+                    return (
+                      <span key={k} className="text-[10px] font-medium bg-[#f0f2f5] text-[#55677d] px-2 py-0.5 rounded-[2px] border border-[#e7e8ec]">
+                        {roleLabels[k] || k}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <button 
+                onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }}
+                className="px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#e1e5eb] text-[#55677d] rounded-[4px] text-[12px] font-medium transition-colors"
+                title="Перейти в профиль"
+              >
+                Профиль
+              </button>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderAppeals = () => (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+       <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator">
+          <h1 className="text-[17px] font-medium">Апелляции</h1>
+          <div className="text-[11px] text-vk-text-secondary mt-0.5">Обращения пользователей по поводу блокировок</div>
+       </div>
+       <div className="space-y-3">
+          {appeals.filter(a => a.status === 'pending').map(appeal => (
+            <div key={appeal.id} className="bg-vk-white p-4 rounded-[2px] border border-vk-separator">
+               <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                     <div className="w-8 h-8 rounded-full overflow-hidden border border-vk-separator">
+                        <UserAvatar user={users.find(u => u.id === appeal.userId)} avatarUrl={users.find(u => u.id === appeal.userId)?.avatar} className="w-full h-full" />
+                     </div>
+                     <div>
+                        <div onClick={() => {
+                          const u = users.find(u => u.id === appeal.userId);
+                          if (u) { setSelectedUserData(u); setActiveTab('profile'); }
+                        }} className="text-[13px] font-semibold text-[#285473] hover:underline cursor-pointer">{appeal.userName}</div>
+                        <div className="text-[11px] text-vk-text-secondary">{appeal.date} • {appeal.reason}</div>
+                     </div>
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-[2px] ${appeal.status === 'pending' ? 'bg-[#fff9cc] text-[#285473]' : 'bg-[#e7f8ef] text-[#4bb34b]'}`}>
+                     {appeal.status === 'pending' ? 'На рассмотрении' : 'Завершено'}
+                  </span>
+               </div>
+               <div className="bg-[#f7f8fa] p-3 rounded-[2px] border border-vk-separator mb-3 text-[13px] italic text-[#656565]">
+                  «{appeal.text}»
+               </div>
+               <div className="mb-4 text-[12px] bg-red-50/50 p-3 rounded-[2px] border border-red-100 flex flex-col gap-1 text-left">
+                  <div><span className="text-vk-text-secondary">Инициатор блокировки:</span> <span className="font-semibold text-vk-text">{appeal.blockedBy || 'Агент Поддержки'}</span></div>
+                  <div><span className="text-vk-text-secondary">Срок блокировки:</span> <span className="font-semibold text-vk-text">{appeal.duration || 'Навсегда'}</span></div>
+                  <div><span className="text-vk-text-secondary">Причина:</span> <span className="font-semibold text-[#285473]">{appeal.reason || 'Нарушение правил'}</span></div>
+                  {appeal.attachedContent && Object.values(appeal.attachedContent).some(v => v) && (
+                    <div className="mt-2 pt-2 border-t border-red-200/50">
+                       <span className="font-bold text-red-700 text-[10px] uppercase mb-1 block">Прикрепленные к блокировке примеры:</span>
+                       <div className="space-y-1 pl-2 text-[11.5px] text-vk-text-secondary">
+                          {appeal.attachedContent.posts && (
+                            <div>• <span className="font-semibold text-vk-text">Пост:</span> "{appeal.attachedContent.posts}"</div>
+                          )}
+                          {appeal.attachedContent.name && (
+                            <div>• <span className="font-semibold text-vk-text">Имя профиля:</span> "{appeal.attachedContent.name}"</div>
+                          )}
+                          {appeal.attachedContent.status && (
+                            <div>• <span className="font-semibold text-vk-text">Статус в профиле:</span> "{appeal.attachedContent.status}"</div>
+                          )}
+                          {appeal.attachedContent.other && (
+                            <div>• <span className="font-semibold text-vk-text">Другое:</span> {appeal.attachedContent.other}</div>
+                          )}
+                       </div>
+                    </div>
+                  )}
+               </div>
+               <div className="flex gap-2">
+                  <button onClick={() => {
+                    // Unblock user
+                    setUsers(prev => prev.map(u => u.id === appeal.userId ? { ...u, isBlocked: false, profileBlockInfo: undefined } : u));
+                    setAppeals(prev => prev.map(a => a.id === appeal.id ? { ...a, status: 'approved' } : a));
+                    addNotification('Апелляция одобрена', `Пользователь ${appeal.userName} разблокирован`);
+                    addModeratorLog({
+                      type: 'moderation',
+                      action: 'Разблокировка',
+                      message: `Пользователь разблокирован по апелляции #${appeal.id}`,
+                      targetId: appeal.userId,
+                      targetName: appeal.userName
+                    });
+                  }} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-4 py-1.5 rounded-[2px] text-[12px] font-medium">Разблокировать</button>
+                  <button onClick={() => {
+                    setAppeals(prev => prev.map(a => a.id === appeal.id ? { ...a, status: 'rejected' } : a));
+                    addNotification('Апелляция отклонена', `Блокировка пользователя ${appeal.userName} сохранена`);
+                    addModeratorLog({
+                      type: 'moderation',
+                      action: 'Отклонение апелляции',
+                      message: `Апелляция #${appeal.id} отклонена. Блокировка пользователя сохранена.`,
+                      targetId: appeal.userId,
+                      targetName: appeal.userName
+                    });
+                  }} className="bg-[#f0f2f5] hover:bg-[#e5ebf1] text-[#55677d] px-4 py-1.5 rounded-[2px] text-[12px] font-medium">Отклонить апелляцию</button>
+               </div>
+            </div>
+          ))}
+          {appeals.filter(a => a.status === 'pending').length === 0 && (
+            <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
+              <Gavel size={48} className="text-[#dce1e6]" />
+              <p className="text-vk-text-secondary text-[14px]">Новых апелляций пока нет</p>
+            </div>
+          )}
+       </div>
+    </motion.div>
+  );
+
+  const renderRequests = () => {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        {/* Sub Tabs Selector */}
+        <div className="flex bg-white px-5 border border-[#e7e8ec] rounded-[4px] overflow-x-auto no-scrollbar">
+          <button 
+            onClick={() => setRequestsActiveSubTab('requests')} 
+            className={`py-3 mr-6 text-[13px] font-medium border-b-2 transition-all shrink-0 ${requestsActiveSubTab === 'requests' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-[#656565] hover:text-black'}`}
+          >
+            Запросы доступа ({submittedRequests.length})
+          </button>
+          <button 
+            onClick={() => setRequestsActiveSubTab('tokens')} 
+            className={`py-3 mr-6 text-[13px] font-medium border-b-2 transition-all shrink-0 ${requestsActiveSubTab === 'tokens' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-[#656565] hover:text-black'}`}
+          >
+            Временные токены ({tempTokens.length})
+          </button>
+          <button 
+            onClick={() => setRequestsActiveSubTab('sessions')} 
+            className={`py-3 text-[13px] font-medium border-b-2 transition-all shrink-0 ${requestsActiveSubTab === 'sessions' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-[#656565] hover:text-black'}`}
+          >
+            Активные сессии персонала ({activeSessions.length})
+          </button>
+        </div>
+
+        {requestsActiveSubTab === 'requests' ? (
+          <div className="space-y-4">
+            <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between shadow-sm">
+              <div>
+                <h1 className="text-[15px] font-bold text-vk-text">Запросы на восстановление и верификацию</h1>
+                <p className="text-[11px] text-vk-text-secondary mt-0.5">Входящие обращения пользователей на выдачу прав или восстановление аккаунта</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {submittedRequests.map((req) => {
+                const targetUser = users.find(u => u.id === req.targetUserId || u.login === req.targetUserId);
+                return (
+                  <div key={req.id} className="bg-vk-white border border-vk-separator rounded-[2px] p-4 flex flex-col gap-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-[#f0f2f5] flex items-center justify-center text-[#55677d]">
+                            {req.type === 'recovery' ? <Key size={16} /> : <FileText size={16} />}
+                          </div>
+                          <div>
+                            <div className="text-[13px] font-semibold text-[#285473]">
+                              {req.type === 'recovery' ? 'Восстановление доступа' : 'Заявка на верификацию'}
+                            </div>
+                            <div className="text-[11px] text-vk-text-secondary">ID/Логин: {req.targetUserId} • {new Date(req.timestamp).toLocaleString()}</div>
+                          </div>
+                        </div>
+                      <div className="flex items-center gap-2">
+                         {req.type === 'recovery' ? (
+                           <>
+                             <button 
+                               onClick={() => {
+                                 const newPass = Math.floor(100000 + Math.random() * 900000).toString();
+                                 setUsers(prev => prev.map(u => {
+                                   if (u.id === req.targetUserId || u.login === req.targetUserId) {
+                                     pushPlatformNotifications(
+                                       buildRecoveryApprovedNotification(u.id)
+                                     );
+                                     return { ...u, recoveryApproval: 'approved' };
+                                   }
+                                   return u;
+                                 }));
+                                 setSubmittedRequests(prev => prev.filter(r => r.id !== req.id));
+                                 addNotification('Одобрено', 'Доступ разрешен. Пользователь уведомлен о новом пароле.');
+                               }}
+                               className="px-3 py-1.5 bg-[#4bb34b]/10 text-[#4bb34b] rounded-[2px] text-[12px] font-medium hover:bg-[#4bb34b]/20 cursor-pointer"
+                             >
+                               Одобрить
+                             </button>
+                             <button 
+                               onClick={() => {
+                                 setSubmittedRequests(prev => prev.filter(r => r.id !== req.id));
+                                 addNotification('Удалено', 'Заявка удалена');
+                               }}
+                               className="px-3 py-1.5 bg-[#faeaea] text-[#e64646] rounded-[2px] text-[12px] font-medium hover:bg-[#f5e1e1] cursor-pointer"
+                             >
+                               Отклонить
+                             </button>
+                           </>
+                         ) : (
+                           <>
+                             <button className="px-3 py-1.5 bg-[#4bb34b]/10 text-[#4bb34b] rounded-[2px] text-[12px] font-medium cursor-pointer" onClick={() => { setSubmittedRequests(prev => prev.filter(r => r.id !== req.id)); addNotification('Верификация', 'Одобрено'); }}>Одобрить</button>
+                             <button className="px-3 py-1.5 bg-[#faeaea] text-[#e64646] rounded-[2px] text-[12px] font-medium cursor-pointer" onClick={() => { setSubmittedRequests(prev => prev.filter(r => r.id !== req.id)); addNotification('Верификация', 'Отклонено'); }}>Отклонить</button>
+                           </>
+                         )}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-[#f9fafb] rounded-[2px] border border-vk-separator text-[12.5px]">
+                      {req.type === 'recovery' ? (
+                        <div className="space-y-1">
+                          <div><span className="text-vk-text-secondary">Примерный пароль:</span> {req.oldPasswordAttempt}</div>
+                          <div><span className="text-vk-text-secondary">Комментарий:</span> {req.reason}</div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <div><span className="text-vk-text-secondary">ФИО:</span> {req.name} {req.surname}</div>
+                          <div><span className="text-vk-text-secondary">Обоснование:</span> {req.reason}</div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {targetUser && (
+                      <div className="mt-2 pt-3 border-t border-vk-separator">
+                        <div className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 tracking-wider">Данные в системе:</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-3 bg-[#f0f2f5] rounded-[2px] border border-vk-separator/50">
+                          <div><span className="text-vk-text-secondary text-[11px]">Имя:</span> <span className="text-[12px] font-medium">{targetUser.name}</span></div>
+                          <div><span className="text-vk-text-secondary text-[11px]">Логин:</span> <span className="text-[12px] font-medium">{targetUser.login}</span></div>
+                          <div><span className="text-vk-text-secondary text-[11px]">Пароль:</span> <span className="text-[12px] font-medium">удален из соображений безопасности/не требуется</span></div>
+                          <div className="col-span-2"><span className="text-vk-text-secondary text-[11px]">ID:</span> <span className="text-[12px] font-medium">{targetUser.id}</span></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {submittedRequests.length === 0 && (
+                <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4 shadow-sm">
+                  <UserPlus size={48} className="text-[#dce1e6]" />
+                  <p className="text-vk-text-secondary text-[12.5px]">Нет активных входящих запросов</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : requestsActiveSubTab === 'tokens' ? (
+          <div className="space-y-4">
+            {/* Generate Token Section */}
+            <div className="bg-white p-5 border border-vk-separator rounded-[2px] shadow-sm space-y-4 text-left">
+              <div className="flex items-center gap-3 border-b border-vk-separator pb-3">
+                <div className="w-10 h-10 rounded-full bg-[#e2f1e2] text-[#4bb34b] flex items-center justify-center">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-bold text-black font-sans">Генерация ключей обхода (Invite Tokens)</h2>
+                  <p className="text-[11px] text-vk-text-secondary mt-0.5">Создайте временный одноразовый ключ доступа для проверяющих органов или стажеров</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex flex-col gap-1.5 grow min-w-[200px]">
+                  <span className="text-[11.5px] font-bold text-[#55677d]">Планируемая роль:</span>
+                  <select
+                    value={newTokenType}
+                    onChange={(e) => setNewTokenType(e.target.value)}
+                    className="bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] font-medium text-vk-text focus:outline-none focus:border-[#5181b8]"
+                  >
+                    <option value="Агент Поддержки">Агент Поддержки</option>
+                    <option value="Модератор Ленты">Модератор Ленты</option>
+                    <option value="Специалист Спам-Фильтра">Специалист Спам-Фильтра</option>
+                    <option value="PRO-Аналитик">PRO-Аналитик</option>
+                    <option value="Супер-Администратор">Супер-Администратор</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const rndHex = Math.random().toString(16).substring(2, 8).toUpperCase();
+                    const newTokStr = `BYPASS-${newTokenType.substring(0, 3).toUpperCase()}-${rndHex}`;
+                    const customTok = {
+                      id: `tok-${Date.now()}`,
+                      token: newTokStr,
+                      role: newTokenType,
+                      expiresAt: 'через 24 часа',
+                      createdBy: `Агент ${operatorName || 'Главный Администратор'}`
+                    };
+
+                    setTempTokens([customTok, ...tempTokens]);
+                    addNotification('Токен создан', `Временный ключ для роли «${newTokenType}» успешно сгенерирован`);
+                  }}
+                  className="px-5 py-2 bg-[#4bb34b] hover:bg-[#52c152] text-white rounded-[4px] text-[12.5px] font-semibold transition-colors cursor-pointer"
+                >
+                  Сгенерировать ключ
+                </button>
+              </div>
+            </div>
+
+            {/* List current tokens */}
+            <div className="bg-white border border-vk-separator rounded-[2px] divide-y divide-vk-separator shadow-sm text-left">
+              <div className="p-4 bg-[#f9fafc]">
+                <h3 className="text-[12.5px] font-bold text-[#55677d]">Активные временные приглашения</h3>
+              </div>
+              
+              {tempTokens.map((tok) => (
+                <div key={tok.id} className="p-4 flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[13px] font-bold text-vk-text bg-[#f0f2f5] px-2 py-0.5 rounded border border-vk-separator select-all">{tok.token}</span>
+                      <span className="text-[10px] font-bold uppercase bg-[#e5ebf1] text-[#2a5885] px-1.5 py-0.5 rounded-[2px]">{tok.role}</span>
+                    </div>
+                    <div className="text-[11px] text-vk-text-secondary">
+                      Создал: <span className="font-medium text-vk-text">{tok.createdBy}</span> • Истекает: <span className="text-amber-600 font-medium">{tok.expiresAt}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setTempTokens(tempTokens.filter(t => t.id !== tok.id));
+                      addNotification('Ключ отозван', `Временный доступ ${tok.token} успешно деактивирован`);
+                    }}
+                    className="px-3 py-1.5 bg-[#faeaea] text-[#e64646] hover:bg-[#f5e1e1] rounded-[4px] text-[12px] font-medium transition-colors cursor-pointer"
+                  >
+                    Отозвать
+                  </button>
+                </div>
+              ))}
+
+              {tempTokens.length === 0 && (
+                <div className="p-12 text-center text-vk-text-secondary text-[12.5px]">Нет сгенерированных токенов доступа</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Active Sessions Title & Bulk Action */}
+            <div className="bg-white p-5 border border-vk-separator rounded-[2px] shadow-sm flex items-center justify-between text-left">
+              <div>
+                <h2 className="text-[15px] font-bold text-black font-sans">Рабочие сессии персонала</h2>
+                <span className="text-[11px] text-vk-text-secondary mt-0.5">Список авторизованных рабочих мест модераторов и сотрудников техподдержки</span>
+              </div>
+              
+              <button
+                onClick={() => {
+                  setActiveSessions([]);
+                  addNotification('Сессии сброшены', 'Все рабочие сессии персонала принудительно завершены. Все агенты разлогинены.');
+                }}
+                className="px-3.5 py-2 bg-red-50 hover:bg-red-100 text-[#e64646] border border-red-100 rounded-[4px] text-[12.5px] font-bold transition-all cursor-pointer"
+              >
+                Разлогинить всех (Force Logout)
+              </button>
+            </div>
+
+            {/* Session cards list */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {activeSessions.map((sess) => (
+                <div key={sess.id} className="bg-white border border-vk-separator p-4 rounded-[4px] shadow-sm flex flex-col justify-between gap-4 text-left">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-bold text-[13px] text-black">{sess.adminName}</div>
+                        <div className="text-[11px] text-[#2a5885] font-semibold">{sess.role}</div>
+                      </div>
+                      <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4bb34b] animate-pulse" title="В сети" />
+                    </div>
+
+                    <div className="space-y-1 text-[11.5px] text-vk-text-secondary bg-[#fafbfc] p-2.5 rounded border border-vk-separator/50 font-sans">
+                      <div>IP-адрес: <span className="font-mono font-medium text-vk-text">{sess.ip}</span></div>
+                      <div>Устройство: <span className="font-medium text-vk-text">{sess.device}</span></div>
+                      <div>Геолокация: <span className="font-medium text-vk-text">{sess.location}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#fafbfc] -m-4 mt-1 p-3 border-t border-vk-separator rounded-b-[4px]">
+                    <span className="text-[10px] uppercase font-bold text-vk-text-secondary">{sess.lastActive}</span>
+                    <button
+                      onClick={() => {
+                        setActiveSessions(activeSessions.filter(s => s.id !== sess.id));
+                        addNotification('Сессия прервана', `Пользователь ${sess.adminName} был разлогинен принудительно`);
+                      }}
+                      className="text-[11px] text-[#e64646] font-bold hover:underline cursor-pointer"
+                    >
+                      Сбросить сессию
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {activeSessions.length === 0 && (
+                <div className="col-span-full bg-white p-16 border border-vk-separator rounded-[2px] text-center text-vk-text-secondary text-[12.5px]">
+                  Все активные сессии персонала завершены.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const renderContentModeration = () => {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
+        <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center">
+              <ShieldAlert size={20} className="text-[#2a5885]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[17px] font-medium font-sans">Жалобы на контент</h1>
+                <span className="bg-[#656565]/10 text-[#656565] text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] tracking-wide font-mono">Старший модератор</span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <button onClick={() => setIsHistoryOpen(true)} className="text-[11px] text-[#2a5885] hover:underline font-normal">Статистика</button>
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-vk-text-secondary text-[11px]">В очереди: {complaints.length}</div>
+            <div className="text-[#2a5885] text-[11px] font-medium">Вами обработано: {processedCount}</div>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <div className="grow space-y-3">
+            {complaints.map((item) => (
+              <div key={item.id} className="bg-vk-white p-4 rounded-[2px] border border-vk-separator transition-all relative">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setComplaints(prev => prev.map(c => c.id === item.id ? { ...c, selected: !c.selected } : c));
+                      }}
+                      className={`w-4 h-4 rounded-[2px] border flex items-center justify-center cursor-pointer transition-colors ${item.selected ? 'bg-[#5181b8] border-[#5181b8]' : 'bg-white border-[#dce1e6] hover:border-[#5181b8]'}`}
+                    >
+                      {item.selected && <Check size={12} className="text-white" />}
+                    </div>
+                    <div className="w-8 h-8 rounded-full overflow-hidden border border-vk-separator">
+                       <UserAvatar user={users.find(u => u.name === item.userName || u.id === item.id)} avatarUrl={item.userAvatar || users.find(u => u.name === item.userName || u.id === item.id)?.avatar} className="w-full h-full" />
+                    </div>
+                    <div>
+                      <div onClick={(e) => { 
+                        if (e.altKey) {
+                          handlePostCardClickWithAlt(e, item.userName, 'name');
+                          return;
+                        }
+                        setSelectedUserData({
+                          id: item.id,
+                          name: item.userName,
+                          avatar: `https://i.pravatar.cc/150?u=${item.id}`,
+                          trustLevel: parseFloat(item.rating),
+                          isVerified: false,
+                          isBlocked: false,
+                          regDate: 'сегодня'
+                        });
+                        setActiveTab('profile'); 
+                      }} 
+                      className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{item.userName}</div>
+                      <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {Math.random().toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(item.rating) > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
+                    Рейтинг: {item.rating}
+                  </div>
+                </div>
+                <div className="pl-6 md:pl-8">
+                  <div className="text-[12.5px] font-medium mb-1">Тип: <span className="text-[#2a5885]">{item.type}</span></div>
+                  <div className="text-[12.5px] text-vk-text-secondary mb-3 p-3 bg-[#f7f8fa] border border-vk-separator rounded-[2px] italic"> «{item.content}» </div>
+                  
+                  {item.image && (
+                    <div className="mb-4 rounded-[1px] overflow-hidden border border-vk-separator max-w-sm">
+                       <ImagePlaceholder className="w-full h-40" />
+                    </div>
+                  )}
+                  
+                  <div className="flex flex-wrap gap-1.5">
+                     <button onClick={() => handleModerationAction(item.id, 'block_delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать и удалить</button>
+                     <button onClick={() => handleModerationAction(item.id, 'block')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать</button>
+                     <button onClick={() => handleModerationAction(item.id, 'delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Удалить</button>
+                     <button onClick={() => handleModerationAction(item.id, 'ignore')} className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Игнорировать</button>
+                     <button onClick={() => handleModerationAction(item.id, 'forward')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">В отдел</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {complaints.length === 0 && (
+              <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
+                <ShieldCheck size={48} className="text-[#dce1e6]" />
+                <p className="text-vk-text-secondary text-[12.5px]">Все жалобы обработаны!</p>
+              </div>
+            )}
+          </div>
+
+          {selectedCount > 0 && (
+            <div className="w-[180px] shrink-0 sticky top-14 h-fit space-y-3">
+              <div className="bg-vk-white p-4 rounded-[2px] border border-[#5181b8]/30">
+                 <h4 className="text-[11px] font-bold uppercase text-[#2a5885] mb-4">Массово: {selectedCount}</h4>
+                 <div className="flex flex-col gap-1">
+                    <button 
+                      onClick={() => {
+                        setIsMassDeptModalOpen(true);
+                        setIsMultiComplaint(false);
+                      }} 
+                      className="w-full text-left text-[11px] font-normal p-1.5 hover:bg-[#f0f2f5] rounded-[2px] text-[#2a5885] transition-colors"
+                    >
+                       В отдел
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsMassDeptModalOpen(true);
+                        setIsMultiComplaint(true);
+                      }} 
+                      className="w-full text-left text-[11px] font-normal p-1.5 hover:bg-[#f0f2f5] rounded-[2px] text-[#2a5885] transition-colors"
+                    >
+                       Мультижалоба
+                    </button>
+                    <button onClick={() => handleMassAction('Удалить')} className="w-full text-left text-[11px] font-normal p-1.5 hover:bg-[#f0f2f5] rounded-[2px] text-[#2a5885] transition-colors">Удалить</button>
+                    <button onClick={() => handleMassAction('Заблокировать')} className="w-full text-left text-[11px] font-normal p-1.5 hover:bg-[#f0f2f5] rounded-[2px] text-[#2a5885] transition-colors">Заблокировать</button>
+                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderDialogModeration = () => {
+    const selectedCount = dialogComplaints.filter(c => c.selected).length;
+
+    const activeComplaintCheckedMsgIds = activeFullDialogueComplaint
+      ? (selectedDialogMessageIds[activeFullDialogueComplaint.id] !== undefined
+          ? selectedDialogMessageIds[activeFullDialogueComplaint.id]
+          : activeFullDialogueComplaint.fullDialogueMessages.filter(m => m.isViolation).map(m => m.id))
+      : [];
+
+    const handleDialogCardSelect = (id: string) => {
+      setDialogComplaints(prev => prev.map(c => c.id === id ? { ...c, selected: !c.selected } : c));
+    };
+
+    const handleMessageCheckboxToggle = (complaintId: string, messageId: string) => {
+      setSelectedDialogMessageIds(prev => {
+        let current = prev[complaintId];
+        if (current === undefined) {
+          const complaint = dialogComplaints.find(c => c.id === complaintId);
+          current = complaint 
+            ? complaint.fullDialogueMessages.filter(m => m.isViolation).map(m => m.id)
+            : [];
+        }
+        const updated = current.includes(messageId) 
+          ? current.filter(id => id !== messageId) 
+          : [...current, messageId];
+        return { ...prev, [complaintId]: updated };
+      });
+    };
+
+    const applyViolationAction = (
+      violationType: 'delete_only' | 'spam' | 'insult' | 'threat' | 'harassment' | 'fraud' | 'doxxing' | 'mute_pm' | 'skip_complaint',
+      offenderUserId: string,
+      selectedMessageIds: string[],
+      moderatorComment: string,
+      complaintId?: string
+    ) => {
+      const complaint = complaintId 
+        ? dialogComplaints.find(c => c.id === complaintId)
+        : dialogComplaints.find(c => c.offenderId === offenderUserId);
+
+      if (!complaint) return;
+      const targetComplaintId = complaint.id;
+      const offenderName = complaint.offenderName;
+      const note = moderatorComment || 'Без дополнительных комментариев';
+
+      // 1. DELETE SELECTED MESSAGES (except if skipping)
+      if (violationType !== 'skip_complaint' && selectedMessageIds.length > 0) {
+        setMessengerMessages(prev => prev.filter(mm => !selectedMessageIds.includes(mm.id)));
+        setSelectedDialogMessageIds(prev => {
+          const copy = { ...prev };
+          delete copy[targetComplaintId];
+          return copy;
+        });
+      }
+
+      // Unified map of human-readable labels for logs and history
+      const violationLabels: Record<string, string> = {
+        spam: 'Спам',
+        insult: 'Оскорбление',
+        threat: 'Угроза',
+        harassment: 'Домогательство',
+        fraud: 'Мошенничество',
+        doxxing: 'Доксинг',
+        mute_pm: 'Ограничение ЛС',
+        delete_only: 'Удаление сообщений',
+        skip_complaint: 'Отклонение жалобы'
+      };
+
+      const label = violationLabels[violationType] || violationType;
+
+      if (violationType === 'delete_only') {
+        addModeratorLog({
+          type: 'moderation',
+          action: 'Удаление сообщений диалога',
+          message: `Из диалога ${complaint.reporterName} ↔ ${offenderName} по жалобе удалено ${selectedMessageIds.length} сообщений нарушителя ${offenderName}. Решение (без санкций): ${note}`,
+          targetId: offenderUserId,
+          targetName: offenderName
+        });
+        addNotification('Сообщения удалены', `Из диалога удалено ${selectedMessageIds.length} сообщений нарушителя.`);
+      } 
+      
+      else if (['spam', 'insult', 'threat', 'harassment', 'fraud', 'doxxing'].includes(violationType)) {
+        // Get the texts of the selected violating messages
+        const designTargetIds = selectedMessageIds && selectedMessageIds.length > 0 
+          ? selectedMessageIds 
+          : complaint.fullDialogueMessages.filter(m => m.isViolation).map(m => m.id);
+
+        const violatingTexts = complaint.fullDialogueMessages
+          .filter(m => designTargetIds.includes(m.id))
+          .map(m => `«${m.text}» (Сообщение от ${m.senderName}, ${m.timestamp})`);
+
+        const blockInfo = {
+          duration: 'Навсегда',
+          reason: label,
+          comment: `Ваш профиль заблокирован по причине ${label}`,
+          timestamp: new Date(),
+          moderator: 'Старший модератор',
+          examplesList: violatingTexts
+        };
+
+        // Sanction offender profile history and block them
+        setUsers(prev => prev.map(u => {
+          if (u.id === offenderUserId || u.name === offenderName) {
+            const currentHistory = u.violationHistory || { violationsCount: 0, warningsCount: 0, blocksCount: 0, lastViolationReason: '', lastViolationDate: '' };
+            return {
+              ...u,
+              isBlocked: true,
+              profileBlockInfo: blockInfo,
+              violationHistory: {
+                ...currentHistory,
+                violationsCount: (currentHistory.violationsCount || 0) + 1,
+                lastViolationReason: label,
+                lastViolationDate: 'Только что'
+              }
+            };
+          }
+          return u;
+        }));
+
+        if (currentUser && (currentUser.id === offenderUserId || currentUser.name === offenderName)) {
+          setCurrentUser(prev => prev ? {
+            ...prev,
+            isBlocked: true,
+            profileBlockInfo: blockInfo
+          } : null);
+        }
+
+        addModeratorLog({
+          type: 'moderation',
+          action: `Выдана санкция: ${label}`,
+          message: `К пользователю ${offenderName} применена автоматическая санкция по причине "${label}". Удалено сообщений: ${selectedMessageIds.length}. Решение: Ваш профиль заблокирован по причине ${label}`,
+          targetId: offenderUserId,
+          targetName: offenderName
+        });
+
+        addNotification('Выдана санкция', `Нарушитель: ${offenderName}. Причина: ${label}. Профиль заблокирован. Выделенные фразы удалены.`);
+      } 
+      
+      else if (violationType === 'mute_pm') {
+        const durationMs = 180 * 1000; // 3 minutes
+        
+        // Block offender PM sending
+        setPmRestrictions(prev => ({
+          ...prev,
+          [offenderUserId]: { durationMs, startedAt: Date.now(), reason: 'Ограничение ЛС по решению модератора' }
+        }));
+
+        // Add warning and log sanction to offender history
+        setUsers(prev => prev.map(u => {
+          if (u.id === offenderUserId || u.name === offenderName) {
+            const currentHistory = u.violationHistory || { violationsCount: 0, warningsCount: 0, blocksCount: 0, lastViolationReason: '', lastViolationDate: '' };
+            return {
+              ...u,
+              violationHistory: {
+                ...currentHistory,
+                warningsCount: (currentHistory.warningsCount || 0) + 1,
+                lastViolationReason: 'Ограничение отправки ЛС',
+                lastViolationDate: 'Только что'
+              }
+            };
+          }
+          return u;
+        }));
+
+        addModeratorLog({
+          type: 'moderation',
+          action: 'Ограничение ЛС',
+          message: `Пользователю ${offenderName} временно ограничена возможность отправки личных сообщений во всех чатах. Решение: ${note}`,
+          targetId: offenderUserId,
+          targetName: offenderName
+        });
+
+        addNotification('Доступ ограничен', `Личные сообщения для ${offenderName} ограничены. Выделенные сообщения удалены.`);
+      } 
+      
+      else if (violationType === 'skip_complaint') {
+        addModeratorLog({
+          type: 'moderation',
+          action: 'Отклонение жалобы',
+          message: `Жалоба на диалог ${complaint.reporterName} ↔ ${offenderName} отклонена модератором без наложения санкций. Комментарий: ${note}`,
+          targetId: offenderUserId,
+          targetName: offenderName
+        });
+
+        addNotification('Жалоба пропущена', 'Жалоба успешно закрыта без наложения санкций.');
+      }
+
+      // Close the complaint
+      setDialogComplaints(prev => prev.filter(c => c.id !== targetComplaintId));
+
+      // Close full dialogue expansion if it matches
+      if (activeFullDialogueComplaint?.id === targetComplaintId) {
+        setActiveFullDialogueComplaint(null);
+      }
+    };
+
+    // Other dialog complaint helpers go here
+
+    const handleMassDialogAction = (massAction: 'delete' | 'ignore' | 'close' | 'assign' | 'forward_senior') => {
+      const selected = dialogComplaints.filter(c => c.selected);
+      if (selected.length === 0) return;
+
+      const selectedIds = selected.map(c => c.id);
+
+      if (massAction === 'delete') {
+        setDialogComplaints(prev => prev.filter(c => !selectedIds.includes(c.id)));
+        
+        let allDeletedMsgIds: string[] = [];
+        selected.forEach(c => {
+          const checkedMsgIds = selectedDialogMessageIds[c.id] !== undefined
+            ? selectedDialogMessageIds[c.id]
+            : c.fullDialogueMessages.filter(m => m.isViolation).map(m => m.id);
+          allDeletedMsgIds = [...allDeletedMsgIds, ...checkedMsgIds];
+          
+          addModeratorLog({
+            type: 'moderation',
+            action: 'Массовое удаление',
+            message: `По коллективной жалобе удалено ${checkedMsgIds.length} сообщений нарушителя ${c.offenderName}`,
+            targetId: c.offenderId,
+            targetName: c.offenderName
+          });
+        });
+        
+        if (allDeletedMsgIds.length > 0) {
+          setMessengerMessages(prev => prev.filter(mm => !allDeletedMsgIds.includes(mm.id)));
+        }
+        
+        addNotification('Массовое действие', `Сообщения удалены в ${selected.length} диалогах.`);
+      } else if (massAction === 'ignore') {
+        setDialogComplaints(prev => prev.filter(c => !selectedIds.includes(c.id)));
+        addNotification('Массовое действие', `Отклонено жалоб: ${selected.length}.`);
+      } else if (massAction === 'close') {
+        setDialogComplaints(prev => prev.filter(c => !selectedIds.includes(c.id)));
+        addNotification('Массовое действие', `Жалобы закрыты без дополнительных действий: ${selected.length}`);
+      } else if (massAction === 'assign') {
+        addNotification('Назначено', `Все выбранные карточки (${selected.length}) успешно привязаны к вашей рабочей сессии модератора.`);
+      } else if (massAction === 'forward_senior') {
+        addNotification('Передано', `Заявки (${selected.length}) переданы на экспертное рассмотрение Старшему Администратору безопасности.`);
+      }
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4 text-left">
+        <div className="bg-white p-4 rounded-[4px] border border-[#e7e8ec] flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#e7e8ec] bg-[#f0f2f5] flex items-center justify-center shrink-0">
+              <ShieldAlert size={20} className="text-[#2a5885]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[17px] font-medium font-sans text-[#2c2c2c]">Жалобы на диалоги</h1>
+                <span className="bg-[#656565]/10 text-[#656565] text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-[2px] tracking-wide font-mono">Анализ личных переписок</span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[11px] text-[#656565]">Автоматическая ИИ-модерация активна</span>
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[#656565] text-[11px]">Жалобы в работе: {dialogComplaints.length}</div>
+            <div className="text-[#2a5885] text-[11px] font-medium">Безопасность PM: 100% покрытие</div>
+          </div>
+        </div>
+
+        <div className="flex gap-4 items-start">
+          <div className="grow space-y-4">
+            {dialogComplaints.map((item) => {
+              const checkedMessages = selectedDialogMessageIds[item.id] !== undefined
+                ? selectedDialogMessageIds[item.id]
+                : item.fullDialogueMessages.filter(m => m.isViolation).map(m => m.id);
+              const isContextExpanded = expandedContextComplaintIds.includes(item.id);
+              const isHistoryExpanded = expandedViolationHistoryIds.includes(item.id);
+              const isCounterChecked = checkedCounterComplaintIds.includes(item.id);
+              
+              const currentMessages = isContextExpanded 
+                ? item.fullDialogueMessages
+                : item.fullDialogueMessages.filter(m => m.isViolation);
+
+              return (
+                <div key={item.id} className="bg-white p-4 rounded-[4px] border border-[#e7e8ec] shadow-sm transition-all relative">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDialogCardSelect(item.id);
+                        }}
+                        className={`w-4 h-4 rounded-[2px] border flex items-center justify-center cursor-pointer transition-colors ${item.selected ? 'bg-[#5181b8] border-[#5181b8]' : 'bg-white border-[#dce1e6] hover:border-[#5181b8]'}`}
+                      >
+                        {item.selected && <Check size={12} className="text-white" />}
+                      </div>
+                      
+                      <div className="w-9 h-9 rounded-full overflow-hidden border border-[#e7e8ec] shrink-0">
+                         <img referrerPolicy="no-referrer" src={item.offenderAvatar} alt={item.offenderName} className="w-full h-full object-cover" />
+                      </div>
+                      
+                      <div>
+                        <div className="text-[12.5px] font-semibold text-[#2a5885] hover:underline cursor-pointer">
+                          {item.offenderName}
+                        </div>
+                        <div className="text-[11px] text-[#656565] flex items-center gap-2">
+                          <span>Источник: {item.source}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] ${
+                        item.offenderRisk > 0.8 
+                          ? 'bg-red-50 text-[#e64646]' 
+                          : item.offenderRisk > 0.5 
+                          ? 'bg-orange-50 text-orange-600' 
+                          : 'bg-green-50 text-green-600'
+                      }`}>
+                        Риск: {(item.offenderRisk * 100).toFixed(0)}%
+                      </span>
+                      <span className="bg-[#f0f2f5] text-[#2a5885] text-[11px] font-bold px-2 py-0.5 rounded-[2px]">
+                        {item.violationType}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mb-4 bg-[#f2f4f7]/70 p-2.5 rounded-[3px] border border-[#e7e8ec]/60 flex items-center justify-between text-[11.5px] text-[#55677d]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-[#656565]">Связанные участники:</span>
+                      <span className="flex items-center gap-1">
+                        <span className="text-vk-text">{item.reporterName}</span>
+                        <span className="text-[#818c99]">↔</span>
+                        <span className="font-extrabold text-[#e64646] bg-red-50/70 px-1 py-0.5 rounded">{item.offenderName}</span>
+                      </span>
+                    </div>
+                    <span className="text-[10.5px] italic text-[#818c99]">Нарушитель подсвечен красным</span>
+                  </div>
+
+                  <div className="pl-0 shrink-0">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#818c99] mb-1.5 flex items-center justify-between">
+                      <span>Диалоговая ветвь нарушения</span>
+                      {isContextExpanded && <span className="text-[9px] bg-[#5181b8]/10 text-[#2a5885] px-1 py-0.5 rounded font-bold font-sans">Отображается Контекст</span>}
+                    </div>
+                    
+                    <div className="border border-[#e7e8ec] rounded-[4px] overflow-hidden bg-white divide-y divide-[#f0f2f5] mb-3 shadow-inner">
+                      {currentMessages.map((msg) => {
+                        const isMsgChecked = checkedMessages.includes(msg.id);
+                        return (
+                          <div 
+                            key={`${item.id}-${msg.id}-${msg.timestamp}-${isContextExpanded ? 'ctx' : 'no-ctx'}`} 
+                            className={`flex items-start gap-2.5 p-2.5 text-[12px] transition-all ${
+                              msg.isViolation 
+                                ? 'bg-red-50/50 border-s-[3.5px] border-s-[#e64646]' 
+                                : 'hover:bg-[#f9fafb]'
+                            }`}
+                          >
+                            <input 
+                              type="checkbox"
+                              checked={isMsgChecked}
+                              onChange={() => handleMessageCheckboxToggle(item.id, msg.id)}
+                              className="mt-0.5 rounded-[3px] border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] shrink-0 cursor-pointer"
+                              title="Выбрать для удаления"
+                            />
+                            <div className="w-6 h-6 rounded-full overflow-hidden border border-[#e7e8ec] shrink-0">
+                              <img referrerPolicy="no-referrer" src={msg.senderAvatar} alt={msg.senderName} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="grow">
+                              <div className="flex justify-between items-baseline mb-0.5">
+                                <span className={`font-semibold text-[11.5px] ${msg.senderName === item.offenderName ? 'text-[#e64646]' : 'text-[#285473]'}`}>
+                                  {msg.senderName}
+                                </span>
+                                <span className="text-[10px] text-[#818c99]">{msg.timestamp}</span>
+                              </div>
+                              <div className={`p-1 rounded-[2px] text-[12px] ${msg.isViolation ? 'font-medium bg-red-50 text-vk-text' : 'text-vk-text'}`}>
+                                {msg.text}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4 border-b border-[#f0f1f3] pb-3">
+                    <button 
+                      onClick={() => {
+                        setExpandedContextComplaintIds(prev => 
+                          prev.includes(item.id) ? prev.filter(x => x !== item.id) : [...prev, item.id]
+                        );
+                      }}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-[2px] border transition-colors flex items-center gap-1 cursor-pointer ${
+                        isContextExpanded 
+                          ? 'bg-[#5181b8]/10 border-[#5181b8]/30 text-[#2a5885]' 
+                          : 'bg-[#f7f8fa] border-[#dce1e6] text-[#55677d] hover:bg-[#e1e3e6]'
+                      }`}
+                    >
+                      <span>Показать контекст</span>
+                      {isContextExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+
+                    <button 
+                      onClick={() => setActiveFullDialogueComplaint(item)}
+                      className="bg-[#f7f8fa] border border-[#dce1e6] hover:bg-[#e1e3e6] text-[#55677d] px-2.5 py-1 rounded-[2px] text-[11px] font-medium transition-colors cursor-pointer"
+                    >
+                      Показать весь диалог
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        setExpandedViolationHistoryIds(prev => 
+                          prev.includes(item.id) ? prev.filter(x => x !== item.id) : [...prev, item.id]
+                        );
+                      }}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-[2px] border transition-colors flex items-center gap-1 cursor-pointer ${
+                        isHistoryExpanded 
+                          ? 'bg-purple-50 border-purple-200 text-purple-800' 
+                          : 'bg-[#f7f8fa] border-[#dce1e6] text-[#55677d] hover:bg-[#e1e3e6]'
+                      }`}
+                    >
+                      <span>Архив нарушений</span>
+                      {isHistoryExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        setCheckedCounterComplaintIds(prev => 
+                          prev.includes(item.id) ? prev.filter(x => x !== item.id) : [...prev, item.id]
+                        );
+                      }}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-[2px] border transition-colors flex items-center gap-1 cursor-pointer ${
+                        isCounterChecked 
+                          ? 'bg-amber-50 border-amber-200 text-amber-800' 
+                          : 'bg-[#f7f8fa] border-[#dce1e6] text-[#55677d] hover:bg-[#e1e3e6]'
+                      }`}
+                    >
+                      <span>Зеркальная жалоба</span>
+                      {isCounterChecked ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  </div>
+
+                  <AnimatePresence>
+                    {isHistoryExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }} 
+                        animate={{ opacity: 1, height: 'auto' }} 
+                        exit={{ opacity: 0, height: 0 }} 
+                        className="bg-purple-50/60 border border-purple-200 p-3 rounded-[3px] mb-4 text-[11.5px] space-y-2 font-sans"
+                      >
+                        <div className="font-semibold text-purple-900 text-[12px] flex items-center gap-1">
+                          <HistoryIcon size={13} />
+                          <span>История активности аккаунта {item.offenderName}:</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="bg-white border border-purple-100 p-1.5 rounded">
+                            <div className="font-bold text-[14px] text-purple-950">{item.violationHistory.violationsCount}</div>
+                            <div className="text-[9.5px] text-purple-600">Нарушений</div>
+                          </div>
+                          <div className="bg-white border border-purple-100 p-1.5 rounded">
+                            <div className="font-bold text-[14px] text-purple-950">{item.violationHistory.warningsCount}</div>
+                            <div className="text-[9.5px] text-purple-600">Предупреждений</div>
+                          </div>
+                          <div className="bg-white border border-purple-100 p-1.5 rounded">
+                            <div className="font-bold text-[14px] text-red-700">{item.violationHistory.blocksCount}</div>
+                            <div className="text-[9.5px] text-red-600">Блокировок</div>
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-purple-800 bg-white border border-purple-100 p-2 rounded">
+                          <span className="font-medium">Последний инцидент:</span> <span className="font-semibold">{item.violationHistory.lastViolationReason}</span> ({item.violationHistory.lastViolationDate})
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <AnimatePresence>
+                    {isCounterChecked && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }} 
+                        animate={{ opacity: 1, height: 'auto' }} 
+                        exit={{ opacity: 0, height: 0 }} 
+                        className={`p-3 rounded-[3px] mb-4 text-[11.5px] space-y-1.5 border ${
+                          item.hasCounterComplaint 
+                            ? 'bg-amber-50 border-amber-200' 
+                            : 'bg-green-50 border-green-200 text-green-800'
+                        }`}
+                      >
+                        {item.hasCounterComplaint ? (
+                          <>
+                            <div className="font-semibold text-amber-950 text-[12px] flex items-center gap-1">
+                              <AlertTriangle size={13} className="text-amber-800 animate-pulse" />
+                              <span>Внимание! Зафиксировано встречное обращение (Взаимный конфликт)</span>
+                            </div>
+                            <p className="text-[#555] leading-relaxed">
+                              Собеседник <span className="font-semibold">{item.reporterName}</span> ранее также отправлял жалобу на <span className="font-semibold">{item.offenderName}</span>:
+                            </p>
+                            <div className="bg-white border border-amber-100 p-2 rounded text-[11px] text-amber-800">
+                              «{item.counterComplaintText}»
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-semibold text-green-900 text-[12px] flex items-center gap-1 border-b border-green-100 pb-1">
+                              <ShieldCheck size={13} className="text-green-700" />
+                              <span>Взаимный конфликт не выявлен</span>
+                            </div>
+                            <p className="text-green-800">
+                              Встречных обращений от собеседника не зарегистрировано. Нарушение носит односторонний характер.
+                            </p>
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="bg-[#f7fafe] border border-[#5181b8]/10 rounded-[4px] p-3 mb-4 shadow-sm">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-1.5 text-[#2a5885] font-semibold text-[11px]">
+                        <Sparkles size={14} className="text-[#5181b8]" />
+                        <span>Компьютерный нейросетевой анализ ИИ</span>
+                      </div>
+                      <span className={`text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded font-mono ${
+                        item.aiAnalysis.riskLevel === 'CRITICAL' 
+                          ? 'bg-red-600 text-white animate-pulse' 
+                          : item.aiAnalysis.riskLevel === 'HIGH' 
+                          ? 'bg-red-100 text-red-700 font-extrabold' 
+                          : item.aiAnalysis.riskLevel === 'MEDIUM' 
+                          ? 'bg-[#f0f2f5] text-amber-800' 
+                          : 'bg-green-100 text-green-800'
+                      }`}>
+                        Уровень угрозы: {item.aiAnalysis.riskLevel}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 mt-1 text-[11px]">
+                      {[
+                        { label: 'Угроза', val: item.aiAnalysis.threat, color: 'bg-red-500' },
+                        { label: 'Токсичность', val: item.aiAnalysis.toxicity, color: 'bg-orange-500' },
+                        { label: 'Оскорбление', val: item.aiAnalysis.insult, color: 'bg-yellow-500' },
+                        { label: 'Спам', val: item.aiAnalysis.spam, color: 'bg-blue-500' },
+                        { label: 'Обман', val: item.aiAnalysis.scam, color: 'bg-teal-500' },
+                      ].map((bar) => (
+                        <div key={bar.label} className="space-y-0.5 bg-white border border-gray-100 p-1.5 rounded">
+                          <div className="flex justify-between text-[#55677d] font-medium text-[10px]">
+                            <span>{bar.label}</span>
+                            <span>{bar.val}%</span>
+                          </div>
+                          <div className="w-full bg-[#f0f2f5] h-1 rounded-full overflow-hidden">
+                            <div className={`${bar.color} h-full transition-all`} style={{ width: `${bar.val}%` }}></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#818c99] mb-1.5 flex items-center gap-1">
+                      <MessageSquare size={12} className="text-gray-400" />
+                      <span>Решение модератора</span>
+                    </div>
+                    <textarea
+                      placeholder="Укажите комментарий или обоснование решения..."
+                      value={moderatorResolutionNotes[item.id] || ''}
+                      onChange={(e) => setModeratorResolutionNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      className="w-full text-[12.5px] bg-white border border-[#dce1e6] p-2.5 focus:outline-none focus:border-[#5181b8] rounded-[3px] transition-all font-sans leading-relaxed shadow-inner"
+                      rows={2.5}
+                    />
+                  </div>
+
+                  {/* КНОПКИ ДЕЙСТВИЙ */}
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-[#f0f1f3]">
+                    <button
+                      onClick={() => applyViolationAction('delete_only', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      disabled={checkedMessages.length === 0}
+                      className={`px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer ${
+                        checkedMessages.length > 0
+                          ? 'bg-[#eef2f6] hover:bg-[#e4ebf2] text-[#2a5885] border border-[#dce1e6]'
+                          : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed opacity-60'
+                      }`}
+                      title={checkedMessages.length === 0 ? "Выберите сообщения выше для удаления" : "Удалить выделенные сообщения без наложения санкций"}
+                    >
+                      Удалить сообщения {checkedMessages.length > 0 ? `(${checkedMessages.length})` : ''}
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('spam', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Спам
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('insult', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Оскорбление
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('threat', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Угроза
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('harassment', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Домогательство
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('fraud', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Мошенничество
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('doxxing', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-[#faebeb] hover:bg-[#f5d5d5] text-[#b32d2d] border border-red-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Доксинг
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('mute_pm', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-orange-50 hover:bg-orange-100 text-orange-850 hover:text-orange-900 border border-orange-200 px-3.5 py-2 rounded-[4px] text-[12px] font-semibold transition-all cursor-pointer"
+                    >
+                      Ограничить ЛС
+                    </button>
+
+                    <button
+                      onClick={() => applyViolationAction('skip_complaint', item.offenderId, checkedMessages, moderatorResolutionNotes[item.id] || '', item.id)}
+                      className="bg-white hover:bg-[#fafafc] border border-vk-separator text-[#55677d] hover:text-black px-4 py-2 rounded-[4px] text-[12px] font-medium transition-all cursor-pointer"
+                    >
+                      Пропустить
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {dialogComplaints.length === 0 && (
+              <div className="bg-white p-20 rounded-[4px] border border-[#e7e8ec] text-center flex flex-col items-center gap-4 shadow-sm">
+                <ShieldCheck size={48} className="text-[#dce1e6]" />
+                <p className="text-[#656565] text-[12.5px]">Все жалобы на личные диалоги успешно обработаны администрацией!</p>
+              </div>
+            )}
+          </div>
+
+          {selectedCount > 0 && (
+            <div className="w-[190px] shrink-0 sticky top-14 h-fit space-y-3">
+              <div className="bg-white p-4 rounded-[4px] border border-[#5181b8]/40 shadow-sm text-left">
+                <h4 className="text-[11px] font-bold uppercase text-[#2a5885] mb-4">Выбрано диалогов: {selectedCount}</h4>
+                <div className="flex flex-col gap-1 text-[11.5px]">
+                  <button 
+                    onClick={() => handleMassDialogAction('assign')}
+                    className="w-full text-left p-2 hover:bg-[#f2f4f7] rounded text-[#2a5885] transition-all cursor-pointer"
+                  >
+                     Назначить мне
+                  </button>
+                  <button 
+                    onClick={() => handleMassDialogAction('forward_senior')}
+                    className="w-full text-left p-2 hover:bg-[#f2f4f7] rounded text-[#2a5885] transition-all cursor-pointer"
+                  >
+                     Передать старшему
+                  </button>
+                  <button 
+                    onClick={() => handleMassDialogAction('delete')}
+                    className="w-full text-left p-2 hover:bg-[#faeaea] rounded text-[#e64646] font-semibold transition-all cursor-pointer"
+                  >
+                     Удалить сообщения
+                  </button>
+                  <button 
+                    onClick={() => handleMassDialogAction('ignore')}
+                    className="w-full text-left p-2 hover:bg-[#f2f4f7] rounded text-[#656565] transition-all cursor-pointer"
+                  >
+                     Игнорировать
+                  </button>
+                  <button 
+                    onClick={() => handleMassDialogAction('close')}
+                    className="w-full text-left p-2 hover:bg-[#f2f4f7] rounded text-[#656565] transition-all cursor-pointer"
+                  >
+                     Закрыть в архив
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <AnimatePresence>
+          {activeFullDialogueComplaint && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 0.5 }} 
+                exit={{ opacity: 0 }} 
+                onClick={() => setActiveFullDialogueComplaint(null)}
+                className="fixed inset-0 bg-black z-[999] pointer-events-auto"
+              />
+              
+              <motion.div 
+                initial={{ x: '100%' }} 
+                animate={{ x: 0 }} 
+                exit={{ x: '100%' }} 
+                transition={{ type: 'tween', duration: 0.3 }}
+                className="fixed right-0 top-0 bottom-0 w-full sm:w-[500px] bg-white shadow-2xl z-[1000] border-s border-vk-separator flex flex-col pointer-events-auto font-sans text-left"
+              >
+                <div className="p-4 bg-[#f7f8fa] border-b border-[#e7e8ec] flex justify-between items-center shrink-0">
+                  <div>
+                    <h3 className="text-[14px] font-bold text-[#2a5885]">Полная история переписки</h3>
+                    <p className="text-[11px] text-[#656565] mt-0.5">
+                      {activeFullDialogueComplaint.reporterName} ↔ {activeFullDialogueComplaint.offenderName}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setActiveFullDialogueComplaint(null)}
+                    className="p-1 rounded-full hover:bg-gray-200 transition-colors cursor-pointer text-[#818c99] hover:text-[#555]"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="grow p-4 overflow-y-auto space-y-3.5 bg-gray-50/50">
+                  <div className="p-2.5 bg-amber-50 text-amber-900 border border-amber-200 rounded text-[11px] leading-relaxed mb-1">
+                    Вердикт модератора затронет только сообщения, перед которыми установлен флажок. Вы можете выделить дополнительные фразы нарушителя.
+                  </div>
+
+                  {activeFullDialogueComplaint.fullDialogueMessages.map((msg) => {
+                    const isMsgChecked = activeComplaintCheckedMsgIds.includes(msg.id);
+                    return (
+                      <div 
+                        key={`${activeFullDialogueComplaint.id}-${msg.id}-${msg.timestamp}`} 
+                        className={`flex gap-3 items-start p-3 rounded border transition-all ${
+                          msg.isViolation 
+                            ? 'bg-red-50/70 border-red-200' 
+                            : 'bg-white border-gray-100'
+                        }`}
+                      >
+                        <input 
+                          type="checkbox"
+                          checked={isMsgChecked}
+                          onChange={() => handleMessageCheckboxToggle(activeFullDialogueComplaint.id, msg.id)}
+                          className="mt-0.5 rounded border-[#dce1e6] text-[#5181b8] focus:ring-[#5181b8] shrink-0 cursor-pointer"
+                        />
+                        <div className="w-7 h-7 rounded-full overflow-hidden border border-[#e7e8ec] shrink-0">
+                          <img referrerPolicy="no-referrer" src={msg.senderAvatar} alt={msg.senderName} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="grow">
+                          <div className="flex justify-between items-baseline mb-0.5">
+                            <span className={`text-[12px] font-bold ${
+                              msg.senderName === activeFullDialogueComplaint.offenderName ? 'text-[#e64646]' : 'text-[#2a5885]'
+                            }`}>
+                              {msg.senderName}
+                            </span>
+                            <span className="text-[10px] text-[#818c99]">{msg.timestamp}</span>
+                          </div>
+                          <p className="text-[12px] text-black mt-0.5 leading-relaxed">
+                            {msg.text}
+                          </p>
+                          {msg.isViolation && (
+                            <span className="inline-block bg-red-100 text-red-800 text-[9px] font-bold px-1.5 py-0.5 rounded mt-1.5 uppercase font-sans">
+                              Зафиксировано нарушение
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="p-4 bg-[#f0f2f5] border-t border-[#e7e8ec] shrink-0 space-y-3">
+                  <div className="flex justify-between items-center text-[12.5px]">
+                    <span className="text-[#656565]">Выбрано сообщений к удалению:</span>
+                    <span className="font-bold text-[#e64646]">
+                      {activeComplaintCheckedMsgIds.length}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        applyViolationAction('delete_only', activeFullDialogueComplaint.offenderId, activeComplaintCheckedMsgIds, '', activeFullDialogueComplaint.id);
+                        setActiveFullDialogueComplaint(null);
+                      }}
+                      disabled={activeComplaintCheckedMsgIds.length === 0}
+                      className={`grow py-2 rounded text-[12px] font-semibold transition-colors ${
+                        activeComplaintCheckedMsgIds.length > 0
+                          ? 'bg-[#e64646] hover:bg-[#d83e3e] text-white cursor-pointer shadow-sm'
+                          : 'bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300'
+                      }`}
+                    >
+                      Применить и удалить
+                    </button>
+                    
+                    <button 
+                      onClick={() => setActiveFullDialogueComplaint(null)}
+                      className="px-4 py-2 border border-[#dce1e6] bg-white hover:bg-gray-100 text-[#55677d] rounded text-[12px] font-medium transition-colors cursor-pointer"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    );
+  };
+
+  const handleRollbackComplaintAction = (id: string) => {
+    const logItem = complaintActionsLog.find(item => item.id === id);
+    if (!logItem) return;
+
+    // 1. Unblock / Restore user
+    if (logItem.actionType === 'block' || logItem.actionType === 'block_delete' || logItem.actionType === 'mass_block') {
+      setUsers(prev => prev.map(u => (u.id === logItem.complaint.userId || u.name === logItem.complaint.userName) ? {
+        ...u,
+        isBlocked: false,
+        profileBlockInfo: undefined
+      } : u));
+    }
+
+    if (logItem.actionType === 'delete' || logItem.actionType === 'block_delete' || logItem.actionType === 'mass_delete') {
+      setUsers(prev => prev.map(u => (u.id === logItem.complaint.userId || u.name === logItem.complaint.userName) ? {
+        ...u,
+        isDeleted: false,
+        name: u.originalName || u.name
+      } : u));
+    }
+
+    // 2. Put back to corresponding queue
+    if (logItem.source === 'spam') {
+      setSpamComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    } else if (logItem.source === 'page_moderation') {
+      setPageComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    } else {
+      setComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    }
+
+    // 3. Logger audit
+    addModeratorLog({
+      type: 'moderation',
+      action: 'Откат действия',
+      message: `Откат действия "${logItem.actionName}" по жалобе на пользователя ${logItem.complaint.userName}. Жалоба возвращена в очередь.`,
+      targetId: logItem.complaint.userId,
+      targetName: logItem.complaint.userName
+    });
+
+    // 4. Update logs
+    setComplaintActionsLog(prev => prev.filter(item => item.id !== id));
+    if (selectedActionLog?.id === id) {
+      setSelectedActionLog(null);
+    }
+
+    addNotification('Откат действия', `Действие успешно отменено, жалоба на ${logItem.complaint.userName} возвращена в очередь`);
+  };
+
+  const handleReviewActionLog = (logItem: LoggedComplaintAction) => {
+    // Revert user deletion / block from this action
+    if (logItem.actionType === 'block' || logItem.actionType === 'block_delete' || logItem.actionType === 'mass_block') {
+      setUsers(prev => prev.map(u => (u.id === logItem.complaint.userId || u.name === logItem.complaint.userName) ? {
+        ...u,
+        isBlocked: false,
+        profileBlockInfo: undefined
+      } : u));
+    }
+
+    if (logItem.actionType === 'delete' || logItem.actionType === 'block_delete' || logItem.actionType === 'mass_delete') {
+      setUsers(prev => prev.map(u => (u.id === logItem.complaint.userId || u.name === logItem.complaint.userName) ? {
+        ...u,
+        isDeleted: false,
+        name: u.originalName || u.name
+      } : u));
+    }
+
+    // Add complaint back to queue (without duplicates)
+    if (logItem.source === 'spam') {
+      setSpamComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    } else if (logItem.source === 'page_moderation') {
+      setPageComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    } else {
+      setComplaints(prev => {
+        if (prev.some(c => c.id === logItem.complaint.id)) return prev;
+        return [logItem.complaint, ...prev];
+      });
+    }
+
+    // Remove the previous log entry so it will be replaced by the fresh action
+    setComplaintActionsLog(prev => prev.filter(item => item.id !== logItem.id));
+    
+    // Open the inline complaint card modal/overlay so they can make new decisions on it
+    setReviewingComplaintLog(logItem);
+    setSelectedActionLog(null); // Close the detail box
+    addNotification('Пересмотр', `Выполняется пересмотр решения по жалобе на ${logItem.complaint.userName}`);
+  };
+
+  const handleReDecision = (actionType: 'delete' | 'ignore' | 'block' | 'block_delete' | 'forward', customLog?: LoggedComplaintAction) => {
+    const currentLog = customLog || selectedActionLog;
+    if (!currentLog) return;
+
+    // 1. Revert previous user states from the old action
+    if (currentLog.actionType === 'block' || currentLog.actionType === 'block_delete' || currentLog.actionType === 'mass_block') {
+      setUsers(prev => prev.map(u => (u.id === currentLog.complaint.userId || u.name === currentLog.complaint.userName) ? {
+        ...u,
+        isBlocked: false,
+        profileBlockInfo: undefined
+      } : u));
+    }
+    if (currentLog.actionType === 'delete' || currentLog.actionType === 'block_delete' || currentLog.actionType === 'mass_delete') {
+      setUsers(prev => prev.map(u => (u.id === currentLog.complaint.userId || u.name === currentLog.complaint.userName) ? {
+        ...u,
+        isDeleted: false,
+        name: u.originalName || u.name
+      } : u));
+    }
+
+    // 2. Remove the old log entry
+    setComplaintActionsLog(prev => prev.filter(item => item.id !== currentLog.id));
+
+    // 3. Temporarily place complaint back in the relevant active queue so handleModerationAction can find it
+    const source = currentLog.source || 'main';
+    const complaintId = currentLog.complaint.id;
+
+    if (source === 'spam') {
+      setSpamComplaints(prev => [currentLog.complaint, ...prev.filter(c => c.id !== complaintId)]);
+    } else if (source === 'page_moderation') {
+      setPageComplaints(prev => [currentLog.complaint, ...prev.filter(c => c.id !== complaintId)]);
+    } else {
+      setComplaints(prev => [currentLog.complaint, ...prev.filter(c => c.id !== complaintId)]);
+    }
+
+    // 4. Trigger the standard moderation handler
+    setTimeout(() => {
+      handleModerationAction(complaintId, actionType, source);
+    }, 40);
+
+    // 5. Hide modal
+    setSelectedActionLog(null);
+  };
+
+  const renderComplaintActions = () => {
+    const filteredLog = complaintActionsLog.filter(log => {
+      if (logFilterTime && !log.timestamp.toLowerCase().includes(logFilterTime.toLowerCase())) return false;
+      if (logFilterModerator && !log.operatorName.toLowerCase().includes(logFilterModerator.toLowerCase())) return false;
+      if (logFilterUser && !log.complaint.userName.toLowerCase().includes(logFilterUser.toLowerCase())) return false;
+      if (logFilterDecision) {
+        if (logFilterDecision === 'block_delete' && log.actionType !== 'block_delete') return false;
+        if (logFilterDecision === 'block' && log.actionType !== 'block') return false;
+        if (logFilterDecision === 'delete' && log.actionType !== 'delete') return false;
+        if (logFilterDecision === 'ignore' && log.actionType !== 'ignore') return false;
+        if (logFilterDecision === 'forward' && log.actionType !== 'forward') return false;
+      }
+      if (logFilterContent && !log.complaint.content.toLowerCase().includes(logFilterContent.toLowerCase())) return false;
+      return true;
+    });
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-3 font-sans">
+        {/* VKontakte 2015 Header Band */}
+        <div className="bg-[#f7f8fa] p-3 border border-[#dae1e8] rounded-[2px] flex items-center justify-between select-none">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-bold text-[#45688e]">Действия модераторов</span>
+            <span className="text-[11px] text-[#656565] font-normal font-sans">| Хронология и откат</span>
+          </div>
+          <div className="text-right text-[11px] text-[#656565]">
+            Найдено: <span className="font-bold text-[#45688e]">{filteredLog.length}</span> из {complaintActionsLog.length}
+          </div>
+        </div>
+
+        {/* VKontakte 2015 Filter Bar Panel */}
+        <div className="bg-white p-3 border border-[#dae1e8] rounded-[2px] space-y-2">
+          <div className="text-[11px] font-bold text-[#45688e] border-b border-[#dae1e8] pb-1.5 mb-2 uppercase tracking-wide select-none">
+            Фильтрация действий
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[12px]">
+            <div>
+              <input 
+                type="text" 
+                value={logFilterUser} 
+                onChange={(e) => setLogFilterUser(e.target.value)} 
+                placeholder="Пользователь (ник)..." 
+                className="w-full bg-white border border-[#d3d9de] rounded-[2px] px-2 py-1 text-[11.5px] text-black focus:border-[#567ca4] focus:outline-none"
+              />
+            </div>
+            <div>
+              <input 
+                type="text" 
+                value={logFilterModerator} 
+                onChange={(e) => setLogFilterModerator(e.target.value)} 
+                placeholder="Имя модератора..." 
+                className="w-full bg-white border border-[#d3d9de] rounded-[2px] px-2 py-1 text-[11.5px] text-black focus:border-[#567ca4] focus:outline-none"
+              />
+            </div>
+            <div>
+              <select 
+                value={logFilterDecision} 
+                onChange={(e) => setLogFilterDecision(e.target.value)} 
+                className="w-full bg-white border border-[#d3d9de] rounded-[2px] px-2 py-1 text-[11.5px] text-black focus:border-[#567ca4] focus:outline-none"
+              >
+                <option value="">Все решения</option>
+                <option value="block_delete">Блок и удаление</option>
+                <option value="block">Блокировка</option>
+                <option value="delete">Удаление</option>
+                <option value="ignore">Игнорирование</option>
+                <option value="forward">В отдел</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={logFilterContent} 
+                onChange={(e) => setLogFilterContent(e.target.value)} 
+                placeholder="Текст жалобы..." 
+                className="w-full bg-white border border-[#d3d9de] rounded-[2px] px-2 py-1 text-[11.5px] text-black focus:border-[#567ca4] focus:outline-none"
+              />
+              {(logFilterUser || logFilterModerator || logFilterDecision || logFilterContent) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLogFilterUser('');
+                    setLogFilterModerator('');
+                    setLogFilterDecision('');
+                    setLogFilterContent('');
+                  }}
+                  className="px-2.5 bg-[#f0f2f5] hover:bg-[#e4ebf2] text-[#55677d] border border-[#ced6de] rounded-[2px] text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Сброс
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* VKontakte 2015 Table of Actions */}
+        <div className="bg-white border border-[#dae1e8] rounded-[2px] overflow-hidden">
+          {/* Table Headers */}
+          <div className="p-2.5 bg-[#f7f8fa] border-b border-[#dae1e8] text-[#55677d] text-[11px] font-bold grid grid-cols-12 gap-2 select-none">
+            <div className="col-span-2">Время фиксации</div>
+            <div className="col-span-2">Оператор</div>
+            <div className="col-span-2">Нарушитель</div>
+            <div className="col-span-2">Прожато</div>
+            <div className="col-span-2.5">Вырезка контента</div>
+            <div className="col-span-1.5 text-right">Управление</div>
+          </div>
+          
+          <div className="divide-y divide-[#dae1e8] max-h-[480px] overflow-y-auto">
+            {filteredLog.map((log) => (
+              <div 
+                key={log.id} 
+                onClick={() => setSelectedActionLog(log)}
+                className="p-2.5 text-[11.5px] hover:bg-[#f0f2f5] transition-colors grid grid-cols-12 gap-2 items-center text-left cursor-pointer"
+              >
+                <div className="col-span-2 text-[#656565] font-mono text-[10.5px] leading-tight">{log.timestamp}</div>
+                <div className="col-span-2 text-black font-semibold truncate">{log.operatorName}</div>
+                <div 
+                  className="col-span-2 text-[#2a5885] font-bold truncate hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedUserData({
+                      id: log.complaint.userId,
+                      name: log.complaint.userName,
+                      avatar: log.complaint.userAvatar || `https://i.pravatar.cc/150?u=${log.complaint.userId}`,
+                      trustLevel: parseFloat(log.complaint.rating || '0.7'),
+                      isVerified: false,
+                      isBlocked: false,
+                      regDate: 'ранее'
+                    });
+                    setActiveTab('profile');
+                  }}
+                >
+                  {log.complaint.userName}
+                </div>
+                <div className="col-span-2 truncate">
+                  <span className={`px-1.5 py-0.5 rounded-[1px] text-[9.5px] font-bold uppercase ${
+                    log.actionType === 'ignore' ? 'bg-[#f0f2f5] text-[#656565]' :
+                    log.actionType === 'delete' ? 'bg-[#faeaea] text-[#e64646]' :
+                    log.actionType === 'block' ? 'bg-[#faeaea] text-[#e64646]' :
+                    log.actionType === 'block_delete' ? 'bg-[#faeaea] text-[#e64646]' :
+                    'bg-[#e7f8ef] text-[#2c8d5c]'
+                  }`}>
+                    {log.actionName}
+                  </span>
+                </div>
+                <div className="col-span-2.5 text-[#55677d] truncate">«{log.complaint.content}»</div>
+                <div className="col-span-1.5 text-right flex justify-end gap-2.5 select-none font-bold">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedActionLog(log);
+                    }}
+                    className="text-[#2a5885] hover:underline text-[11px] cursor-pointer bg-transparent border-none p-0"
+                  >
+                    Детали
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRollbackComplaintAction(log.id);
+                    }}
+                    className="text-[#b33a3a] hover:underline text-[11px] cursor-pointer bg-transparent border-none p-0"
+                  >
+                    Откат
+                  </button>
+                </div>
+              </div>
+            ))}
+            {filteredLog.length === 0 && (
+              <div className="p-10 text-center text-[#656565] text-[12px] select-none">
+                Нет записей по критериям фильтрации во время текущего сеанса.
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const tabNamesMap: { [key: string]: string } = {
+    all: 'Все вкладки',
+    profile: 'Моя страница (Профиль)',
+    feed: 'Лента новостей',
+    support: 'Поддержка',
+    academy: 'Академия модерации',
+    appeals: 'Апелляции (админ)',
+    spam: 'Основная модерация (админ)',
+    verification: 'Верификации (админ)',
+    requests: 'Доступы (админ)',
+    users: 'Пользователи (админ)',
+    management: 'Управление (админ)',
+    statistics: 'Статистика (админ)',
+    announcements: 'Объявления (админ)',
+    wiki: 'База знаний (админ)',
+    security: 'Безопасность (админ)',
+    'action-logs': 'Логи действий (админ)',
+    monitoring: 'Мониторинг (админ)',
+    translations: 'Переводы (админ)',
+    'quality-control': 'Отдел качества (админ)',
+    personnel: 'Сотрудники (админ)',
+    tasks: 'Задачи (админ)',
+    'internal-mail': 'Внутренняя почта (админ)',
+  };
+
+  const renderEntryPointsForTab = (tabId: string) => {
+    const validTabs = Object.keys(tabNamesMap);
+    if (!validTabs.includes(tabId)) return null;
+
+    const currentDisplayUser = selectedUserData || currentUser;
+
+    const matchedPoints = placedEntryPoints.filter(ep => {
+      if (dismissedAlerts.includes(ep.id)) {
+        return false;
+      }
+      const isTabMatch = ep.targetTab === tabId || ep.targetTab === 'all' || !ep.targetTab;
+      if (!isTabMatch) return false;
+
+      if (ep.targetUserId) {
+        if (tabId !== 'profile') {
+          return false;
+        }
+        if (currentDisplayUser?.id !== ep.targetUserId) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    if (matchedPoints.length === 0) return null;
+
+    return (
+      <div className="space-y-3 mb-4">
+        {matchedPoints.map((ep) => {
+          let styleClass = '';
+          if (ep.styleType === 'blue') styleClass = 'bg-[#5181b8] text-white hover:bg-[#5b88bd]';
+          else if (ep.styleType === 'green') styleClass = 'bg-[#4bb34b] text-white hover:bg-[#52c152]';
+          else if (ep.styleType === 'red') styleClass = 'bg-[#e64646] text-white hover:bg-[#eb5a5a]';
+          else if (ep.styleType === 'amber') styleClass = 'bg-[#ff8c00] text-white hover:bg-[#ffa033]';
+          else if (ep.styleType === 'gray') styleClass = 'bg-[#e5ebf1] text-[#55677d] hover:bg-[#dfe6ed] border border-[#c5cfdb]';
+          else styleClass = 'bg-white text-[#2a5885] border border-[#c5cfdb] hover:bg-slate-50';
+
+          const buttonEl = ep.hasButton !== false ? (
+            <button
+              type="button"
+              onClick={() => {
+                setUserSupportFields({
+                  subject: `Вопрос по теме: ${ep.name || ep.title}`,
+                  details: `Здравствуйте! Пишу вам через точку быстрого доступа «${ep.name || ep.title}» с вкладки «${tabNamesMap[tabId] || tabId}».`,
+                  category: ep.categoryName || 'Финансы'
+                });
+                setSupportTab('new');
+                setActiveTab('support');
+                addNotification('Быстрое обращение', `Открыта форма обращения по теме "${ep.name || ep.title}"`);
+              }}
+              className={`px-3 py-1.5 rounded-[2px] text-[11.5px] font-bold transition-all cursor-pointer hover:translate-y-[-1px] active:translate-y-[0px] ${styleClass}`}
+            >
+              {ep.name || 'Обратиться'}
+            </button>
+          ) : null;
+
+          return (
+            <div 
+              key={ep.id} 
+              className="bg-[#faf6e5] border border-[#ebdcb3] rounded-[2px] p-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.05)] relative overflow-hidden"
+              style={{ fontFamily: '-apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}
+            >
+              {ep.canDismiss && (
+                <button 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDismissedAlerts(prev => [...prev, ep.id]);
+                  }}
+                  className="absolute top-2.5 right-2.5 text-[#a88238] hover:text-[#c46816] transition-colors cursor-pointer bg-transparent border-none p-0.5"
+                  title="Скрыть"
+                >
+                  <X size={15} strokeWidth={2.5} />
+                </button>
+              )}
+              {/* VK style header */}
+              {ep.title && ep.title.trim() !== '' && (
+                <div className="flex items-center justify-between pb-1.5 mb-2.5 border-b border-[#ebdcb3] text-[12.5px] font-bold text-[#2a5885]">
+                  <div className="flex items-center gap-1.5">
+                    <LifeBuoy size={14} className="text-[#a88238]" />
+                    <span>{ep.title}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Description above button */}
+              {ep.description && (
+                <p className="text-[12px] text-[#333333] leading-relaxed mb-3 font-medium">
+                  {ep.description}
+                </p>
+              )}
+
+              {/* Dynamic Action Button under description */}
+              {buttonEl && (
+                <div className="pt-0.5">
+                  {buttonEl}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    // 404 validation check
+    if (!isPathValid(location.pathname)) {
+      return render404Page();
+    }
+
+    const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;
+    if (actualCurrentUser?.isBlocked || isProfileBlocked) {
+      return renderBlocked();
+    }
+
+    const normalizedTab = activeTab.startsWith('support-category-') ? 'support' : activeTab;
+
+    const mainTabContent = (() => {
+      switch (normalizedTab) {
+        case 'spam':
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              {/* VK Style Sub-tabs bar at the top */}
+              <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-1 flex justify-between items-center flex-wrap shadow-sm gap-2">
+                <div className="flex overflow-x-auto no-scrollbar">
+                  {[
+                    { id: 'content-complaints', label: 'Жалобы на контент' },
+                    { id: 'dialog-complaints', label: 'Жалобы на диалоги' },
+                    { id: 'profile-complaints', label: 'Жалобы на страницы' },
+                    { id: 'actions', label: 'Действия' },
+                    { id: 'search', label: 'Поиск спама' },
+                    { id: 'decisions', label: 'База спама' },
+                    { id: 'triggers', label: 'Срабатывания авто-фильтра' },
+                    { id: 'settings', label: 'Настройки антиспама' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSpamActiveSubTab(tab.id as any)}
+                      className={`flex items-center gap-2 px-4 py-2.5 text-[12.5px] font-medium transition-all relative shrink-0 whitespace-nowrap cursor-pointer hover:bg-[#eaeef2]/30 ${
+                        spamActiveSubTab === tab.id ? 'text-[#2a5885] border-b-[3px] border-[#5181b8] font-semibold' : 'text-[#656565]'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tab Content Area */}
+              <div className="min-h-[450px]">
+                {spamActiveSubTab === 'content-complaints' && renderContentModeration()}
+                {spamActiveSubTab === 'dialog-complaints' && renderDialogModeration()}
+                {spamActiveSubTab === 'profile-complaints' && renderPageModeration()}
+                {spamActiveSubTab === 'actions' && renderComplaintActions()}
+                {spamActiveSubTab === 'search' && renderSpamSearch()}
+                {spamActiveSubTab === 'decisions' && (
+                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-4 space-y-4 text-left">
+                    <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                      <h3 className="text-[12.5px] font-bold text-[#2a5885] uppercase tracking-wider">
+                        База спам-экземпляров
+                      </h3>
+                      <span className="text-[11.5px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-bold font-mono">
+                        {spamDecisions.length}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        placeholder="Поиск по спам-экземплярам..."
+                        value={exemplarSearchQuery}
+                        onChange={(e) => setExemplarSearchQuery(e.target.value)}
+                        className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[13px] transition-colors outline-none"
+                      />
+                      {exemplarSearchQuery && (
+                        <button
+                          onClick={() => setExemplarSearchQuery('')}
+                          className="text-[#818c99] hover:text-black text-[12px] px-2 font-medium"
+                        >
+                          Сбросить
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      {(() => {
+                        const filtered = spamDecisions.filter(decision => 
+                          decision.postText.toLowerCase().includes(exemplarSearchQuery.toLowerCase())
+                        );
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="bg-white p-12 border border-[#e7e8ec] rounded-[4px] text-center flex flex-col items-center justify-center gap-2">
+                              <History size={40} className="text-[#d3d9de]" />
+                              <p className="text-[#818c99] text-[13px]">
+                                {spamDecisions.length === 0 ? 'База спам-экземпляров пуста' : 'Не найдено совпадений'}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return filtered.map((decision) => (
+                          <div 
+                            key={decision.id} 
+                            onClick={(e) => handlePostCardClickWithAlt(e, decision.postText)}
+                            className="bg-white p-4 border border-[#e7e8ec] rounded-[4px] transition-all hover:border-[#b2c1d4] text-left cursor-pointer space-y-3"
+                          >
+                            <div className="text-[13px] text-black whitespace-pre-wrap leading-relaxed font-sans">
+                              {decision.postText}
+                            </div>
+                            <div className="text-[11.5px] text-[#818c99] flex gap-1.5 items-center justify-between pt-2.5 border-t border-[#f0f2f5]">
+                              <div>
+                                Добавил сотрудник <span className="font-medium text-black">{decision.moderatorName}</span>
+                              </div>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSpamDecisions(prev => prev.filter(d => d.id !== decision.id));
+                                  addNotification('Решение отменено', 'Принятый вердикт по спаму успешно аннулирован');
+                                }}
+                                className="text-[11.5px] text-[#e64646] hover:underline font-medium cursor-pointer"
+                              >
+                                Удалить экземпляр
+                              </button>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
+                {spamActiveSubTab === 'triggers' && renderSpamTriggers()}
+                {spamActiveSubTab === 'settings' && renderSpamSettings()}
+              </div>
+            </motion.div>
+          );
+      case 'verification':
+        return renderVerification();
+      case 'tasks':
+        return renderTasks();
+      case 'internal-mail':
+        return renderInternalMail();
+
+      case 'support':
+        if (!isStaff || supportTab === 'new' || viewingTicketFromNotification) return renderUserSupport();
+        return (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-vk-white rounded-[2px] border border-vk-separator overflow-hidden">
+            <div className="border-b border-[#e7e8ec] bg-[#fafbfc] flex items-center justify-between pr-4 flex-wrap gap-2">
+              <div className="flex overflow-x-auto no-scrollbar px-2">
+                {[
+                  { id: 'my-questions', label: 'Мои вопросы' },
+                  { id: 'my-answers', label: 'Мои ответы' },
+                  { id: 'stats', label: 'Статистика' },
+                  { id: 'admin', label: 'Управление' },
+                  { id: 'categories', label: 'Категории' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setSupportTab(tab.id as any); setActiveTicket(null); setOpenedTicket(null); }}
+                    className={`flex items-center gap-2 px-5 py-2 text-[12.5px] font-medium transition-all relative shrink-0 whitespace-nowrap ${
+                      supportTab === tab.id ? 'text-[#2a5885] border-b-2 border-[#5181b8]' : 'text-[#656565] hover:bg-[#e1e5eb]/30'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Top-Right: Current Open Category Indicator */}
+              <div className="text-[11.5px] font-bold text-[#55677d] bg-[#f0f2f5] px-3 py-1 rounded-[4px] border border-[#e7e8ec] select-none">
+                Отдел: {supportCategoryFilter === 'all' ? 'Все вопросы' : supportCategoryFilter}
+              </div>
+            </div>
+
+            <div className="p-5 min-h-[450px]">
+              {supportLimitsActive && (
+                <div className="mb-4 bg-[#faeaea] text-[#e64646] p-3 rounded-[2px] border border-[#e64646]/20 flex items-center gap-2 text-[12.5px] font-medium">
+                  <AlertCircle size={16} />
+                  <span>Введены лимиты из-за повышенного количества вопросов</span>
+                </div>
+              )}
+              {supportTab === 'my-questions' && (
+                activeTicket ? (
+                  renderTicketContent(activeTicket, () => setActiveTicket(null))
+                ) : openedTicket ? (
+                   renderTicketContent(openedTicket, () => setOpenedTicket(null))
+                ) : (
+                  <div className="flex flex-col gap-4 w-full">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3 bg-[#f0f2f5] p-2.5 px-3 rounded-[2px] border border-vk-separator/50">
+                        <div className="text-[12px] text-vk-text-secondary">
+                          Соблюдайте правила общения с пользователями. Ответы должны быть вежливыми и информативными.
+                        </div>
+                        {isSupportStarted && (
+                          <button 
+                            onClick={getNewQuestions} 
+                            className="bg-[#5181b8] text-white px-2.5 py-1 rounded-[2px] text-[10.5px] font-medium hover:bg-[#5b88bd] transition-colors shadow-sm shrink-0"
+                          >
+                            Получить вопрос
+                          </button>
+                        )}
+                      </div>
+
+                      {isSupportStarted && (
+                        <div className="flex flex-wrap gap-3 bg-[#fafbfc] p-3 border border-vk-separator rounded-[4px] items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] font-bold text-[#55677d] uppercase tracking-wider">Фильтры:</span>
+                            
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11.5px] text-vk-text-secondary">Срочность:</span>
+                              <select
+                                value={supportUrgencyFilter}
+                                onChange={(e) => setSupportUrgencyFilter(e.target.value)}
+                                className="bg-white border border-[#dce1e6] rounded px-2 py-1 text-[11px] font-semibold text-[#55677d] hover:border-[#b2bcd0] focus:border-[#5181b8] focus:outline-none transition-colors"
+                              >
+                                <option value="all">Все уровни</option>
+                                <option value="high">Высокий</option>
+                                <option value="medium">Средний</option>
+                                <option value="low">Обычный</option>
+                              </select>
+                            </div>
+                            
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11.5px] text-vk-text-secondary">Категория:</span>
+                              <select
+                                value={supportCategoryFilter}
+                                onChange={(e) => setSupportCategoryFilter(e.target.value)}
+                                className="bg-white border border-[#dce1e6] rounded px-2 py-1 text-[11px] font-semibold text-[#55677d] hover:border-[#b2bcd0] focus:border-[#5181b8] focus:outline-none transition-colors"
+                              >
+                                <option value="all">Все категории</option>
+                                {supportCategories.map(cat => (
+                                  <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          
+                          <div className="text-[11px] text-[#55677d] font-semibold">
+                            Всего: <span className="text-black font-mono font-bold">{tickets.filter(t => t.status === 'new').length}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {!isSupportStarted ? (
+                      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 w-full">
+                        <HelpCircle size={48} className="text-[#dce1e6]" />
+                        <p className="text-vk-text-secondary text-[12.5px] max-w-xs">Перейдите в режим работы для ответов на вопросы.</p>
+                        <button onClick={() => setIsSupportStarted(true)} className="bg-[#5181b8] text-white px-8 py-2 rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd] transition-colors">Начать работу</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-3">
+                          {(() => {
+                            const filteredTickets = tickets
+                              .filter(t => t.status === 'new')
+                              .filter(t => {
+                                const urgency = t.urgency || (Number(t.id.slice(-1)) % 3 === 0 ? 'high' : Number(t.id.slice(-1)) % 2 === 0 ? 'medium' : 'low');
+                                if (supportUrgencyFilter !== 'all' && urgency !== supportUrgencyFilter) return false;
+                                const category = t.category || (Number(t.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(t.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(t.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность');
+                                if (supportCategoryFilter !== 'all' && category !== supportCategoryFilter) return false;
+                                return true;
+                              });
+
+                            if (filteredTickets.length === 0) {
+                              return (
+                                <div className="py-20 text-center text-vk-text-secondary text-[12.5px] bg-[#f7f8fa] rounded-[2px] border border-dashed border-vk-separator">
+                                  Нет вопросов по выбранным фильтрам.
+                                </div>
+                              );
+                            }
+
+                            return filteredTickets.map(t => {
+                              const urgency = t.urgency || (Number(t.id.slice(-1)) % 3 === 0 ? 'high' : Number(t.id.slice(-1)) % 2 === 0 ? 'medium' : 'low');
+                              const category = t.category || (Number(t.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(t.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(t.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность');
+                              return (
+                                <div key={t.id} onClick={() => setActiveTicket(t)} className="p-4 bg-vk-white border border-vk-separator rounded-[2px] hover:bg-[#f5f7f8] cursor-pointer flex flex-col gap-2 group transition-all">
+                                   <div className="flex items-center justify-between">
+                                     <div className="flex items-center gap-3">
+                                       <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-vk-separator">
+                                         <img src={t.userAvatar || "https://vk.com/images/camera_100.png"} className="w-full h-full object-cover" onError={(e) => {
+                                           (e.target as HTMLImageElement).src = `https://api.dicebear.com/7.x/identicon/svg?seed=${t.userName}`;
+                                         }} />
+                                       </div>
+                                       <div>
+                                          <div className="flex items-center gap-2">
+                                            <div className="text-[12.5px] font-bold text-[#285473] group-hover:underline">{t.title}</div>
+                                            <span className={`text-[9.5px] px-1.5 py-0.5 rounded-[2px] font-bold uppercase ${
+                                              urgency === 'high' ? 'bg-[#ff3347]/10 text-[#ff3347]' :
+                                              urgency === 'medium' ? 'bg-[#fff7ed] text-[#c2410c]' :
+                                              'bg-[#f0f9ff] text-[#0369a1]'
+                                            }`}>
+                                              {urgency === 'high' ? 'Высокий' : urgency === 'medium' ? 'Средний' : 'Обычный'}
+                                            </span>
+                                          </div>
+                                          <div className="text-[11px] text-vk-text-secondary mt-0.5">
+                                            {t.userName} • Обращение #{t.id.slice(-6)} • <span className="font-semibold text-[#55677d]">{category}</span>
+                                          </div>
+                                       </div>
+                                     </div>
+                                     <div className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-[2px] bg-[#faeaea] text-[#e64646]`}>
+                                        В очереди
+                                     </div>
+                                   </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                        
+                        <div className="pt-8 border-t border-vk-separator/30">
+                          <button onClick={() => setIsSupportStarted(false)} className="px-5 py-1.5 bg-vk-white text-[#55677d] border border-vk-separator rounded-[2px] text-[12px] font-medium hover:bg-[#f5f7f8] transition-colors">Завершить работу</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              )}
+
+              {supportTab === 'my-answers' && (
+                activeTicket ? (
+                  renderTicketContent(activeTicket, () => setActiveTicket(null))
+                ) : (
+                  <div className="space-y-3 text-left">
+                    {tickets.filter(t => t.status === 'answered').length === 0 ? (
+                      <div className="py-20 text-center text-vk-text-secondary text-[12.5px]">У вас пока нет ответов</div>
+                    ) : (
+                      tickets.filter(t => t.status === 'answered').map(t => (
+                        <div key={t.id} onClick={() => setActiveTicket(t)} className="p-4 bg-vk-white border border-vk-separator rounded-[2px] hover:bg-[#f5f7f8] cursor-pointer flex flex-col gap-2 group">
+                           <div className="flex items-center justify-between">
+                             <button onClick={(e) => {
+                               e.stopPropagation();
+                               const u = users.find(u => u.name === t.userName) || { id: t.userId, name: t.userName, avatar: t.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                               setSelectedUserData(u);
+                               setActiveTab('profile');
+                             }} className="flex items-center gap-3 group/author">
+                               <UserAvatar user={users.find(u => u.name === t.userName)} avatarUrl={t.userAvatar || users.find(u => u.name === t.userName)?.avatar} className="w-9 h-9 border border-vk-separator" />
+                               <div>
+                                  <div className="text-[12.5px] font-medium text-vk-text">
+                                     <span className="font-bold text-[#285473]">{t.messages.find(m => m.sender === 'staff')?.operatorName || operatorName}</span>
+                                     <span className="mx-1 text-[#656565]">к вопросу</span>
+                                     <span className="font-bold text-[#285473] group-hover/author:underline">{t.title}</span>
+                                  </div>
+                                  <div className="text-[11px] text-vk-text-secondary mt-0.5">Запущен • {t.userName}</div>
+                               </div>
+                             </button>
+                             <div className="text-[10px] font-bold text-[#55677d] uppercase bg-[#f0f2f5] px-2 py-0.5 rounded-[2px]">Отвечен</div>
+                           </div>
+                           <div className="text-[12.5px] text-[#656565] mt-1 line-clamp-1 italic bg-[#f7f8fa] p-2 rounded-[2px] border border-vk-separator/50">
+                             «{t.messages[t.messages.length - 1].text}»
+                           </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )
+              )}
+
+              {supportTab === 'stats' && (
+                <div className="space-y-6 text-left">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-[#f5f7f8] p-4 border border-vk-separator rounded-[2px]">
+                      <div className="text-[10px] font-bold text-[#656565] uppercase mb-1">Всего</div>
+                      <div className="text-xl font-bold">{statsData.total}</div>
+                    </div>
+                    <div className="bg-[#f5f7f8] p-4 border border-vk-separator rounded-[2px]">
+                      <div className="text-[10px] font-bold text-[#656565] uppercase mb-1">Ответов</div>
+                      <div className="text-xl font-bold">{statsData.answered}</div>
+                    </div>
+                    <div className="bg-[#f5f7f8] p-4 border border-vk-separator rounded-[2px]">
+                      <div className="text-[10px] font-bold text-[#656565] uppercase mb-1">Время</div>
+                      <div className="text-xl font-bold">{statsData.time}</div>
+                    </div>
+                    <div className="bg-[#f5f7f8] p-4 border border-vk-separator rounded-[2px]">
+                      <div className="text-[10px] font-bold text-[#656565] uppercase mb-1">Время</div>
+                      <div className="text-xl font-bold">{statsData.time}</div>
+                    </div>
+                    <div className="bg-[#f5f7f8] p-4 border border-vk-separator rounded-[2px]">
+                      <div className="text-[10px] font-bold text-[#656565] uppercase mb-1">Сегодня</div>
+                      <div className="text-xl font-bold">{statsData.today}</div>
+                    </div>
+                  </div>
+                  <div className="h-[300px] border border-vk-separator p-4 rounded-[2px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={statsData.chart}>
+                        <XAxis dataKey="name" fontSize={11} axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{ fill: 'transparent' }} />
+                        <Bar dataKey="val" fill="#5181b8" radius={[2, 2, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {supportTab === 'admin' && (
+                <div className="space-y-4">
+                  {/* Agent Card (Карточка агента) in VK style without cover, online badge and description */}
+                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] overflow-hidden p-5">
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      {/* Avatar with click trigger for selection modal */}
+                      <button 
+                        onClick={() => setIsOperatorAvatarModalOpen(true)}
+                        className="w-16 h-16 rounded-full overflow-hidden bg-white border border-vk-separator shadow-sm relative group cursor-pointer shrink-0"
+                        title="Выбрать аватарку поддержки"
+                      >
+                        <img 
+                          src={operatorAvatar || "images.png"} 
+                          alt="Аватар агента" 
+                          className="w-full h-full object-cover group-hover:brightness-90 transition-all focus:outline-none" 
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                          <span className="text-white text-[8px] font-bold uppercase tracking-wider">Изменить</span>
+                        </div>
+                      </button>
+
+                      <div className="text-center sm:text-left">
+                        <h2 
+                          onClick={() => setIsOperatorIdModalOpen(true)}
+                          className="text-[18px] font-bold text-[#2a5885] hover:underline cursor-pointer flex items-center justify-center sm:justify-start gap-1"
+                          title="Изменить номер оператора"
+                        >
+                          <span>{operatorName} #{operatorId}</span>
+                        </h2>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Settings and dashboard block in VK style list rows */}
+                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-4 text-left space-y-4">
+                    <h3 className="text-[13px] font-semibold text-[#2c5885] border-b border-[#f0f2f5] pb-2">Параметры поддержки</h3>
+                    
+                    <div className="space-y-3.5">
+                      {/* Queue row */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-[#f5f6f8] rounded-[4px]">
+                        <div>
+                          <p className="text-[13px] font-medium text-black">Очередь вопросов</p>
+                          <p className="text-[11.5px] text-[#818c99] mt-0.5">Всего в режиме ожидания: <span className="font-bold text-black">{tickets.filter(t => t.status === 'new').length} тикетов</span></p>
+                        </div>
+                        <button 
+                          onClick={() => { setTickets([]); addNotification('Система', 'Очередь успешно очищена'); }}
+                          className="px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#e5ebf1] text-[#e64646] font-medium text-[12px] rounded-[4px] transition-colors cursor-pointer"
+                        >
+                          Очистить очередь
+                        </button>
+                      </div>
+
+                      {/* Limits row */}
+                      <div className="flex items-center justify-between p-3 border border-[#e7e8ec] rounded-[4px]">
+                        <div>
+                          <p className="text-[13px] font-medium text-black">Повышенные лимиты</p>
+                          <p className="text-[11.5px] text-[#818c99] mt-0.5">Включает лимиты для пользователей из-за наплыва обращений</p>
+                        </div>
+                        <button 
+                          onClick={() => setSupportLimitsActive(!supportLimitsActive)}
+                          className={`px-3 py-1.5 font-medium text-[12px] rounded-[4px] transition-all cursor-pointer ${
+                            supportLimitsActive 
+                              ? 'bg-[#faeaea] text-[#e64646]' 
+                              : 'bg-[#5181b8]/10 text-[#2a5885] hover:bg-[#5181b8]/20'
+                          }`}
+                        >
+                          {supportLimitsActive ? 'Отключить' : 'Включить'}
+                        </button>
+                      </div>
+
+                      {/* Operator Name Edit raw */}
+                      <div className="p-3 border border-[#e7e8ec] rounded-[4px] space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[13px] font-medium text-black">Имя представителя</p>
+                            <p className="text-[11.5px] text-[#818c99] mt-0.5">Название роли, отображаемое пользователям в тикетах</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            value={operatorName} 
+                            onChange={(e) => setOperatorName(e.target.value)} 
+                            placeholder="Например, Агент Поддержки"
+                            className="w-full max-w-xs bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all font-medium"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {supportTab === 'categories' && (
+                <div className="space-y-6 text-left" style={{ fontFamily: 'Tahoma, Arial, sans-serif' }}>
+                  {/* Конструктор точек входа в поддержку */}
+                  <div className="bg-white border border-[#dae1e8] rounded-[2px] p-5 space-y-4">
+                    <div className="border-b border-[#dae1e8] pb-3">
+                      <h3 className="text-[14px] font-bold text-[#45688e] flex items-center gap-1.5">
+                        <MapPin size={16} className="text-[#6585af]" />
+                        Алерты
+                      </h3>
+                      <p className="text-[11.5px] text-[#656565] mt-1 leading-normal font-sans">
+                        Информация для пользователей
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
+                      {/* Form Block */}
+                      <div className="space-y-4 md:border-r md:border-[#dae1e8] md:pr-6">
+                        <h4 className="text-[12px] font-bold text-[#45688e] border-b border-[#f2f3f5] pb-1">Параметры отображения</h4>
+
+                        {/* Title of the Block (instead of "Быстрые обращения") */}
+                        <div className="space-y-1 text-left">
+                          <label className="text-[11.5px] font-bold text-[#55677d] block">
+                            Заголовок
+                          </label>
+                          <input
+                            type="text"
+                            value={entryPointFormTitle}
+                            onChange={(e) => setEntryPointFormTitle(e.target.value)}
+                            placeholder="Оставьте пустым, чтобы не выводить заголовок"
+                            className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2.5 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black"
+                          />
+                        </div>
+
+                        {/* Button Toggle Option */}
+                        <div className="space-y-1 text-left">
+                          <label className="text-[11.5px] font-bold text-[#55677d] block">Кнопка быстрого обращения</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEntryPointFormHasButton(true)}
+                              className={`py-1.5 rounded-[2px] border text-[11.5px] font-bold transition-all cursor-pointer ${
+                                entryPointFormHasButton 
+                                  ? 'bg-[#5f83aa] text-white border-[#48688d]' 
+                                  : 'bg-[#eaeef2] text-[#55677d] border-[#ced6de] hover:bg-[#e4ebf0]'
+                              }`}
+                            >
+                              Добавить кнопку
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEntryPointFormHasButton(false)}
+                              className={`py-1.5 rounded-[2px] border text-[11.5px] font-bold transition-all cursor-pointer ${
+                                !entryPointFormHasButton 
+                                  ? 'bg-[#5f83aa] text-white border-[#48688d]' 
+                                  : 'bg-[#eaeef2] text-[#55677d] border-[#ced6de] hover:bg-[#e4ebf0]'
+                              }`}
+                            >
+                              Не добавлять кнопку
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Can Dismiss Toggle Option */}
+                        <div className="space-y-1 text-left">
+                          <label className="text-[11.5px] font-bold text-[#55677d] block">Можно скрыть (Да/нет)</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEntryPointFormCanDismiss(true)}
+                              className={`py-1.5 rounded-[2px] border text-[11.5px] font-bold transition-all cursor-pointer ${
+                                entryPointFormCanDismiss 
+                                  ? 'bg-[#5f83aa] text-white border-[#48688d]' 
+                                  : 'bg-[#eaeef2] text-[#55677d] border-[#ced6de] hover:bg-[#e4ebf0]'
+                              }`}
+                            >
+                              Да
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEntryPointFormCanDismiss(false)}
+                              className={`py-1.5 rounded-[2px] border text-[11.5px] font-bold transition-all cursor-pointer ${
+                                !entryPointFormCanDismiss 
+                                  ? 'bg-[#5f83aa] text-white border-[#48688d]' 
+                                  : 'bg-[#eaeef2] text-[#55677d] border-[#ced6de] hover:bg-[#e4ebf0]'
+                              }`}
+                            >
+                              Нет
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-left">
+                          <label className="text-[11.5px] font-bold text-[#55677d]">Разместить на вкладке</label>
+                          <select
+                            value={entryPointFormTab}
+                            onChange={(e) => setEntryPointFormTab(e.target.value)}
+                            className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black cursor-pointer"
+                          >
+                            {Object.entries(tabNamesMap).map(([key, name]) => (
+                              <option key={key} value={key}>{name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Optional Target User ID - only shown when Profile is selected */}
+                        {entryPointFormTab === 'profile' && (
+                          <div className="space-y-1 text-left">
+                            <label className="text-[11.5px] font-bold text-[#55677d] block">ID пользователя</label>
+                            <input
+                              type="text"
+                              value={entryPointFormTargetUserId}
+                              onChange={(e) => setEntryPointFormTargetUserId(e.target.value)}
+                              placeholder="Например: u-1 (будет отображаться только в этом профиле)"
+                              className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2.5 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black"
+                            />
+                          </div>
+                        )}
+
+                        {/* Conditional Button Details */}
+                        {entryPointFormHasButton && (
+                          <>
+                            {/* Associated Category */}
+                            <div className="space-y-1 text-left">
+                              <label className="text-[11.5px] font-bold text-[#55677d]">Перевод в категорию</label>
+                              <select
+                                value={entryPointFormCategory}
+                                onChange={(e) => setEntryPointFormCategory(e.target.value)}
+                                className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black cursor-pointer"
+                              >
+                                {supportCategories.map(cat => (
+                                  <option key={cat.id} value={cat.name}>{cat.name} ({cat.code})</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Title Input */}
+                            <div className="space-y-1 text-left">
+                              <label className="text-[11.5px] font-bold text-[#55677d]">Название кнопки</label>
+                              <input
+                                type="text"
+                                value={entryPointFormName}
+                                onChange={(e) => setEntryPointFormName(e.target.value)}
+                                placeholder="Например: Проблемы с оплатой"
+                                className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2.5 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Text (Optional banner notification/context text) */}
+                        <div className="space-y-1 text-left">
+                          <label className="text-[11.5px] font-bold text-[#55677d] block">
+                            Подзаголовок
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={entryPointFormDescription}
+                            onChange={(e) => setEntryPointFormDescription(e.target.value)}
+                            placeholder="Текст уведомления/объяснения. Будет расположен на плашке над кнопкой (или заменит её)."
+                            className="w-full bg-[#ffffff] hover:border-[#a1b1c4] focus:border-[#5181b8] border border-[#c0cad5] px-2.5 py-1.5 rounded-[2px] text-[12.5px] outline-none transition-all font-sans text-black resize-none leading-normal"
+                          />
+                        </div>
+
+                        {/* Style / Color Select */}
+                        {entryPointFormHasButton && (
+                          <div className="space-y-1.5 text-left">
+                            <label className="text-[11.5px] font-bold text-[#55677d] block">Цвет кнопки</label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {[
+                                { id: 'blue', label: 'Синий', bg: 'bg-[#5f83aa]' },
+                                { id: 'green', label: 'Зеленый', bg: 'bg-[#51a751]' },
+                                { id: 'red', label: 'Красный', bg: 'bg-[#da5c5c]' },
+                                { id: 'amber', label: 'Янтарный', bg: 'bg-[#f0a941]' },
+                                { id: 'gray', label: 'Серый', bg: 'bg-[#eaeef2]', text: 'text-[#55677d]' },
+                                { id: 'text', label: 'Простой текст', isText: true }
+                              ].map((st) => (
+                                <button
+                                  key={st.id}
+                                  type="button"
+                                  onClick={() => setEntryPointFormStyle(st.id as any)}
+                                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[2px] border text-[11px] font-medium text-left transition-all cursor-pointer ${
+                                    entryPointFormStyle === st.id 
+                                      ? 'border-[#597da3] bg-[#f0f4f8] text-[#2f5174] font-semibold' 
+                                      : 'border-[#ced6de] hover:bg-[#fafbfc] text-[#2c2d2e]'
+                                  }`}
+                                >
+                                  {!st.isText ? (
+                                    <span className={`w-2.5 h-2.5 rounded-[2px] ${st.bg} inline-block shrink-0 border border-black/5`} />
+                                  ) : (
+                                    <span className="w-2.5 h-2.5 flex items-center justify-center font-bold text-[8px] bg-gray-100 border border-[#ced6de] rounded-[2px]">T</span>
+                                  )}
+                                  <span className="truncate">{st.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Submit Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (entryPointFormHasButton && !entryPointFormName.trim()) {
+                              addNotification('Ошибка', 'Укажите название кнопки');
+                              return;
+                            }
+                            if (!entryPointFormHasButton && !entryPointFormDescription.trim()) {
+                              addNotification('Ошибка', 'Укажите текст плашки/уведомления');
+                              return;
+                            }
+                            const newEp = {
+                              id: `ep-${Date.now()}`,
+                              title: entryPointFormTitle.trim(),
+                              hasButton: entryPointFormHasButton,
+                              name: entryPointFormHasButton ? entryPointFormName.trim() : '',
+                              styleType: entryPointFormStyle,
+                              categoryName: entryPointFormCategory,
+                              targetTab: entryPointFormTab,
+                              description: entryPointFormDescription.trim() || undefined,
+                              targetUserId: (entryPointFormTab === 'profile' && entryPointFormTargetUserId.trim()) ? entryPointFormTargetUserId.trim() : undefined,
+                              canDismiss: entryPointFormCanDismiss
+                            };
+                            setPlacedEntryPoints(prev => [...prev, newEp]);
+                            addNotification('Размещено', `Элемент «${entryPointFormHasButton ? entryPointFormName : 'Инфо-плашка'}» успешно размещен!`);
+                            setEntryPointFormName('');
+                            setEntryPointFormDescription('');
+                            setEntryPointFormTargetUserId('');
+                            setEntryPointFormCanDismiss(false);
+                          }}
+                          className="w-full py-2 bg-[#5f83aa] hover:bg-[#6589b0] text-white rounded-[2px] text-[12px] font-bold text-center transition-all cursor-pointer border border-[#48688d] shadow-none mt-3"
+                        >
+                          Сохранить и Разместить
+                        </button>
+                      </div>
+
+                      {/* Configured List Block */}
+                      <div className="flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <h4 className="text-[12px] font-bold text-[#45688e] flex items-center gap-1.5 border-b border-[#f2f3f5] pb-1">
+                            <LayoutGrid size={14} className="text-[#6585af]" />
+                            <span>Алерты ({placedEntryPoints.length})</span>
+                          </h4>
+                          <p className="text-[11px] text-[#656565] leading-normal font-sans">
+                            Список активных алертов
+                          </p>
+
+                          {placedEntryPoints.length === 0 ? (
+                            <div className="p-6 rounded-[2px] border border-dashed border-[#dae1e8] bg-[#fbfbfb] text-center text-[#818c99] text-[11.5px] font-sans">
+                              Активных алертов нет
+                            </div>
+                          ) : (
+                            <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1 no-scrollbar font-sans">
+                              {placedEntryPoints.map((ep) => {
+                                let labelStyle = '';
+                                if (ep.styleType === 'blue') labelStyle = 'bg-[#5f83aa] text-white border border-[#48688d]';
+                                else if (ep.styleType === 'green') labelStyle = 'bg-[#51a751] text-white border border-[#408a40]';
+                                else if (ep.styleType === 'red') labelStyle = 'bg-[#da5c5c] text-white border border-[#b24343]';
+                                else if (ep.styleType === 'amber') labelStyle = 'bg-[#f0a941] text-white border border-[#c48427]';
+                                else if (ep.styleType === 'gray') labelStyle = 'bg-[#eaeef2] text-[#55677d] border border-[#ced6de]';
+                                else labelStyle = 'bg-white text-[#45688e] border border-[#45688e]';
+
+                                return (
+                                  <div key={ep.id} className="bg-white p-3 border border-[#dae1e8] rounded-[2px] flex flex-col gap-2.5 text-left hover:border-[#ccd4db] transition-colors">
+                                    <div className="flex justify-between items-start w-full gap-2">
+                                      <div className="space-y-1 min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[10px] font-bold text-[#836c34] bg-[#faf6e2] border border-[#e1d5a7] px-2 py-0.5 rounded-[2px]">
+                                            Заголовок: {ep.title && ep.title.trim() !== '' ? ep.title : '(скрыт)'}
+                                          </span>
+                                          <span className="text-[10px] text-[#55677d] bg-[#eaeef2] border border-[#ced6de] px-1.5 py-0.5 rounded-[2px]">
+                                            Страница: {tabNamesMap[ep.targetTab] || ep.targetTab || 'Все'}
+                                          </span>
+                                          {ep.targetUserId && (
+                                            <span className="text-[10px] text-[#b24343] bg-[#faeaea] border border-[#f5cccc] px-1.5 py-0.2 rounded-[2px] font-semibold">
+                                              ID: {ep.targetUserId}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {ep.hasButton !== false ? (
+                                          <div className="pt-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-[10.5px] text-[#656565]">Кнопка:</span>
+                                              <span className={`px-2 py-0.5 rounded-[2px] text-[10.5px] font-bold ${labelStyle}`}>
+                                                {ep.name}
+                                              </span>
+                                            </div>
+                                            <p className="text-[10.5px] text-[#656565] mt-1">
+                                              Направляет в отдел: <span className="font-semibold text-black">{ep.categoryName}</span>
+                                            </p>
+                                          </div>
+                                        ) : (
+                                          <div className="text-[10px] text-[#836c34] font-semibold bg-[#faf6e2] border border-[#e1d5a7] px-1.5 py-0.5 rounded-[2px] inline-block">
+                                            Инфо-плашка / Уведомление
+                                          </div>
+                                        )}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPlacedEntryPoints(prev => prev.filter(p => p.id !== ep.id));
+                                          addNotification('Удалено', `Элемент «${ep.name || ep.title}» успешно демонтирован`);
+                                        }}
+                                        className="text-[#55677d] hover:text-[#da5c5c] hover:underline text-[11px] font-medium cursor-pointer shrink-0"
+                                      >
+                                        Удалить
+                                      </button>
+                                    </div>
+                                    {ep.description && (
+                                      <div className="text-[11px] bg-[#faf6e2] border border-[#e1d5a7] p-2 rounded-[2px] text-black italic leading-normal">
+                                        <div className="font-bold text-[#836c34] not-italic mb-0.5">Текст над кнопкой:</div>
+                                        {ep.description}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Category manager Card */}
+                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-5 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-[15px] font-bold text-[#2a5885]">Департаменты и подразделения поддержки</h3>
+                        <p className="text-[12px] text-[#818c99] mt-0.5">В этом разделе создаются дополнительные Департаменты поддержки, отделы, куда поступают вопросы.</p>
+                      </div>
+                    </div>
+
+                    {/* Table of categories */}
+                    <div className="overflow-x-auto border border-[#e7e8ec] rounded-[4px]">
+                      <table className="w-full text-left border-collapse text-[12.5px]">
+                        <thead>
+                          <tr className="bg-[#fafbfc] border-b border-[#e7e8ec] text-[#818c99] font-semibold">
+                            <th className="p-3">Название отдела</th>
+                            <th className="p-3">Код</th>
+                            <th className="p-3">Точки входа</th>
+                            <th className="p-3">Описание</th>
+                            <th className="p-3">Статус</th>
+                            <th className="p-3 text-right">Действия</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#f0f2f5]">
+                          {supportCategories.map((cat) => (
+                            <tr key={cat.id} className="hover:bg-[#fafbfc] transition-colors">
+                              <td className="p-3 font-semibold text-black flex items-center gap-1.5">
+                                <LifeBuoy size={14} className="text-[#5181b8]" />
+                                {cat.name}
+                              </td>
+                              <td className="p-3 font-mono text-[11px] text-[#55677d]">{cat.code}</td>
+                              <td className="p-3">
+                                <span className="bg-[#f0f2f5] text-[#55677d] px-1.5 py-0.5 rounded-[2px] font-mono text-[11px]">
+                                  {cat.entryPoints || '—'}
+                                </span>
+                              </td>
+                              <td className="p-3 text-[#656565] max-w-xs truncate" title={cat.description}>{cat.description || 'Без описания'}</td>
+                              <td className="p-3">
+                                <span className={`px-1.5 py-0.5 rounded-[2px] text-[10px] font-bold uppercase ${
+                                  cat.status === 'Активен' ? 'bg-[#e7f8ef] text-[#4bb34b]' : 'bg-[#faeaea] text-[#e64646]'
+                                }`}>
+                                  {cat.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSupportCategories(prev => {
+                                      const updated = prev.filter(c => c.id !== cat.id);
+                                      if (activeTab === `support-category-${cat.name}`) {
+                                        setActiveTab('support');
+                                      }
+                                      return updated;
+                                    });
+                                    setPlacedEntryPoints(prev => prev.filter(ep => ep.categoryName !== cat.name));
+                                    addNotification('Категории', `Отдел «${cat.name}» успешно удален вместе с точками входа`);
+                                  }}
+                                  className="text-[11px] text-red-600 hover:underline cursor-pointer font-medium"
+                                >
+                                  Удалить
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Create category Form */}
+                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-5 space-y-4">
+                    <h3 className="text-[14px] font-bold text-black pb-2 border-b border-[#f0f2f5]">➕ Создать новый департамент</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[11.5px] font-semibold text-[#55677d]">Название департамента (напр., Сообщества)</label>
+                        <input
+                          type="text"
+                          value={newCatName}
+                          onChange={(e) => setNewCatName(e.target.value)}
+                          placeholder="Введите название отдела..."
+                          className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11.5px] font-semibold text-[#55677d]">Уникальный код (напр., groups)</label>
+                        <input
+                          type="text"
+                          value={newCatCode}
+                          onChange={(e) => setNewCatCode(e.target.value)}
+                          placeholder="Введите латинский код..."
+                          className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="text-[11.5px] font-semibold text-[#55677d]">Точки входа (через запятую или ссылка)</label>
+                        <input
+                          type="text"
+                          value={newCatEntryPoints}
+                          onChange={(e) => setNewCatEntryPoints(e.target.value)}
+                          placeholder="Пример: vk.com/support?act=groups, кнопка «Пожаловаться в группу»"
+                          className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="text-[11.5px] font-semibold text-[#55677d]">Описание отдела</label>
+                        <textarea
+                          value={newCatDesc}
+                          onChange={(e) => setNewCatDesc(e.target.value)}
+                          placeholder="Введите описание круга решаемых вопросов этим отделом..."
+                          className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all h-20 resize-none font-sans"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11.5px] font-semibold text-[#55677d]">Статус отдела при создании</label>
+                        <select
+                          value={newCatStatus}
+                          onChange={(e) => setNewCatStatus(e.target.value)}
+                          className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all font-medium"
+                        >
+                          <option value="Активен">Активен</option>
+                          <option value="Неактивен">Неактивен</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newCatName.trim()) {
+                            addNotification('Ошибка', 'Введите название подразделения');
+                            return;
+                          }
+                          const code = newCatCode.trim() || newCatName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+                          
+                          // Avoid duplicates
+                          if (supportCategories.some(c => c.name.toLowerCase() === newCatName.toLowerCase().trim() || c.code === code)) {
+                            addNotification('Ошибка', 'Департамент с таким названием или кодом уже создан');
+                            return;
+                          }
+
+                          const newCatObj = {
+                            id: `cat-${Date.now()}`,
+                            name: newCatName.trim(),
+                            code: code,
+                            entryPoints: newCatEntryPoints.trim(),
+                            description: newCatDesc.trim(),
+                            status: newCatStatus
+                          };
+
+                          setSupportCategories(prev => [...prev, newCatObj]);
+                          addNotification('Успешно создан', `Департамент «${newCatName.trim()}» теперь доступен в левом меню!`);
+                          
+                          // Reset form
+                          setNewCatName('');
+                          setNewCatCode('');
+                          setNewCatEntryPoints('');
+                          setNewCatDesc('');
+                          setNewCatStatus('Активен');
+                        }}
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-6 py-2 rounded-[4px] text-[12.5px] font-bold transition-colors cursor-pointer"
+                      >
+                        Создать категорию
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        );
+
+      case 'discussed-now':
+        return renderDiscussedNow();
+      case 'feed':
+        return renderFeed();
+      case 'post':
+        return renderSinglePostPage();
+      case 'settings':
+        return renderSettingsPage();
+      case 'admin':
+        return renderAdminDashboardPage();
+      case 'notifications':
+        return (
+          <NotificationsPage
+            notifications={userNotifications}
+            users={users}
+            userId={currentUser?.id || '1'}
+            unreadCount={platformUnreadCount}
+            onNotificationClick={handlePlatformNotificationClick}
+            onMarkAllRead={handleMarkAllNotificationsRead}
+          />
+        );
+      case 'academy':
+        return renderAcademy();
+      case 'appeals':
+        return renderAppeals();
+      case 'requests':
+        return renderRequests();
+      case 'users':
+        return renderUsers();
+      case 'management':
+        return renderManagement();
+      case 'statistics':
+        return renderStatistics();
+      case 'announcements':
+        return renderAnnouncements();
+      case 'wiki':
+        return renderWiki();
+      case 'security':
+        return renderSecurity();
+      case 'action-logs':
+        return renderActionLogs();
+      case 'monitoring':
+        return renderMonitoring();
+      case 'translations':
+        return renderTranslations();
+      case 'quality-control':
+        return renderQualityControl();
+      case 'personnel':
+        return renderPersonnel();
+      case 'page_moderation':
+        return renderPageModeration();
+
+      case 'profile':
+      default: {
+        const currentDisplayUser = selectedUserData || currentUser;
+        const isOwnProfile = currentDisplayUser?.id === currentUser?.id;
+        const isViewingServiceProfile = isServiceProfileUser(currentDisplayUser);
+        const renderedUser = isOwnProfile
+          ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
+          : getRenderedUser(currentDisplayUser, currentDisplayUser?.publicSettings);
+
+        const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
+        const isProfileBlockedAndNotOwn = !isOwnProfile && renderedUser?.isBlocked;
+        const isProfileBlockedHidden = isProfileBlockedAndNotOwn && !unveiledBlockedProfiles[renderedUser?.id || ''];
+
+        const activePrivacy = (isOwnProfile && !isPreviewMode)
+          ? {
+              showActivity: true,
+              showJoinedDate: true,
+              showFollowing: true,
+              showDiscussions: true,
+              profileMode: 'open' as ProfileMode
+            }
+          : {
+              showActivity: (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).showActivity !== false && (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode !== 'anonymous',
+              showJoinedDate: (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).showJoinedDate !== false && (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode !== 'anonymous',
+              showFollowing: (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).showFollowing !== false && (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode !== 'anonymous' && (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode !== 'minimal',
+              showDiscussions: (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).showDiscussions !== false && (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode !== 'anonymous',
+              profileMode: (isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)).profileMode || 'open'
+            };
+
+        const showPrivacyAlertForOthers = (isPreviewMode && (
+          publicSettings.profileMode === 'anonymous' ||
+          publicSettings.profileMode === 'minimal' ||
+          publicSettings.showName === false ||
+          publicSettings.showAvatar === false ||
+          publicSettings.showActivity === false ||
+          publicSettings.showJoinedDate === false ||
+          publicSettings.showFollowing === false ||
+          publicSettings.showDiscussions === false
+        )) || (!isOwnProfile && (
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).profileMode === 'anonymous' ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).profileMode === 'minimal' ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showName === false ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showAvatar === false ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showActivity === false ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showJoinedDate === false ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showFollowing === false ||
+          (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS).showDiscussions === false
+        ));
+
+        const userPosts = feedPosts.filter(p => p.authorName === currentDisplayUser?.name);
+        const commentsByUser = feedPosts.flatMap(post =>
+          (post.comments || [])
+            .filter(
+              comment =>
+                comment.authorId === currentDisplayUser?.id ||
+                comment.authorName === currentDisplayUser?.name
+            )
+            .map(comment => ({ type: comment.type }))
+        );
+        const complaintsAgainstUser = [...complaints, ...spamComplaints, ...pageComplaints].filter(
+          complaint =>
+            complaint.userId === currentDisplayUser?.id ||
+            complaint.userName === currentDisplayUser?.name
+        ).length;
+        const contributionSources: ContributionDataSources = {
+          userId: currentDisplayUser?.id || '',
+          userName: currentDisplayUser?.name || '',
+          trustLevel: currentDisplayUser?.trustLevel || 0.7,
+          isVerified: !!currentDisplayUser?.isVerified,
+          isBlocked: !!currentDisplayUser?.isBlocked,
+          isServiceProfile: !!currentDisplayUser?.isServiceProfile,
+          isSpamBadge: currentDisplayUser?.isSpamBadge,
+          isPornMarked: currentDisplayUser?.isPornMarked,
+          spamCount: currentDisplayUser?.spamCount,
+          regDate: renderedUser?.regDate,
+          status: renderedUser?.status,
+          complaintHistory: currentDisplayUser?.complaintHistory,
+          posts: userPosts,
+          complaintsAgainstUser,
+          subscriberCount: (userSubscribers[currentDisplayUser?.id || ''] || []).length,
+          commentsByUser,
+        };
+        const profileDescription =
+          renderedUser?.isBlocked
+            ? undefined
+            : renderedUser?.status && renderedUser.status !== 'был в сети недавно'
+              ? renderedUser.status
+              : 'Делится наблюдениями и участвует в обсуждениях на платформе';
+
+        return (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            {isOwnProfile && isPreviewMode && !isViewingServiceProfile && (
+              <ProfilePreviewStatus 
+                settings={publicSettings} 
+                onExitPreview={() => setIsPreviewMode(false)} 
+              />
+            )}
+
+            {/* User Main Profile Info Card */}
+            <div className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all">
+              {!isProfileBlockedHidden && (
+                <div className="w-[104px] h-[104px] shrink-0 overflow-hidden rounded-full border border-zinc-200/60 flex items-center justify-center bg-zinc-50 shadow-inner self-start">
+                  <UserAvatar user={renderedUser} avatarUrl={renderedUser?.avatar} className="w-full h-full" forceGrayscale={renderedUser?.isDeleted} />
+                </div>
+              )}
+              <div className="grow min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h1 
+                      onClick={(e) => handlePostCardClickWithAlt(e, renderedUser?.name || '', 'name')}
+                      className="text-lg font-bold text-[#111827] select-text cursor-pointer hover:text-[#4F7DF3] transition-colors flex items-center gap-1.5 font-display"
+                    >
+                      <span>{renderedUser?.name}</span>
+                      {!isProfileBlockedHidden && renderedUser?.isVerified && activePrivacy.profileMode !== 'anonymous' && (
+                        <VerifiedBadge size={16} className="text-[#4F7DF3]" />
+                      )}
+                    </h1>
+                    <div className="text-xs font-semibold text-[#6B7280] tracking-tight mt-0.5 font-mono">
+                      @{renderedUser?.login || renderedUser?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_')}
+                    </div>
+                  </div>
+
+                  {isOwnProfile && !isViewingServiceProfile && (
+                    <div className="flex flex-wrap gap-2 items-center sm:self-start">
+                      <button 
+                        onClick={() => setIsPrivacyModalOpen(true)}
+                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border border-zinc-200/50 hover:border-zinc-300 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Shield size={13} className="text-[#6B7280]" />
+                        <span>Настройки видимости</span>
+                      </button>
+
+                      <button 
+                        onClick={() => setIsPreviewMode(!isPreviewMode)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                          isPreviewMode 
+                            ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border-amber-200' 
+                            : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border-zinc-200/50 hover:border-zinc-300'
+                        }`}
+                      >
+                        {isPreviewMode ? (
+                          <>
+                            <Ghost size={13} className="animate-pulse text-amber-600" />
+                            <span>Выйти из предпросмотра</span>
+                          </>
+                        ) : (
+                          <>
+                            <User size={13} className="text-[#6B7280]" />
+                            <span>Как видят мой профиль?</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {!isOwnProfile && currentDisplayUser?.id !== currentUser?.id && (
+                    <div className="flex flex-wrap gap-2 items-center sm:self-start">
+                      {isProfileBlockedHidden ? (
+                        isEmployeeUser && (
+                          <button 
+                            onClick={() => {
+                              setUnveiledBlockedProfiles(prev => ({ ...prev, [renderedUser?.id || '']: true }));
+                              addNotification('Доступ получен', `Вам предоставлен доступ к скрытой информации профиля ${renderedUser?.name}`);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white border border-amber-600 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                          >
+                            <ShieldAlert size={13} />
+                            <span>Получить доступ</span>
+                          </button>
+                        )
+                      ) : isViewingServiceProfile && shouldShowServiceMessageButton(currentDisplayUser) ? (
+                        <button 
+                          onClick={() => {
+                            if (currentDisplayUser) {
+                              setActiveChatPartnerId(currentDisplayUser.id);
+                              setActiveTab('internal-mail');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-[#4F7DF3] hover:bg-[#3465DF] text-white border border-transparent rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <MessageSquare size={13} />
+                          <span>Написать сообщение</span>
+                        </button>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={() => handleToggleSubscribe(currentDisplayUser.id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                              myFriends.includes(currentDisplayUser.id) 
+                                ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200' 
+                                : mySubscriptions.includes(currentDisplayUser.id)
+                                  ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border-zinc-200/50'
+                                  : 'bg-[#4F7DF3] text-white hover:bg-[#3465DF] border-transparent'
+                            }`}
+                          >
+                            {myFriends.includes(currentDisplayUser.id) ? (
+                              <>
+                                <Check size={13} />
+                                <span>Мы в друзьях (взаимно)</span>
+                              </>
+                            ) : mySubscriptions.includes(currentDisplayUser.id) ? (
+                              <>
+                                <Check size={13} />
+                                <span>Вы подписаны</span>
+                              </>
+                            ) : (
+                              <span>Подписаться</span>
+                            )}
+                          </button>
+
+                          <button 
+                            onClick={() => {
+                              if (currentDisplayUser) {
+                                setActiveChatPartnerId(currentDisplayUser.id);
+                                setActiveTab('internal-mail');
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border border-zinc-200/50 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare size={13} className="text-[#6B7280]" />
+                            <span>Написать сообщение</span>
+                          </button>
+
+                          <button 
+                            onClick={() => handleComplainAboutProfile(currentDisplayUser)}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-[#EF4444] border border-rose-100 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <ShieldAlert size={13} />
+                            <span>Пожаловаться</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {isProfileBlockedHidden ? (
+                  <div className="p-4 bg-rose-50 border border-rose-200 text-[#EF4444] rounded-xl text-xs font-medium flex items-center gap-2">
+                    <ShieldAlert size={14} className="shrink-0 text-rose-500" />
+                    <span>Пользователь заблокирован за нарушение правил платформы.</span>
+                  </div>
+                ) : isViewingServiceProfile ? (
+                  <p className="text-[13px] text-[#6B7280] leading-relaxed">
+                    {SERVICE_PROFILE_DISCLAIMER}
+                  </p>
+                ) : (
+                  <AboutUserBlock
+                    profileDescription={profileDescription}
+                    regDate={renderedUser?.regDate}
+                    isBlocked={!!renderedUser?.isBlocked}
+                    sources={contributionSources}
+                    showJoinedDate={activePrivacy.showJoinedDate}
+                    publicSettings={isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* In-tab dynamic user profile insights dashboard */}
+            {!isViewingServiceProfile && (
+            <div className="flex gap-4">
+              {/* Left Column (Wall Posts) */}
+              <div className="grow space-y-4">
+                {/* Unified Post Composer for own profile */}
+                {isOwnProfile && (
+                  <PostComposer 
+                    currentUser={currentUser} 
+                    onPublish={handlePublishPost} 
+                  />
+                )}
+                
+                {/* Dynamic Posts */}
+                {isProfileBlockedHidden ? (
+                  <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center">
+                    <EyeOff size={32} className="text-[#d9dadc] mx-auto mb-2 animate-pulse" />
+                    <p className="text-vk-text-secondary text-[12.5px] font-medium">Публикации скрыты, так как профиль пользователя заблокирован</p>
+                  </div>
+                ) : activePrivacy.showDiscussions ? (
+                  (() => {
+                    const authorAllPosts = feedPosts.filter(p => p.authorName === currentDisplayUser?.name);
+                    const filteredAuthorPosts = authorAllPosts.filter(p => profileFormatFilter === 'ALL' || (p.postFormat || 'OPINION') === profileFormatFilter);
+                    
+                    if (authorAllPosts.length === 0) {
+                      return (
+                        <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center">
+                          <LayoutGrid size={32} className="text-[#d9dadc] mx-auto mb-2" />
+                          <p className="text-vk-text-secondary text-[12.5px]">На стене пока нет записей</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4 w-full">
+                        {/* Profile Format Filter - Compact Dropdown */}
+                        <div className="flex justify-start items-center py-1 select-none">
+                          <PostFormatFilter selectedFormat={profileFormatFilter} onChange={setProfileFormatFilter} />
+                        </div>
+
+                        {filteredAuthorPosts.length > 0 ? (
+                          filteredAuthorPosts.map(post => renderUnifiedPostCard(post, false))
+                        ) : (
+                          <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
+                            Нет публикаций в выбранном формате
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center">
+                    <EyeOff size={32} className="text-[#d9dadc] mx-auto mb-2" />
+                    <p className="text-vk-text-secondary text-[12.5px]">Связанные обсуждения скрыты настройками приватности</p>
+                  </div>
+                )}
+               </div>
+               
+               <div className="w-[230px] shrink-0 space-y-3">
+                  {(isAdminMode || currentUser?.isEmployee || isWorker(currentUser)) && (
+                    <div className="bg-vk-white rounded-[2px] p-4 border border-vk-separator">
+                      <div className="space-y-2">
+                        {hasRightMenuAccess('id') && (
+                          <div className="bg-[#f0f2f5] rounded-[2px] p-2 border border-vk-separator">
+                             <p className="text-sm font-medium text-vk-text-secondary text-center">ID: {currentDisplayUser?.id}</p>
+                          </div>
+                        )}
+                        {selectedUserData?.isPornMarked && (
+                          <div className="bg-[#fff9cc] text-vk-text text-[12px] px-2 py-1.5 rounded-[2px] text-center font-normal border border-[#fff2cc] leading-tight">
+                            Пользователь размечен
+                          </div>
+                        )}
+                        
+                        {hasRightMenuAccess('block') && (
+                          (selectedUserData?.isBlocked || (isProfileBlocked && !selectedUserData)) ? (
+                            <button 
+                              onClick={handleProfileUnblock}
+                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#4bb34b] hover:bg-[#52c152] text-white rounded-[2px] text-xs font-medium transition-colors"
+                            >
+                               Разблокировать
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={openProfileBlockModal}
+                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e64646] hover:bg-[#f05050] text-white rounded-[2px] text-xs font-medium transition-colors"
+                            >
+                               Заблокировать
+                            </button>
+                          )
+                        )}
+                        
+                        {hasRightMenuAccess('card') && (
+                          <button 
+                            onClick={() => {
+                              if (currentDisplayUser) {
+                                const [first, ...lastParts] = currentDisplayUser.name.split(' ');
+                                setEditFirstName(first);
+                                setEditLastName(lastParts.join(' '));
+                                setEditStatus(currentDisplayUser.status || '');
+                                setEditLogin(currentDisplayUser.login || '');
+                                setEditPassword('');
+                                setIsEditingInfo(true);
+                                setInfoUser(currentDisplayUser);
+                                setActiveTab('users');
+                              }
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                          >
+                            Карточка
+                          </button>
+                        )}
+                     
+                        {hasRightMenuAccess('verify') && (
+                          <button 
+                             onClick={toggleProfileVerification}
+                             className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-xs font-medium transition-colors border ${
+                                (selectedUserData?.isVerified || (isProfileVerified && !selectedUserData)) ? 'bg-[#5181b8] text-white border-[#5181b8]' : 'bg-[#e5ebf1] text-[#55677d] border-[#e5ebf1] hover:bg-[#dfe6ed]'
+                             }`}
+                          >
+                             {(selectedUserData?.isVerified || (isProfileVerified && !selectedUserData)) ? 'Убрать верификацию' : 'Верифицировать'}
+                          </button>
+                        )}
+                        
+                        {hasRightMenuAccess('info') && (
+                          <button 
+                            onClick={() => setIsProfileInfoModalOpen(true)}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                          >
+                             Информация
+                          </button>
+                        )}
+
+                        {hasRightMenuAccess('complaints') && (
+                          <button 
+                            onClick={() => setComplaintsModalUser(selectedUserData || currentUser)}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                          >
+                             Жалобы
+                          </button>
+                        )}
+   
+                        {hasRightMenuAccess('delete') && (
+                          <button 
+                            onClick={() => selectedUserData && handleDeleteProfile(selectedUserData)}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#ebedef] text-[#55677d] border border-vk-separator rounded-[2px] text-xs font-medium transition-colors"
+                          >
+                             Удалить профиль
+                          </button>
+                        )}
+   
+                        {hasRightMenuAccess('mark') && (
+                          <button 
+                            onClick={() => handleMarkAsPorn(selectedUserData)}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-xs font-medium transition-colors border ${
+                              selectedUserData?.isPornMarked ? 'bg-[#ffcc00] text-black border-[#ffcc00]' : 'bg-[#f0f2f5] text-[#55677d] border-vk-separator hover:bg-[#ebedef]'
+                            }`}
+                          >
+                             Пометить
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+              </div>
+            </div>
+            )}
+          </motion.div>
+        );
+      }
+    }
+    })();
+
+    if (Object.keys(tabNamesMap).includes(normalizedTab)) {
+      const entryPointsEl = renderEntryPointsForTab(normalizedTab);
+      if (entryPointsEl) {
+        return (
+          <div className="space-y-4">
+            {entryPointsEl}
+            {mainTabContent}
+          </div>
+        );
+      }
+    }
+
+    return mainTabContent;
+  };
+
+  return (
+    <div className="min-h-screen font-sans selection:bg-zinc-200 selection:text-zinc-900 bg-[#fafaf9] pb-20">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-zinc-150 h-11 flex items-center px-6 transition-all select-none">
+        <div className="max-w-[1240px] w-full mx-auto flex items-center justify-between font-sans">
+          <div className="flex items-center">
+            <div 
+              onClick={() => { setSelectedUserData(null); setActiveTab('profile'); }} 
+              className="flex items-center cursor-pointer hover:opacity-85 select-none transition-opacity"
+            >
+              <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight flex items-center gap-2">
+                <Footprints size={15} strokeWidth={2.4} className="text-zinc-950 transform -rotate-12" />
+                <span>Следы</span>
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center">
+            <div className="relative flex items-center">
+              <div 
+                className="flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity bg-zinc-50 hover:bg-zinc-100 p-0.5 pr-2 rounded-full border border-zinc-200"
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+              >
+                <UserAvatar user={currentUser} avatarUrl={currentUser?.avatar} className="w-5.5 h-5.5" />
+                <span className="text-[11px] font-semibold text-zinc-850 max-w-[80px] truncate hidden sm:inline-block leading-none">{currentUser?.name.split(' ')[0]}</span>
+                <ChevronDown size={11} className="text-zinc-500" />
+              </div>
+
+              <AnimatePresence>
+                {isUserMenuOpen && (
+                  <motion.div initial={{ opacity: 0, y: 8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.95 }} transition={{ duration: 0.15 }} className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-100 z-[100] overflow-hidden py-1.5 font-sans">
+                    <div className="px-4 py-2 border-b border-zinc-50 mb-1.5">
+                      <p className="text-xs font-bold text-zinc-950 truncate">{currentUser?.name}</p>
+                      <p className="text-[10px] font-mono text-zinc-400 mt-0.5">Уровень доверия: {Math.round((currentUser?.trustLevel || 0.88) * 100)}%</p>
+                    </div>
+                    <button onClick={() => { setActiveTab('support'); setIsUserMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 transition-all flex items-center gap-2">
+                      <LifeBuoy size={14} className="text-zinc-400" /> Поддержка
+                    </button>
+                    <button 
+                      onClick={() => { 
+                        setUserActionTarget(currentUser);
+                        setRequestFields({ name: currentUser?.name.split(' ')[0] || '', surname: currentUser?.name.split(' ')[1] || '', reason: 'Заявка на верификацию', logout: false });
+                        setIsVerificationContext(true);
+                        setIsCreateRequestModalOpen(true);
+                        setIsUserMenuOpen(false); 
+                      }} 
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 transition-all flex items-center gap-2"
+                    >
+                      <BadgeCheck size={14} className="text-zinc-400" /> Верификация
+                    </button>
+                    <button 
+                      onClick={async () => { 
+                        await authService.logout();
+                        setIsRegistered(false); 
+                        setCurrentUser(null); 
+                        setIsAdminMode(false);
+                        setIsUserMenuOpen(false); 
+                        navigate('/');
+                      }} 
+                      className="w-full text-left px-4 py-2.5 text-xs font-semibold text-rose-650 hover:bg-rose-50 transition-all border-t border-zinc-50 flex items-center gap-2 mt-1"
+                    >
+                      <LogOut size={14} className="text-rose-450" /> Выйти из системы
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Container */}
+      <main className="max-w-[1240px] mx-auto mt-6 px-4 md:px-8 flex gap-8">
+        {(isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked)) && (
+          <aside className="w-[220px] shrink-0 sticky top-20 h-fit hidden md:block select-none font-sans">
+            <nav className="flex flex-col gap-1.5">
+              {DYNAMIC_MENU_ITEMS.filter(item => item.id === 'opened-ticket' || visibleTabs.includes(item.id) || item.isCategoryTab).map((item) => {
+                const getCount = () => {
+                  if (item.id === 'moderation') return complaints.length;
+                  if (item.id === 'appeals') return appeals.filter(a => a.status === 'pending').length;
+                  if (item.id === 'spam') return spamComplaints.length;
+                  if (item.id === 'page_moderation') return pageComplaints.length;
+                  if (item.id === 'requests') return submittedRequests.length;
+                  if (item.id === 'support') return tickets.filter(t => t.status === 'new').length;
+                  if (item.id === 'verification') return verificationRequests.length;
+                  if (item.id === 'internal-mail') return messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length;
+                  if (item.id === 'notifications') return currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0;
+                  if (item.id.startsWith('support-category-')) {
+                    const catName = item.id.replace('support-category-', '');
+                    return tickets.filter(t => {
+                      if (t.status !== 'new') return false;
+                      const c = t.category || (Number(t.id.slice(-1)) % 4 === 0 ? 'Финансы' : Number(t.id.slice(-1)) % 3 === 0 ? 'Доступ' : Number(t.id.slice(-1)) % 2 === 0 ? 'Баги' : 'Безопасность');
+                      return c === catName;
+                    }).length;
+                  }
+                  return item.count || 0;
+                };
+                const count = getCount();
+
+                const isTabActive = activeTab === item.id;
+                return (
+                  <button 
+                    key={item.id} 
+                    onClick={async () => { 
+                      if (item.onClick) {
+                        item.onClick();
+                        return;
+                      }
+                      if (item.id === 'logout') {
+                        await authService.logout();
+                        setIsRegistered(false);
+                        setCurrentUser(null);
+                        setIsAdminMode(false);
+                        setIsUserMenuOpen(false);
+                        navigate('/');
+                        return;
+                      }
+                      if (item.id === 'profile') setSelectedUserData(null);
+                      if (item.id === 'support') {
+                        setSupportCategoryFilter('all');
+                      }
+                      setActiveTab(item.id); 
+                    }} 
+                    className={`w-full flex items-center gap-3 pl-4 pr-3.5 py-2.5 rounded-2xl text-left transition-all duration-150 group cursor-pointer relative overflow-hidden ${
+                      isTabActive 
+                        ? 'bg-[#4F7DF3]/8 text-[#111827] font-bold' 
+                        : 'text-[#6B7280] hover:bg-zinc-100 hover:text-[#111827] font-medium'
+                    }`}
+                  >
+                    {isTabActive && (
+                      <span className="absolute left-0 top-1/4 bottom-1/4 w-[3.5px] bg-[#4F7DF3] rounded-r-full" />
+                    )}
+                    <item.icon size={18} className={`transition-transform duration-150 group-hover:scale-105 ${isTabActive ? 'text-[#111827] stroke-[2.25px]' : 'text-[#6B7280]/80 group-hover:text-[#111827]'}`} />
+                    <span className="text-[13px] tracking-tight truncate grow">{item.label}</span>
+                    {count > 0 && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center leading-none transition-colors ${
+                        isTabActive 
+                          ? 'bg-[#4F7DF3]/20 text-[#111827]' 
+                          : 'bg-zinc-200 text-[#6B7280] group-hover:bg-zinc-300 group-hover:text-zinc-950'
+                      }`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+        )}
+
+        <div className="grow min-w-0">
+          <AnimatePresence mode="wait">
+             <div key={location.pathname}>
+               {isRegistered && currentUser ? (
+                 <Routes>
+                   <Route path="/" element={renderContent()} />
+                   <Route path="/feed" element={renderContent()} />
+                   <Route path="/u/:userId" element={renderContent()} />
+                   <Route path="/post/:postId" element={renderContent()} />
+                   <Route path="/settings" element={renderContent()} />
+                   <Route path="/admin" element={renderContent()} />
+                   <Route path="/admin/:tab" element={renderContent()} />
+                   
+                   <Route path="/discussed-now" element={renderContent()} />
+                   <Route path="/notifications" element={renderContent()} />
+                   <Route path="/academy" element={renderContent()} />
+                   <Route path="/appeals" element={renderContent()} />
+                   <Route path="/requests" element={renderContent()} />
+                   <Route path="/users" element={renderContent()} />
+                   <Route path="/management" element={renderContent()} />
+                   <Route path="/statistics" element={renderContent()} />
+                   <Route path="/announcements" element={renderContent()} />
+                   <Route path="/wiki" element={renderContent()} />
+                   <Route path="/security" element={renderContent()} />
+                   <Route path="/action-logs" element={renderContent()} />
+                   <Route path="/monitoring" element={renderContent()} />
+                   <Route path="/translations" element={renderContent()} />
+                   <Route path="/quality-control" element={renderContent()} />
+                   <Route path="/personnel" element={renderContent()} />
+                   <Route path="/page_moderation" element={renderContent()} />
+                   <Route path="/spam" element={renderContent()} />
+                   <Route path="/verification" element={renderContent()} />
+                   <Route path="/tasks" element={renderContent()} />
+                   <Route path="/internal-mail" element={renderContent()} />
+                   <Route path="/support" element={renderContent()} />
+                   
+                   <Route path="*" element={renderContent()} />
+                 </Routes>
+               ) : renderRegistration()}
+             </div>
+          </AnimatePresence>
+        </div>
+      </main>
+
+      {/* Modals & Overlays - сохранены из оригинала */}
+      <AnimatePresence>
+        {isHistoryOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsHistoryOpen(false)} />
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="bg-vk-white w-full max-w-2xl rounded-[2px] relative z-10 shadow-2xl overflow-hidden border border-vk-separator">
+               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-[#285473]">История действий</h3>
+                  <button onClick={() => setIsHistoryOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+               </div>
+               <div className="p-4 max-h-[400px] overflow-y-auto">
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                     <div className="bg-[#f5f7f8] p-3 rounded-[1px] border border-vk-separator text-center">
+                        <div className="text-lg font-bold text-[#2a5885]">{moderatorHistory.length}</div>
+                        <div className="text-[10px] text-vk-text-secondary uppercase font-bold">Всего</div>
+                     </div>
+                     <div className="bg-[#f5f7f8] p-3 rounded-[1px] border border-vk-separator text-center">
+                        <div className="text-lg font-bold text-green-600">{moderatorHistory.filter(h => h.action.includes('Одобрено')).length}</div>
+                        <div className="text-[10px] text-vk-text-secondary uppercase font-bold">Принято</div>
+                     </div>
+                     <div className="bg-[#f5f7f8] p-3 rounded-[1px] border border-vk-separator text-center">
+                        <div className="text-lg font-bold text-red-600">{moderatorHistory.filter(h => h.action.includes('Заблокирован') || h.action.includes('Отклонено')).length}</div>
+                        <div className="text-[10px] text-vk-text-secondary uppercase font-bold">Отказ / Бан</div>
+                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                     {moderatorHistory.slice(-20).reverse().map(h => (
+                        <div key={h.id} className="flex items-center justify-between p-2.5 bg-[#f5f7f8] border border-vk-separator rounded-[1px] group">
+                           <div className="flex items-center gap-3">
+                              <History size={14} className="text-vk-text-secondary" />
+                              <div className="text-[12px]">
+                                 <span className="font-semibold text-[#2c2d2e]">{h.action}</span>
+                                 <span className="text-[#939393] mx-2">•</span>
+                                 <span className="text-[11px] text-[#939393]">{h.timestamp.toLocaleTimeString()}</span>
+                              </div>
+                           </div>
+                           <button onClick={() => undoAction(h.id)} className="text-[10px] uppercase font-bold text-[#2a5885] opacity-0 group-hover:opacity-100 transition-opacity">Отменить</button>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            </motion.div>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {isPrivacyModalOpen && (
+            <PrivacySettingsModal
+              isOpen={isPrivacyModalOpen}
+              settings={publicSettings}
+              onSave={(newSettings) => {
+                setPublicSettings(newSettings);
+                if (currentUser) {
+                  const updatedU = { ...currentUser, publicSettings: newSettings };
+                  setCurrentUser(updatedU);
+                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
+                }
+                setIsPrivacyModalOpen(false);
+                addNotification('Приватность', 'Настройки приватности успешно обновлены!');
+              }}
+              onClose={() => setIsPrivacyModalOpen(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Topic Score Edit Modal */}
+        <AnimatePresence>
+          {topicScoreEditPost && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setTopicScoreEditPost(null)} />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-lg rounded-[3px] overflow-hidden relative z-10 shadow-2xl border border-vk-separator flex flex-col max-h-[85vh]">
+                <div className="p-4 bg-[#f5f7fa] border-b border-vk-separator flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#2a5885]">Настройка thematic-score публикации Bureau</h3>
+                    <p className="text-[11px] text-vk-text-secondary">ID публикации: {topicScoreEditPost.id}</p>
+                  </div>
+                  <button onClick={() => setTopicScoreEditPost(null)} className="text-[#818c99] hover:text-gray-600 font-mono text-lg font-bold">×</button>
+                </div>
+
+                <div className="p-5 flex-1 overflow-y-auto space-y-4">
+                  {/* Current post extract */}
+                  <div className="bg-[#f0f2f5] p-3 text-[12px] text-vk-text border-l-2 border-[#2a5885] rounded-[2px] max-h-[80px] overflow-y-auto select-none italic text-vk-text-secondary">
+                    «{topicScoreEditPost.text || '(Медиа-вложение без сопроводительного текста)'}»
+                  </div>
+
+                  {/* List of topic points with inputs */}
+                  <div className="space-y-3">
+                    <span className="text-[11px] font-bold text-vk-text-secondary uppercase tracking-wider block">Оценки тематической карты (TopicScore):</span>
+                    {editingPostTopics.length === 0 ? (
+                      <p className="text-xs text-vk-text-secondary text-center py-2 bg-slate-50 border border-dashed rounded">Тематики не присвоены. Пост будет считаться неклассифицированным.</p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {editingPostTopics.map((pt, idx) => (
+                          <div key={`${pt.topic}-${idx}`} className="flex items-center gap-3 bg-slate-50 p-2.5 rounded border border-slate-100">
+                            <span className="text-[13px] font-semibold text-vk-text tracking-tight w-28 truncate">{pt.topic}</span>
+                            
+                            {/* Score Slider */}
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={pt.score}
+                              onChange={(e) => {
+                                const newval = parseInt(e.target.value) || 0;
+                                setEditingPostTopics(prev => prev.map((item, i) => i === idx ? { ...item, score: newval } : item));
+                              }}
+                              className="flex-1 accent-[#2a5885] h-1 bg-slate-200 rounded-lg cursor-pointer"
+                            />
+                            
+                            {/* Score input / label */}
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={pt.score}
+                                onChange={(e) => {
+                                  let val = parseInt(e.target.value);
+                                  if (isNaN(val)) val = 0;
+                                  if (val > 100) val = 100;
+                                  if (val < 0) val = 0;
+                                  setEditingPostTopics(prev => prev.map((item, i) => i === idx ? { ...item, score: val } : item));
+                                }}
+                                className="w-12 text-center text-xs font-bold p-1 border rounded"
+                              />
+                              <span className="text-[11px] font-medium text-vk-text-secondary">%</span>
+                            </div>
+
+                            {/* Delete button */}
+                            <button
+                              onClick={() => {
+                                setEditingPostTopics(prev => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="text-red-500 hover:text-red-700 text-xs p-1 cursor-pointer"
+                              title="Удалить тему из публикации"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add topic control */}
+                  <div className="pt-2 border-t border-slate-100 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <button
+                        onClick={() => setShowAddTopicDropdown(!showAddTopicDropdown)}
+                        className="text-[12.5px] font-bold text-[#2a5885] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        ➕ Присвоить тему публикации
+                      </button>
+
+                      <button
+                        onClick={() => setShowNewGlobalTopicInput(!showNewGlobalTopicInput)}
+                        className="text-[12px] font-medium text-vk-text-secondary hover:text-[#2a5885] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        📁 Создать новую глобальную тему
+                      </button>
+                    </div>
+
+                    {showAddTopicDropdown && (
+                      <div className="bg-[#f5f7fa] p-3 rounded border border-vk-separator/50 space-y-2">
+                        <span className="text-[11px] text-vk-text-secondary block font-bold">Выберите тему из доступных в системе:</span>
+                        <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto">
+                          {allTopics
+                            .filter(t => !editingPostTopics.some(ept => ept.topic === t))
+                            .map(topic => (
+                              <button
+                                key={topic}
+                                onClick={() => {
+                                  setEditingPostTopics(prev => [...prev, { topic, score: 50 }].sort((a,b)=>b.score - a.score));
+                                  setShowAddTopicDropdown(false);
+                                }}
+                                className="text-xs bg-white hover:bg-[#e4ebf5] border border-vk-separator p-1 px-2 rounded-[2px]"
+                              >
+                                {topic}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {showNewGlobalTopicInput && (
+                      <div className="bg-[#f5f7fa] p-3 rounded border border-vk-separator/50 space-y-2.5">
+                        <span className="text-[11px] text-vk-text-secondary block font-bold">Добавление глобальной темы на платформу:</span>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Название темы (например, Кибербезопасность)"
+                            value={newGlobalTopicName}
+                            onChange={(e) => setNewGlobalTopicName(e.target.value)}
+                            className="text-xs p-1.5 border rounded flex-1 bg-white"
+                          />
+                          <button
+                            onClick={() => {
+                              const trimmed = newGlobalTopicName.trim();
+                              if (!trimmed) {
+                                addNotification('Ошибка', 'Название темы не может быть пустым');
+                                return;
+                              }
+                              if (allTopics.includes(trimmed)) {
+                                addNotification('Ошибка', 'Такая тема уже существует в системе');
+                                return;
+                              }
+                              setAllTopics(prev => [...prev, trimmed]);
+                              setEditingPostTopics(prev => [...prev, { topic: trimmed, score: 70 }]);
+                              setNewGlobalTopicName('');
+                              setShowNewGlobalTopicInput(false);
+                              addNotification('Квалификация', `Создана глобальная тема «${trimmed}»`);
+                            }}
+                            className="bg-[#2a5885] text-white text-xs p-1.5 px-3 rounded font-bold hover:bg-[#204469]"
+                          >
+                            Создать
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Classification history trail */}
+                  <div className="bg-[#fcf8e3]/30 border border-[#fbeed5] rounded p-3 space-y-1">
+                    <span className="text-[11px] font-bold text-[#8a6d3b] uppercase tracking-wide block">История классификации:</span>
+                    <div className="max-h-[85px] overflow-y-auto space-y-1">
+                      {(topicScoreEditPost.topicHistory || []).map((h, i) => (
+                        <div key={i} className="text-[11px] text-vk-text-secondary flex items-center justify-between border-b last:border-0 border-amber-100/50 py-1">
+                          <span>📅 {h.timestamp} - {h.action} {h.moderator && `(${h.moderator})`}</span>
+                          <span className={`text-[9px] px-1 rounded font-bold ${
+                            h.source === 'MANUAL' ? 'bg-[#fbeed5] text-[#8a6d3b]' : 'bg-sky-50 text-sky-700'
+                          }`}>{h.source}</span>
+                        </div>
+                      ))}
+                      {(topicScoreEditPost.topicHistory || []).length === 0 && (
+                        <p className="text-[11px] text-vk-text-secondary text-center py-1">История пуста</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t border-vk-separator flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setTopicScoreEditPost(null)}
+                    className="p-1.5 px-4 bg-white hover:bg-slate-100 border border-vk-separator rounded-[2px] text-xs font-semibold text-vk-text-secondary cursor-pointer"
+                  >
+                    Отменить
+                  </button>
+                  <button
+                    onClick={() => {
+                      const sortedTopics = [...editingPostTopics].sort((a,b) => b.score - a.score);
+                      setFeedPosts(prev => prev.map(p => p.id === topicScoreEditPost.id ? {
+                        ...p,
+                        topicScores: sortedTopics,
+                        topicClassificationSource: 'MANUAL' as const,
+                        topicHistory: [
+                          {
+                            timestamp: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                            action: 'Ручная корректировка сотрудником',
+                            source: 'MANUAL' as const,
+                            moderator: currentUser?.name || 'Сотрудник'
+                          },
+                          ...(p.topicHistory || [])
+                        ]
+                      } : p));
+                      setTopicScoreEditPost(null);
+                      addNotification('Модерация', 'Тематический профиль успешно сохранен!');
+                    }}
+                    className="p-1.5 px-4 bg-[#2a5885] hover:bg-[#204469] text-white rounded-[2px] text-xs font-semibold cursor-pointer"
+                  >
+                    Сохранить изменения
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Highlight Why Shown Match Explainer Modal */}
+        <AnimatePresence>
+          {topicScoreExplainPost && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setTopicScoreExplainPost(null)} />
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-2xl rounded-[3px] overflow-hidden relative z-10 shadow-2xl border border-vk-separator flex flex-col max-h-[90vh]">
+                <div className="p-4 bg-[#f5f7fa] border-b border-vk-separator flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#2a5885]">Объяснение рекомендаций контента</h3>
+                    <p className="text-[11px] text-vk-text-secondary">Инструмент контроля вовлеченности сотрудников</p>
+                  </div>
+                  <button onClick={() => setTopicScoreExplainPost(null)} className="text-[#818c99] hover:text-gray-600 font-mono text-lg font-bold">×</button>
+                </div>
+
+                <div className="p-5 flex-1 overflow-y-auto space-y-4 text-left">
+                  {/* Select user to inspect against */}
+                  <div className="bg-slate-50 p-4 rounded border border-vk-separator flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] text-[#2c2d2e] font-bold uppercase block tracking-wider">Инспектируемый пользователь:</span>
+                      <p className="text-[11.5px] text-vk-text-secondary">Выберите любого пользователя системы для эмулирования рекомендаций</p>
+                    </div>
+
+                    <select
+                      value={topicScoreExplainUserVal?.id || ''}
+                      onChange={(e) => {
+                        const targetUser = users.find(u => u.id === e.target.value);
+                        if (targetUser) setTopicScoreExplainUserVal(targetUser);
+                      }}
+                      className="text-xs p-1.5 pr-8 border rounded font-semibold bg-white text-[#2a5885]"
+                    >
+                      {users.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} {u.isEmployee ? '(Сотрудник)' : '(Пользователь)'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Post summary preview */}
+                  <div className="bg-slate-50 border border-vk-separator/50 p-3.5 rounded">
+                    <span className="text-[10px] text-vk-text-secondary uppercase tracking-wider font-extrabold block mb-1">Оцениваемая карточка:</span>
+                    <p className="text-[13px] font-bold text-vk-text leading-tight">{topicScoreExplainPost.authorName}</p>
+                    <p className="text-xs text-vk-text-secondary italic line-clamp-1 mt-0.5">«{topicScoreExplainPost.text || '(Медиа)'}»</p>
+                  </div>
+
+                  {topicScoreExplainUserVal && (() => {
+                    const postTopics = topicScoreExplainPost.topicScores || [];
+                    const userTopicScores = TopicScoreService.calculateUserProfileScore(topicScoreExplainUserVal, feedPosts, allTopics);
+                    
+                    const utScoresObj: Record<string, number> = {};
+                    userTopicScores.forEach(t => {
+                      utScoresObj[t.topic] = t.score;
+                    });
+
+                    const matchesResult = TopicScoreService.generateRecommendationExplanation(
+                      topicScoreExplainPost,
+                      postTopics,
+                      topicScoreExplainUserVal,
+                      utScoresObj,
+                      userSubscribers[topicScoreExplainUserVal.id] || [],
+                      []
+                    );
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Circle Score dial metrics */}
+                        <div className="flex items-center justify-center p-3.5 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-100 rounded-[3px] gap-6">
+                          <div className="relative w-16 h-16 shrink-0 flex items-center justify-center bg-white rounded-full border border-sky-200 shadow shadow-sky-100">
+                            <span className="text-xl font-black text-[#2a5885] tracking-tighter">{matchesResult.relevance}%</span>
+                          </div>
+                          <div className="text-left space-y-0.5">
+                            <h4 className="text-[13.5px] font-bold text-[#2a5885]">Общий весовой рейтинг близости</h4>
+                            <p className="text-[12px] text-vk-text-secondary">Вероятность показа в умной ленте «Для вас» на основе TopicScore</p>
+                          </div>
+                        </div>
+
+                        {/* Comparative chart layout */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Post Profile */}
+                          <div className="bg-white rounded border border-vk-separator/50 p-3.5 space-y-2">
+                            <span className="text-[10.5px] font-bold text-[#55677d] uppercase block">Тематическая карта поста:</span>
+                            <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                              {postTopics.map((pt, idx) => (
+                                <div key={`${pt.topic}-${idx}`} className="space-y-0.5 text-left">
+                                  <div className="flex justify-between text-xs font-semibold">
+                                    <span>{pt.topic}</span>
+                                    <span>{pt.score}%</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                    <div className="bg-sky-500 h-full rounded-full" style={{ width: `${pt.score}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Dynamic User Profile */}
+                          <div className="bg-white rounded border border-vk-separator/50 p-3.5 space-y-2">
+                            <span className="text-[10.5px] font-bold text-[#55677d] uppercase block">Диспетчер интересов пользователя:</span>
+                            <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                              {userTopicScores.slice(0, 5).map((ut, idx) => (
+                                <div key={`${ut.topic}-${idx}`} className="space-y-0.5 text-left">
+                                  <div className="flex justify-between text-xs font-semibold">
+                                    <span>{ut.topic}</span>
+                                    <span>{ut.score}%</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                    <div className="bg-[#4bb34b] h-full rounded-full" style={{ width: `${ut.score}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bulleted list of explanation reasons */}
+                        <div className="bg-slate-50 rounded border border-vk-separator/50 p-4 space-y-2.5 text-left">
+                          <span className="text-[11px] font-extrabold text-vk-text-secondary uppercase tracking-wider block">Причины подбора (Объяснимые Рекомендации):</span>
+                          
+                          <div className="space-y-2">
+                            {matchesResult.reasons.map((reason, i) => (
+                              <div key={i} className="flex items-start gap-2 text-[12.5px] font-semibold text-[#2c2d2e]">
+                                <span className="text-emerald-500 select-none shrink-0">✔</span>
+                                <span>{reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t border-vk-separator flex justify-end">
+                  <button
+                    onClick={() => setTopicScoreExplainPost(null)}
+                    className="p-1.5 px-5 bg-[#2a5885] hover:bg-[#204469] text-white rounded-[2px] text-xs font-semibold cursor-pointer"
+                  >
+                    Закрыть инспектор
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {isVerificationModalOpen && (
+           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setIsVerificationModalOpen(false)} />
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-vk-white w-full max-w-sm rounded-[2px] overflow-hidden relative z-10 shadow-2xl border border-vk-separator">
+               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator">
+                  <h3 className="text-sm font-bold text-[#285473]">
+                     {verificationModalType === 'deny-reason' ? 'Причина отказа' : 'Срок верификации'}
+                  </h3>
+               </div>
+               
+               <div className="p-4">
+                  {verificationModalType === 'deny-reason' ? (
+                     <div className="space-y-4">
+                        <textarea 
+                          value={rejectionReason}
+                          onChange={(e) => setRejectionReason(e.target.value)}
+                          placeholder="Введите причину..."
+                          className="w-full bg-[#f7f8fa] border border-[#dce1e6] rounded-[2px] p-3 text-[12.5px] focus:outline-none focus:border-[#5181b8] h-32 resize-none"
+                        />
+                     </div>
+                  ) : (
+                     <div className="grid grid-cols-1 gap-1">
+                       {['3 дня', '7 дней', '1 месяц', '3 месяца'].map(t => (
+                          <button 
+                            key={t} 
+                            onClick={() => {
+                              handleVerificationAction(activeVerificationId || '', 'confirm-temp', t);
+                              setIsVerificationModalOpen(false);
+                            }}
+                            className="w-full text-left p-3 rounded-[2px] hover:bg-[#f0f2f5] text-[12.5px] text-[#2a5885] transition-all"
+                          >
+                             {t}
+                          </button>
+                       ))}
+                     </div>
+                  )}
+
+                  <div className="flex gap-2 mt-4">
+                    <button onClick={() => setIsVerificationModalOpen(false)} className="grow bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] py-1.5 rounded-[2px] text-[12.5px] font-medium">Отмена</button>
+                    {verificationModalType === 'deny-reason' && (
+                       <button 
+                         onClick={() => {
+                           handleVerificationAction(activeVerificationId || '', 'confirm-deny', rejectionReason);
+                           setIsVerificationModalOpen(false);
+                         }} 
+                         className="grow bg-[#5181b8] hover:bg-[#5b88bd] text-white py-1.5 rounded-[2px] text-[12.5px] font-medium"
+                       >
+                          Отправить отказ
+                       </button>
+                    )}
+                  </div>
+               </div>
+             </motion.div>
+           </div>
+        )}
+
+        {blockingComplaint && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setBlockingComplaint(null)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
+              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator">
+                 <h3 className="text-sm font-bold text-[#285473]">{isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка'}</h3>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Причина</label>
+                  <select value={blockReason} onChange={(e) => setBlockReason(e.target.value)} className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none">
+                    {BLOCK_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Срок</label>
+                  <select value={blockDuration} onChange={(e) => setBlockDuration(e.target.value)} className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none">
+                    {BLOCK_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Комментарий модератора</label>
+                  <textarea 
+                    value={replyText} 
+                    onChange={(e) => setReplyText(e.target.value)} 
+                    placeholder="Описание нарушения..."
+                    className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none min-h-[80px]"
+                  />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={confirmBlock} className="grow py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd] transition-colors">Подтвердить</button>
+                  <button onClick={() => setBlockingComplaint(null)} className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium hover:bg-[#dfe6ed] transition-colors">Отменить</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {forwardingComplaint && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setForwardingComplaint(null)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white w-full max-w-sm rounded-[2px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden">
+               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-[#285473]">Перенос жалобы</h3>
+                  <button onClick={() => setForwardingComplaint(null)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+               </div>
+               <div className="p-4 space-y-4">
+                  <div className="text-[12.5px] text-vk-text-secondary">Выберите отдел, в который будет перенесена жалоба:</div>
+                  <div className="grid grid-cols-1 gap-2">
+                     {['Спам', 'Про'].map(dept => (
+                       <button 
+                        key={dept} 
+                        onClick={() => handleForwardComplaint(dept)}
+                        className="w-full text-left p-3 rounded-[2px] hover:bg-[#f0f2f5] text-[13px] text-[#2a5885] border border-[#dce1e6] hover:border-[#5181b8] transition-all"
+                       >
+                         {dept}
+                       </button>
+                    ))}
+                 </div>
+               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isRestoreModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setIsRestoreModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white w-full max-w-[400px] rounded-[2px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden">
+               <div className="p-4 bg-[#fafbfc] border-b border-[#dae1e8] flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-[#285473]">Восстановление доступа</h3>
+                  <button onClick={() => setIsRestoreModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+               </div>
+               <div className="p-5 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Ваш ID</label>
+                    <input 
+                      type="text" 
+                      placeholder="Например: 1" 
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[13px] focus:outline-none" 
+                      value={restoreFields.login}
+                      onChange={e => setRestoreFields({...restoreFields, login: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Какой пароль был? Если не помните, введите примерный</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[13px] focus:outline-none" 
+                      value={restoreFields.name}
+                      onChange={e => setRestoreFields({...restoreFields, name: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Комментарий</label>
+                    <textarea 
+                      placeholder="Объясните, почему мы должны восстановить вам доступ"
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] h-20 resize-none focus:outline-none" 
+                      value={restoreFields.reason}
+                      onChange={e => setRestoreFields({...restoreFields, reason: e.target.value})}
+                    />
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (!restoreFields.login) {
+                        addNotification('Ошибка', 'Введите ваш ID');
+                        return;
+                      }
+                      addNotification('Заявка отправлена', 'Специалист рассмотрит ваше обращение');
+                      // Add to actual requests list
+                      const newRequest = {
+                        id: `recovery-${Date.now()}`,
+                        targetUserId: restoreFields.login,
+                        oldPasswordAttempt: restoreFields.name,
+                        reason: restoreFields.reason,
+                        type: 'recovery',
+                        timestamp: new Date(),
+                        status: 'new'
+                      };
+                      setSubmittedRequests(prev => [newRequest, ...prev]);
+                      setIsRestoreModalOpen(false);
+                      setRestoreFields({ login: '', name: '', surname: '', reason: '' });
+                    }} 
+                    className="w-full py-2.5 bg-[#5181b8] text-white rounded-[2px] text-[14px] font-medium hover:bg-[#5b88bd]"
+                  >
+                    Подать заявку
+                  </button>
+               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {selectedActionLog && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="absolute inset-0 bg-black/45" 
+              onClick={() => setSelectedActionLog(null)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 10 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              className="bg-white w-full max-w-2xl rounded-[2px] border border-[#99aab9] overflow-hidden shadow-xl relative z-10 text-left flex flex-col"
+            >
+              {/* VKontakte 2015 Blue Header Bar */}
+              <div className="p-3 bg-[#4f7298] border-b border-[#3a5d84] flex items-center justify-between text-white select-none">
+                <span className="text-[13px] font-bold font-sans">Жалоба пользователя — Просмотр решения #{selectedActionLog.id}</span>
+                <button 
+                  onClick={() => setSelectedActionLog(null)} 
+                  className="text-white hover:text-gray-200 cursor-pointer bg-transparent border-none p-0.5"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#edeef0] grow">
+                {/* SINGLE COMPLAINT CARD — EXACT REPLICA OF THE ONE IN COMPLAINTS QUEUE */}
+                <div className="bg-white p-4 rounded-[2px] border border-[#dae1e8] transition-all relative">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-[2px] border flex items-center justify-center bg-white border-[#dce1e6] select-none">
+                        {/* Static visual checkbox to match list layout */}
+                      </div>
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-[#dae1e8] bg-[#f0f2f5] flex items-center justify-center">
+                        <img 
+                          src={selectedActionLog.complaint.userAvatar || `https://i.pravatar.cc/150?u=${selectedActionLog.complaint.userId}`} 
+                          alt={selectedActionLog.complaint.userName} 
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${selectedActionLog.complaint.userId}`;
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div 
+                          onClick={() => {
+                            setSelectedUserData({
+                              id: selectedActionLog.complaint.userId,
+                              name: selectedActionLog.complaint.userName,
+                              avatar: selectedActionLog.complaint.userAvatar || `https://i.pravatar.cc/150?u=${selectedActionLog.complaint.userId}`,
+                              trustLevel: parseFloat(selectedActionLog.complaint.rating || '0.7'),
+                              isVerified: false,
+                              isBlocked: false,
+                              regDate: 'ранее'
+                            });
+                            setActiveTab('profile');
+                            setSelectedActionLog(null);
+                          }}
+                          className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer"
+                        >
+                          {selectedActionLog.complaint.userName}
+                        </div>
+                        <div className="text-[11px] text-[#818c99]">Уровень доверия: {parseFloat(selectedActionLog.complaint.rating || '0.7').toFixed(2)}</div>
+                      </div>
+                    </div>
+                    <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(selectedActionLog.complaint.rating || '0.7') > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
+                      Рейтинг: {selectedActionLog.complaint.rating || '0.7'}
+                    </div>
+                  </div>
+
+                  <div className="pl-6 md:pl-8 mt-2 pb-2">
+                    {/* Identical Active Buttons — Size and Style matches Content & Pages complaints perfectly */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <button 
+                        onClick={() => handleReDecision('block_delete')} 
+                        className={`transition-colors font-medium text-[12px] rounded-[2px] ${
+                          (selectedActionLog.actionType === 'block_delete' || selectedActionLog.actionType === 'mass_multi')
+                            ? "bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 pointer-events-none" 
+                            : "invisible pointer-events-none px-3 py-1"
+                        }`}
+                      >
+                        Заблокировать и удалить
+                      </button>
+                      <button 
+                        onClick={() => handleReDecision('block')} 
+                        className={`transition-colors font-medium text-[12px] rounded-[2px] ${
+                          (selectedActionLog.actionType === 'block' || selectedActionLog.actionType === 'mass_block')
+                            ? "bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 pointer-events-none" 
+                            : "invisible pointer-events-none px-3 py-1"
+                        }`}
+                      >
+                        Заблокировать
+                      </button>
+                      <button 
+                        onClick={() => handleReDecision('delete')} 
+                        className={`transition-colors font-medium text-[12px] rounded-[2px] ${
+                          (selectedActionLog.actionType === 'delete' || selectedActionLog.actionType === 'mass_delete')
+                            ? "bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 pointer-events-none" 
+                            : "invisible pointer-events-none px-3 py-1"
+                        }`}
+                      >
+                        Удалить
+                      </button>
+                      <button 
+                        onClick={() => handleReDecision('ignore')} 
+                        className={`transition-colors font-medium text-[12px] rounded-[2px] ${
+                          selectedActionLog.actionType === 'ignore'
+                            ? "bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 pointer-events-none" 
+                            : "invisible pointer-events-none px-3 py-1"
+                        }`}
+                      >
+                        Игнорировать
+                      </button>
+                      <button 
+                        onClick={() => handleReDecision('forward')} 
+                        className={`transition-colors font-medium text-[12px] rounded-[2px] ${
+                          (selectedActionLog.actionType === 'forward' || selectedActionLog.actionType === 'mass_forward')
+                            ? "bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 pointer-events-none" 
+                            : "invisible pointer-events-none px-3 py-1"
+                        }`}
+                      >
+                        В отдел
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* VKontakte 2015 Grey Footer Bar */}
+              <div className="p-3 bg-[#f7f8fa] border-t border-[#dae1e8] flex justify-between items-center">
+                <button 
+                  onClick={() => handleReviewActionLog(selectedActionLog)} 
+                  className="px-5 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white border border-[#446c96] rounded-[2px] text-[12px] font-bold transition-all cursor-pointer"
+                >
+                  Пересмотреть
+                </button>
+                <button 
+                  onClick={() => setSelectedActionLog(null)} 
+                  className="px-5 py-1.5 bg-[#eaeef2] hover:bg-[#e4ebf0] text-[#55677d] border border-[#ced6de] rounded-[2px] text-[12px] font-bold transition-all cursor-pointer"
+                >
+                  Закрыть
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {reviewingComplaintLog && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setReviewingComplaintLog(null)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} className="bg-white w-full max-w-lg rounded-[4px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator flex flex-col max-h-[90vh]">
+              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                <h3 className="text-[14px] font-bold text-[#285473] flex items-center gap-2">
+                  <FileSearch size={16} />
+                  Пересмотр и принятие решения
+                </h3>
+                <button onClick={() => setReviewingComplaintLog(null)} className="text-vk-text-secondary hover:text-black">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto grow text-left">
+                <div className="bg-amber-50 border border-amber-200 rounded p-3 text-amber-950 text-[12.5px] leading-relaxed">
+                  <strong>Пересмотр решения:</strong> Предыдущее действие было автоматически отменено. Выберите новое окончательное действие по данной жалобе.
+                </div>
+
+                <div className="bg-vk-white p-4 rounded-[2px] border border-vk-separator transition-all relative">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-vk-separator bg-[#f0f2f5] flex items-center justify-center">
+                        <img 
+                          src={reviewingComplaintLog.complaint.userAvatar || `https://i.pravatar.cc/150?u=${reviewingComplaintLog.complaint.userId}`} 
+                          alt={reviewingComplaintLog.complaint.userName} 
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${reviewingComplaintLog.complaint.userId}`;
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div onClick={() => { 
+                          setSelectedUserData({
+                            id: reviewingComplaintLog.complaint.userId,
+                            name: reviewingComplaintLog.complaint.userName,
+                            avatar: reviewingComplaintLog.complaint.userAvatar || `https://i.pravatar.cc/150?u=${reviewingComplaintLog.complaint.userId}`,
+                            trustLevel: parseFloat(reviewingComplaintLog.complaint.rating || '0.7'),
+                            isVerified: false,
+                            isBlocked: false,
+                            regDate: 'ранее'
+                          });
+                          setActiveTab('profile'); 
+                          setReviewingComplaintLog(null);
+                        }} className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{reviewingComplaintLog.complaint.userName}</div>
+                        <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {parseFloat(reviewingComplaintLog.complaint.rating || '0.7').toFixed(2)}</div>
+                      </div>
+                    </div>
+                    <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(reviewingComplaintLog.complaint.rating || '0.7') > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
+                      Рейтинг: {reviewingComplaintLog.complaint.rating || '0.7'}
+                    </div>
+                  </div>
+                  
+                  <div className="pl-0">
+                    <div className="text-[12.5px] font-medium mb-1">Тип: <span className="text-[#2a5885]">{reviewingComplaintLog.complaint.type}</span></div>
+                    <div className="text-[12.5px] text-vk-text-secondary mb-3 p-3 bg-[#f7f8fa] border border-vk-separator rounded-[2px] italic"> «{reviewingComplaintLog.complaint.content}» </div>
+                    
+                    <div className="flex flex-wrap gap-1.5 mt-4">
+                      <button 
+                        onClick={() => { 
+                          handleModerationAction(reviewingComplaintLog.complaint.id, 'block_delete', reviewingComplaintLog.source); 
+                          setReviewingComplaintLog(null);
+                        }} 
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 bg-[#5181b8] rounded-[2px] text-[12px] font-medium transition-colors"
+                      >
+                        Заблокировать и удалить
+                      </button>
+                      <button 
+                        onClick={() => { 
+                          handleModerationAction(reviewingComplaintLog.complaint.id, 'block', reviewingComplaintLog.source); 
+                          setReviewingComplaintLog(null);
+                        }} 
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors"
+                      >
+                        Заблокировать
+                      </button>
+                      <button 
+                        onClick={() => { 
+                          handleModerationAction(reviewingComplaintLog.complaint.id, 'delete', reviewingComplaintLog.source); 
+                          setReviewingComplaintLog(null);
+                        }} 
+                        className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors"
+                      >
+                        Удалить
+                      </button>
+                      <button 
+                        onClick={() => { 
+                          handleModerationAction(reviewingComplaintLog.complaint.id, 'ignore', reviewingComplaintLog.source); 
+                          setReviewingComplaintLog(null);
+                        }} 
+                        className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors"
+                      >
+                        Игнорировать
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-[#fafbfc] border-t border-[#e7e8ec] flex justify-end">
+                <button 
+                  onClick={() => setReviewingComplaintLog(null)}
+                  className="px-4 py-2 bg-white border border-[#e7e8ec] hover:bg-[#f0f2f5] text-black rounded font-medium text-[12.5px] transition-colors"
+                >
+                  Закрыть без действия
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isProfileBlockModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setIsProfileBlockModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
+               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-[#285473]">Блокировка аккаунта</h3>
+               </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Причина блокировки</label>
+                  <select 
+                    value={blockReason} 
+                    onChange={(e) => setBlockReason(e.target.value)} 
+                    className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                  >
+                    {['Спам', 'Оскорбление', 'Фейк', 'Опасный контент', 'Реклама'].map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Срок блокировки</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['1 день', '3 дня', '7 дней', 'Навсегда'].map(d => (
+                       <button 
+                        key={d} 
+                        onClick={() => setBlockDuration(d)}
+                        className={`py-1.5 px-3 rounded-[2px] text-[12px] font-medium border transition-all ${blockDuration === d ? 'border-[#5181b8] bg-[#f0f2f5] text-[#2a5885]' : 'border-[#dce1e6] hover:border-[#5181b8] text-vk-text-secondary'}`}
+                       >
+                         {d}
+                       </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-[#fcfdfd] border border-[#e2e7eb] p-2.5 rounded-[2px] select-none">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#2a5885] font-semibold text-[12px]">
+                     <input 
+                       id="isWithUnban_modal_cb"
+                       type="checkbox" 
+                       checked={isWithUnban} 
+                       onChange={(e) => setIsWithUnban(e.target.checked)} 
+                       className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6] cursor-pointer" 
+                     />
+                     <span>С разбаном (возможность апелляции)</span>
+                  </label>
+                </div>
+                <div>
+                   <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Комментарий модератора</label>
+                   <textarea 
+                     value={replyText} 
+                     onChange={(e) => setReplyText(e.target.value)} 
+                     placeholder="Причина для пользователя..."
+                     className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8] min-h-[80px]"
+                   />
+                </div>
+                <div>
+                   <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Примеры нарушений для показа</label>
+                   <div className="space-y-2 bg-[#f7f8fa] p-2.5 rounded-[2px] border border-[#dce1e6] text-[12.5px] text-vk-text max-h-[180px] overflow-y-auto">
+                      {/* Name selection */}
+                      <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                         <input 
+                           type="checkbox" 
+                           checked={!!selectedViolations['name']} 
+                           onChange={(e) => setSelectedViolations(prev => ({ ...prev, name: e.target.checked }))} 
+                           className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                         />
+                         <span className="truncate">Имя профиля: «{selectedUserData?.name || currentUser?.name || 'Не указано'}»</span>
+                      </label>
+
+                      {/* Status selection */}
+                      <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                         <input 
+                           type="checkbox" 
+                           checked={!!selectedViolations['status']} 
+                           onChange={(e) => setSelectedViolations(prev => ({ ...prev, status: e.target.checked }))} 
+                           className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                         />
+                         <span className="truncate">Статус: «{selectedUserData?.status || currentUser?.status || 'Не указан'}»</span>
+                      </label>
+
+                      {/* Publications of the user */}
+                      {(() => {
+                        const targetUser = selectedUserData || currentUser;
+                        const userPosts = feedPosts.filter(p => p.authorName === targetUser?.name);
+                        if (userPosts.length === 0) {
+                          return <div className="text-[11px] text-vk-text-secondary py-1 italic">Нет публикаций</div>;
+                        }
+                        return userPosts.map((post, idx) => (
+                          <label key={post.id} className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                             <input 
+                               type="checkbox" 
+                               checked={!!selectedViolations[post.id]} 
+                               onChange={(e) => setSelectedViolations(prev => ({ ...prev, [post.id]: e.target.checked }))} 
+                               className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                             />
+                             <span className="truncate flex-1">Пост #{idx + 1}: «{post.text ? (post.text.length > 25 ? `${post.text.substring(0, 25)}...` : post.text) : 'Изображение'}»</span>
+                          </label>
+                        ));
+                      })()}
+                   </div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={confirmProfileBlock} className="grow py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd]">Заблокировать</button>
+                  <button onClick={() => setIsProfileBlockModalOpen(false)} className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium">Отмена</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isRequestRejectModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsRequestRejectModalOpen(false)} />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden relative z-10 shadow-2xl border border-vk-separator">
+               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                 <h3 className="text-sm font-bold text-[#285473]">Ограничение доступа</h3>
+                 <button onClick={() => setIsRequestRejectModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+               </div>
+               <div className="p-5 space-y-4">
+                  <div>
+                     <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1.5 block">Причина ограничения входа (увидит пользователь)</label>
+                     <textarea value={requestRejectReason} onChange={e => setRequestRejectReason(e.target.value)} placeholder="Опишите причину ограничения доступа на окне входа..." className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[13px] h-24 resize-none focus:outline-none focus:border-[#5181b8]" />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button onClick={() => {
+                        if (activeRequestObject) {
+                           setUsers(prev => prev.map(u => {
+                             if (u.id === activeRequestObject.targetUserId || u.login === activeRequestObject.targetUserId) {
+                               pushPlatformNotifications(
+                                 buildAccessRestrictedNotification(
+                                   u.id,
+                                   requestRejectReason || 'Вход заблокирован модератором'
+                                 )
+                               );
+                               return { 
+                                 ...u, 
+                                 isAccessRestricted: true, 
+                                 accessRestrictedReason: requestRejectReason || 'Вход заблокирован модератором' 
+                               };
+                             }
+                             return u;
+                           }));
+                           setSubmittedRequests(prev => prev.filter(r => r.id !== activeRequestObject.id));
+                        }
+                        setIsRequestRejectModalOpen(false);
+                        addNotification('Ограничено', 'Вы закрыли доступ пользователю к авторизации');
+                    }} className="grow py-2 bg-[#e64646] text-white rounded-[2px] text-[13px] font-medium hover:bg-[#d63f3f]">Ограничить доступ</button>
+                    <button onClick={() => setIsRequestRejectModalOpen(false)} className="grow py-2 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[13px] font-medium hover:bg-[#dfe6ed]">Отмена</button>
+                  </div>
+               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isMassDeptModalOpen && (
+          <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setIsMassDeptModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[2px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-medium text-[#285473]">{isMultiComplaint ? 'Мультижалоба: Выберите отдел' : 'Перенаправление в отдел'}</h3>
+                <button onClick={() => setIsMassDeptModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-4 grid grid-cols-1 gap-2">
+                {['Модерация', 'Спам', 'Модерация страниц'].map(dept => (
+                  <button 
+                    key={dept} 
+                    onClick={() => {
+                      if (isMultiComplaint) {
+                        const selectedItems = complaints.filter(c => c.selected);
+                        const combinedContent = selectedItems.map(c => c.content).join('\n---\n');
+                        const mainUser = selectedItems[0];
+                        
+                        // Create one complaint with combined content
+                        const newComplaint: Complaint = {
+                          id: `multi-${Date.now()}`,
+                          userId: mainUser.userId,
+                          userName: mainUser.userName,
+                          userAvatar: mainUser.userAvatar,
+                          content: combinedContent,
+                          reason: 'Мультижалоба',
+                          timestamp: new Date(),
+                          dept: dept,
+                          type: 'multi',
+                          rating: '0'
+                        };
+                        
+                        // Handle where to add based on dept
+                        if (dept === 'Спам') setSpamComplaints(prev => [newComplaint, ...prev]);
+                        else if (dept === 'Модерация страниц') setPageComplaints(prev => [newComplaint, ...prev]);
+                        else setComplaints(prev => [newComplaint, ...prev]);
+
+                        setComplaints(prev => prev.filter(c => !c.selected));
+                        addNotification('Мультижалоба', `Создана единая жалоба в отдел ${dept}`);
+                      } else {
+                        const selectedItems = complaints.filter(c => c.selected).map(c => ({...c, dept, selected: false}));
+                        
+                        if (dept === 'Спам') setSpamComplaints(prev => [...selectedItems, ...prev]);
+                        else if (dept === 'Модерация страниц') setPageComplaints(prev => [...selectedItems, ...prev]);
+                        else setComplaints(prev => [...prev.filter(c => !c.selected), ...selectedItems]);
+
+                        if (dept !== 'Модерация') {
+                          setComplaints(prev => prev.filter(c => !c.selected));
+                        }
+                        
+                        handleMassAction(`Передано в отдел ${dept}`);
+                      }
+                      setIsMassDeptModalOpen(false);
+                    }}
+                    className="w-full text-left p-3 rounded-[4px] hover:bg-[#f0f2f5] text-[13px] border border-transparent hover:border-vk-separator transition-all"
+                  >
+                    {dept}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isProfileInfoModalOpen && (
+           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60" onClick={() => setIsProfileInfoModalOpen(false)} />
+             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-vk-white w-full max-w-lg rounded-[2px] overflow-hidden relative z-10 shadow-2xl border border-vk-separator">
+                <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                   <h3 className="text-sm font-bold text-[#285473]">История изменений</h3>
+                   <button onClick={() => setIsProfileInfoModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+                </div>
+                <div className="p-4 max-h-[400px] overflow-y-auto">
+                   {profileModerationLogs.length === 0 ? (
+                      <div className="text-center py-10 text-vk-text-secondary text-[12.5px]">Действий пока не зафиксировано</div>
+                   ) : (
+                      <div className="space-y-4">
+                         {profileModerationLogs.map(log => (
+                            <div key={log.id} className="flex gap-3 pb-3 border-b border-[#e7e8ec] last:border-0 last:pb-0">
+                               <div className="mt-1 shrink-0"><Clock size={14} className="text-[#939393]" /></div>
+                               <div>
+                                  <div className="text-[12.5px] text-[#2c2d2e] leading-relaxed whitespace-pre-line">
+                                    {log.action.includes(operatorId) ? log.action.replace(`Оператором #${operatorId}`, 'Вы') : log.action}
+                                  </div>
+                                  <div className="text-[11px] text-[#939393] mt-1">{log.timestamp.toLocaleString()}</div>
+                                </div>
+                            </div>
+                         ))}
+                      </div>
+                   )}
+                </div>
+                <div className="p-4 bg-[#fafbfc] border-t border-vk-separator text-center">
+                   <button onClick={() => setIsProfileInfoModalOpen(false)} className="px-6 py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd]">Закрыть</button>
+                </div>
+             </motion.div>
+          </div>
+        )}
+
+        {isLoginModalOpen && loginModalData && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setIsLoginModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[2px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-medium text-[#285473]">Данные входа</h3>
+                <button onClick={() => setIsLoginModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-[#f0f2f5] p-3 rounded-[4px] border border-vk-separator">
+                  <div className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1">Логин</div>
+                  <div className="text-[14px] font-mono select-all cursor-text">{loginModalData.login}</div>
+                </div>
+                <div className="bg-[#f0f2f5] p-3 rounded-[4px] border border-vk-separator">
+                  <div className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1">Пароль</div>
+                  <div className="text-[14px] font-mono select-all cursor-text">{loginModalData.password}</div>
+                 </div>
+              </div>
+              <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
+                <button onClick={() => setIsLoginModalOpen(false)} className="px-6 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[2px] text-[12.5px] font-medium">Закрыть</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isOperatorIdModalOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setIsOperatorIdModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[4px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden text-left">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-medium text-[#285473]">ID Оператора</h3>
+                <button onClick={() => setIsOperatorIdModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Номер поддержки (ID)</label>
+                  <input 
+                    type="text" 
+                    value={operatorId} 
+                    onChange={(e) => setOperatorId(e.target.value)} 
+                    placeholder="Например: 815" 
+                    className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-2 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[13px] outline-none transition-all"
+                  />
+                  <p className="text-[11px] text-vk-text-secondary leading-snug">
+                    Укажите числовой номер агента, который будет отображаться в обращениях пользователей.
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end gap-2">
+                <button 
+                  onClick={() => setIsOperatorIdModalOpen(false)} 
+                  className="px-4 py-1.5 bg-[#f0f2f5] text-[#55677d] hover:bg-[#e5ebf1] rounded-[4px] text-[12.5px] font-medium transition-colors"
+                >
+                  Отмена
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsOperatorIdModalOpen(false);
+                    addNotification('Изменения сохранены', 'Номер агента поддержки успешно обновлён');
+                  }} 
+                  className="px-5 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[4px] text-[12.5px] font-medium transition-colors"
+                >
+                  Сохранить
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isOperatorAvatarModalOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setIsOperatorAvatarModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[4px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden text-left">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-medium text-[#285473]">Аватар поддержки</h3>
+                <button onClick={() => setIsOperatorAvatarModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { url: 'dog1.png' },
+                    { url: 'dog2.jpeg' },
+                    { url: 'images (1).jpeg' },
+                    { url: 'images (2).png' },
+                    { url: 'images.png' },
+                    { url: 'https://i.pravatar.cc/150?u=agent_tech' }
+                  ].map((preset) => (
+                    <button
+                      key={preset.url}
+                      type="button"
+                      onClick={() => setOperatorAvatar(preset.url)}
+                      className={`relative flex items-center justify-center p-1 rounded-full border-2 transition-all aspect-square ${
+                        operatorAvatar === preset.url
+                          ? 'border-[#5181b8] bg-[#e5ebf1]'
+                          : 'border-transparent hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <img 
+                        src={preset.url} 
+                        className="w-12 h-12 rounded-full object-cover border border-vk-separator" 
+                        referrerPolicy="no-referrer" 
+                      />
+                    </button>
+                  ))}
+                </div>
+                
+                <div className="space-y-1 border-t border-vk-separator pt-3">
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase">Своя ссылка на изображение</label>
+                  <input 
+                    type="text" 
+                    value={operatorAvatar} 
+                    onChange={(e) => setOperatorAvatar(e.target.value)} 
+                    placeholder="Вставьте URL изображения..." 
+                    className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[12.5px] outline-none transition-all" 
+                  />
+                </div>
+              </div>
+              <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end gap-2">
+                <button 
+                  onClick={() => setIsOperatorAvatarModalOpen(false)} 
+                  className="px-4 py-1.5 bg-[#f0f2f5] text-[#55677d] hover:bg-[#e5ebf1] rounded-[4px] text-[12.5px] font-medium transition-colors"
+                >
+                  Отмена
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsOperatorAvatarModalOpen(false);
+                    addNotification('Изменения сохранены', 'Аватар агента поддержки успешно обновлён');
+                  }} 
+                  className="px-5 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[4px] text-[12.5px] font-medium transition-colors"
+                >
+                  Применить
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isRolesModalOpen && rolesModalUser && (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 bg-black/50" onClick={() => setIsRolesModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-md rounded-[2px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-bold text-[#285473]">Роли и доступы: {rolesModalUser.name}</h3>
+                <button onClick={() => setIsRolesModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto no-scrollbar">
+                <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mb-2 border-b pb-1.5 border-[#e7e8ec]">Настройка доступных разделов</div>
+                {[
+                  { id: 'support', label: 'Поддержка' },
+                  { id: 'spam', label: 'Спам' },
+                  { id: 'pro', label: 'Про' },
+                  { id: 'verification', label: 'Верификации' },
+                  { id: 'requests', label: 'Заявки' },
+                  { id: 'users', label: 'Пользователи' },
+                  { id: 'management', label: 'Управление' },
+                  { id: 'statistics', label: 'Статистика' },
+                  { id: 'announcements', label: 'Объявления' },
+                  { id: 'wiki', label: 'База знаний' },
+                  { id: 'security', label: 'Безопасность' },
+                  { id: 'action-logs', label: 'Логи действий' },
+                  { id: 'monitoring', label: 'Мониторинг' },
+                  { id: 'quality-control', label: 'Отдел качества' },
+                  { id: 'personnel', label: 'Сотрудники' },
+                  { id: 'appeals', label: 'Апелляции' },
+                  { id: 'feed_moderator', label: 'Модератор ленты' }
+                ].map((role) => (
+                  <div key={role.id} className="flex items-center justify-between py-1 border-b border-vk-separator/30 last:border-0 pb-1.5">
+                    <span className="text-[13px] text-vk-text font-medium">{role.label}</span>
+                    <button 
+                      onClick={() => {
+                        const newRoles = { 
+                          ...(rolesModalUser.roles || {}),
+                          [role.id]: !(rolesModalUser.roles?.[role.id] || false)
+                        };
+                        const hasAnyRole = Object.values(newRoles).some(val => val === true);
+                        const isEmployee = hasAnyRole ? true : rolesModalUser.isEmployee;
+                        const determinedRole = (role.id === 'management' && newRoles[role.id]) ? 'admin' : (isEmployee ? 'moderator' : 'user');
+                        const defaultAccess = rolesModalUser.rightMenuAccess || {
+                          id: true,
+                          block: true,
+                          card: true,
+                          verify: true,
+                          info: true,
+                          complaints: true,
+                          delete: true,
+                          mark: true
+                        };
+                        setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { 
+                          ...u, 
+                          roles: newRoles,
+                          role: determinedRole,
+                          isEmployee: isEmployee,
+                          rightMenuAccess: defaultAccess
+                        } : u));
+                        setRolesModalUser({ 
+                          ...rolesModalUser, 
+                          roles: newRoles,
+                          role: determinedRole,
+                          isEmployee: isEmployee,
+                          rightMenuAccess: defaultAccess
+                        });
+                        if (currentUser && currentUser.id === rolesModalUser.id) {
+                          setCurrentUser(prev => prev ? { 
+                            ...prev, 
+                            roles: newRoles,
+                            role: determinedRole,
+                            isEmployee: isEmployee,
+                            rightMenuAccess: defaultAccess
+                          } : null);
+                        }
+                      }}
+                      className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${rolesModalUser.roles?.[role.id] ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'}`}
+                    >
+                      <motion.div 
+                        animate={{ x: rolesModalUser.roles?.[role.id] ? 20 : 2 }}
+                        className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" 
+                      />
+                    </button>
+                  </div>
+                ))}
+
+                <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mt-5 mb-2 border-b pb-1.5 border-[#e7e8ec]">Права сотрудника (Правое меню)</div>
+                <div className="flex items-center justify-between py-1 border-b border-vk-separator/30 pb-1.5">
+                  <span className="text-[13px] text-vk-text font-bold">Сделать сотрудником</span>
+                  <button 
+                    onClick={() => {
+                      const newIsEmployee = !rolesModalUser.isEmployee;
+                      const determinedRole = newIsEmployee ? (rolesModalUser.login === 'admin' ? 'admin' : 'moderator') : 'user';
+                      const defaultAccess = rolesModalUser.rightMenuAccess || {
+                        id: true,
+                        block: true,
+                        card: true,
+                        verify: true,
+                        info: true,
+                        complaints: true,
+                        delete: true,
+                        mark: true
+                      };
+                      setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { ...u, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess } : u));
+                      setRolesModalUser({ ...rolesModalUser, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess });
+                      if (currentUser && currentUser.id === rolesModalUser.id) {
+                        setCurrentUser(prev => prev ? { ...prev, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess } : null);
+                      }
+                    }}
+                    className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${rolesModalUser.isEmployee ? 'bg-[#4bb34b]' : 'bg-[#dce1e6]'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: rolesModalUser.isEmployee ? 20 : 2 }}
+                      className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" 
+                    />
+                  </button>
+                </div>
+
+                {rolesModalUser.isEmployee && (
+                  <div className="pl-4 space-y-2 pt-2 bg-[#f4f5f7] p-3 rounded-md border border-vk-separator/40">
+                    <div className="text-[10px] text-vk-text-secondary font-bold uppercase tracking-wider mb-1">Выбор отображаемых кнопок:</div>
+                    {[
+                      { id: 'id', label: 'ID пользователя' },
+                      { id: 'block', label: 'Кнопка «Заблокировать»' },
+                      { id: 'card', label: 'Кнопка «Карточка»' },
+                      { id: 'verify', label: 'Кнопка «Верифицировать»' },
+                      { id: 'info', label: 'Кнопка «Информация»' },
+                      { id: 'complaints', label: 'Кнопка «Жалобы»' },
+                      { id: 'delete', label: 'Кнопка «Удалить профиль»' },
+                      { id: 'mark', label: 'Кнопка «Пометить»' }
+                    ].map((btn) => {
+                      const currentAccess = rolesModalUser.rightMenuAccess || {
+                        id: true,
+                        block: true,
+                        card: true,
+                        verify: true,
+                        info: true,
+                        complaints: true,
+                        delete: true,
+                        mark: true
+                      };
+                      const val = (currentAccess as any)[btn.id] !== false;
+                      return (
+                        <div key={btn.id} className="flex items-center justify-between py-1">
+                          <span className="text-[12px] text-vk-text">{btn.label}</span>
+                          <button 
+                            onClick={() => {
+                              const updatedAccess = {
+                                ...currentAccess,
+                                [btn.id]: !val
+                              };
+                              setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { ...u, rightMenuAccess: updatedAccess } : u));
+                              setRolesModalUser({ ...rolesModalUser, rightMenuAccess: updatedAccess });
+                              if (currentUser && currentUser.id === rolesModalUser.id) {
+                                setCurrentUser(prev => prev ? { ...prev, rightMenuAccess: updatedAccess } : null);
+                              }
+                            }}
+                            className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${val ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'}`}
+                          >
+                            <motion.div 
+                              animate={{ x: val ? 14 : 2 }}
+                              className="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm" 
+                            />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
+                <button onClick={() => setIsRolesModalOpen(false)} className="px-6 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[2px] text-[12.5px] font-medium transition-colors">Сохранить доступы</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {complaintsModalUser && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setComplaintsModalUser(null)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-2xl rounded-[2px] shadow-2xl relative z-10 flex flex-col max-h-[80vh] overflow-hidden border border-vk-separator">
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between">
+                <h3 className="text-[15px] font-medium text-[#285473]">Жалобы: {complaintsModalUser.name}</h3>
+                <button onClick={() => setComplaintsModalUser(null)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              
+              <div className="flex border-b border-vk-separator bg-[#f7f8fa]">
+                <button 
+                  onClick={() => setComplaintsModalTab('incoming')} 
+                  className={`flex-1 py-3 text-[13px] font-medium border-b-2 transition-all ${complaintsModalTab === 'incoming' ? 'border-[#5181b8] text-[#5181b8] bg-white' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Входящие
+                </button>
+                <button 
+                  onClick={() => setComplaintsModalTab('outgoing')} 
+                  className={`flex-1 py-3 text-[13px] font-medium border-b-2 transition-all ${complaintsModalTab === 'outgoing' ? 'border-[#5181b8] text-[#5181b8] bg-white' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
+                >
+                  Исходящие
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#ebedef]">
+                {(complaintsModalUser.complaintHistory?.filter(h => h.type === complaintsModalTab) || []).length > 0 ? (
+                   complaintsModalUser.complaintHistory!.filter(h => h.type === complaintsModalTab).map((h) => (
+                    <div key={h.id} className="p-4 bg-white rounded-[2px] border border-vk-separator shadow-sm">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <UserAvatar user={complaintsModalUser} avatarUrl={complaintsModalUser.avatar} className="w-8 h-8 border border-vk-separator" />
+                          <div>
+                            <div className="text-[12.5px] font-semibold text-[#285473]">
+                              {h.type === 'incoming' ? 'Входящая жалоба' : 'Исходящая жалоба'}
+                            </div>
+                            <div className="text-[11px] text-vk-text-secondary">{h.timestamp}</div>
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] ${h.status === 'Обрабатывается' ? 'bg-red-50 text-[#e64646]' : 'bg-gray-100 text-[#656565]'}`}>
+                          {h.status}
+                        </span>
+                      </div>
+                      <div className="text-[12.5px] text-vk-text bg-[#f5f7f8] p-3 rounded-[2px] border border-vk-separator italic">
+                        «{h.content}»
+                      </div>
+                      <div className="mt-2 text-[11.5px] bg-[#f0f2f5] p-2 rounded-[2px] border border-vk-separator/50">
+                        <span className="font-semibold text-[#285473]">Решение: </span>
+                        <span>{h.decision}</span>
+                      </div>
+                    </div>
+                   ))
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-[#656565]/40 gap-4">
+                    <History size={64} strokeWidth={1.5} />
+                    <p className="text-[14px]">История жалоб пуста</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
+                <button onClick={() => setComplaintsModalUser(null)} className="px-6 py-2 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[2px] text-[12.5px] font-medium transition-colors">Закрыть</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isCreateRequestModalOpen && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setIsCreateRequestModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-md rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator flex flex-col">
+              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                 <h3 className="text-sm font-bold text-[#285473]">Создание заявки</h3>
+                 <button onClick={() => setIsCreateRequestModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1.5 block">Причина получения</label>
+                  <textarea value={requestFields.reason} onChange={e => setRequestFields({...requestFields, reason: e.target.value})} className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[13px] h-32 resize-none focus:outline-none focus:border-[#5181b8]" />
+                </div>
+              </div>
+              <div className="p-4 bg-[#fafbfc] border-t border-vk-separator flex gap-2">
+                <button 
+                  onClick={() => {
+                    const newRequest = {
+                      id: `req-${Date.now()}`,
+                      ...requestFields,
+                      targetUserId: userActionTarget?.id || currentUser?.id || '',
+                      userName: requestFields.name || currentUser?.name || 'Пользователь',
+                      userAvatar: userActionTarget?.avatar || currentUser?.avatar || '',
+                      status: 'new' as const,
+                      techInfo: 'Ручная подача: Проверка личности',
+                      authorPhoto: userActionTarget?.avatar || currentUser?.avatar,
+                      timestamp: new Date(),
+                      images: [],
+                      text: requestFields.reason
+                    };
+
+                    if (isVerificationContext) {
+                       setVerificationRequests(prev => [newRequest, ...prev]);
+                    } else {
+                       setSubmittedRequests(prev => [newRequest, ...prev]);
+                    }
+
+                    setIsCreateRequestModalOpen(false);
+                    setIsVerificationContext(false);
+                    addNotification('Успешно', `Заявка создана и отправлена в раздел ${isVerificationContext ? 'Верификации' : 'Восстановления'}`);
+                    setRequestFields({ name: '', surname: '', reason: '', logout: false });
+                  }} 
+                  className="grow py-2 bg-[#5181b8] text-white rounded-[2px] text-[13px] font-medium hover:bg-[#5b88bd]"
+                >
+                  Создать заявку
+                </button>
+                <button onClick={() => setIsCreateRequestModalOpen(false)} className="grow py-2 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[13px] font-medium hover:bg-[#dfe6ed]">Отмена</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isCreateComplaintModalOpen && (
+           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setIsCreateComplaintModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
+              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                 <h3 className="text-sm font-bold text-[#285473]">Создание жалобы</h3>
+                 <button onClick={() => setIsCreateComplaintModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1.5 block">Отдел модерации</label>
+                  <select value={complaintFields.dept} onChange={e => setComplaintFields({...complaintFields, dept: e.target.value})} className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[13px] focus:outline-none focus:border-[#5181b8]">
+                    <option value="Спам">Спам</option>
+                    <option value="Модерация страниц">Модерация страниц</option>
+                    <option value="Модерация">Общая модерация</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1.5 block">Сообщение</label>
+                  <textarea value={complaintFields.message} onChange={e => setComplaintFields({...complaintFields, message: e.target.value})} placeholder="Опишите нарушение..." className="w-full bg-[#f2f3f5] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] h-32 resize-none focus:outline-none focus:border-[#5181b8]" />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => {
+                    const newComplaint = {
+                      id: `manual-${Date.now()}`,
+                      userId: userActionTarget?.id || '',
+                      userName: userActionTarget?.name || 'Пользователь',
+                      userAvatar: userActionTarget?.avatar || '',
+                      type: 'Ручная жалоба',
+                      content: complaintFields.message,
+                      rating: '0.99',
+                    };
+
+                    if (complaintFields.dept === 'Спам') setSpamComplaints(prev => [newComplaint, ...prev]);
+                    else if (complaintFields.dept === 'Модерация страниц') setPageComplaints(prev => [newComplaint, ...prev]);
+                    else setComplaints(prev => [newComplaint, ...prev]);
+
+                    setIsCreateComplaintModalOpen(false);
+                    addNotification('Успешно', `Жалоба отправлена в отдел ${complaintFields.dept}`);
+                  }} className="grow py-2 bg-[#5181b8] text-white rounded-[2px] text-[13px] font-medium hover:bg-[#5b88bd] transition-colors">Отправить жалобу</button>
+                  <button onClick={() => setIsCreateComplaintModalOpen(false)} className="grow py-2 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[13px] font-medium hover:bg-[#dfe6ed] transition-colors">Отмена</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isSubscribersModalOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-black/50" 
+              onClick={() => setIsSubscribersModalOpen(false)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }} 
+              className="bg-white w-full max-w-md rounded-[4px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden text-left flex flex-col max-h-[80vh]"
+            >
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-medium text-[#285473]">Подписчики ({subscribers.length})</h3>
+                <button onClick={() => setIsSubscribersModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-2 grow">
+                {subscribers.length > 0 ? (
+                   subscribers.map((subU) => (
+                    <div 
+                      key={subU.id}
+                      onClick={() => {
+                        setSelectedUserData(subU);
+                        setActiveTab('profile');
+                        setIsSubscribersModalOpen(false);
+                      }}
+                      className="flex items-center gap-3 p-2 rounded-[4px] hover:bg-[#f0f2f5] cursor-pointer transition-colors group"
+                      id={`subscribers-list-item-${subU.id}`}
+                    >
+                      <div className="w-10 h-10 rounded-full overflow-hidden border border-vk-separator shrink-0">
+                        <UserAvatar user={subU} avatarUrl={subU.avatar} className="w-full h-full" forceGrayscale={subU.isDeleted} />
+                      </div>
+                      <span className="text-[13px] font-medium text-[#2a5885] group-hover:underline truncate text-left w-full select-none cursor-pointer">
+                        {subU.name}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-vk-text-secondary text-xs">
+                    Нет подписчиков
+                  </div>
+                )}
+              </div>
+              <div className="p-3 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
+                <button 
+                  onClick={() => setIsSubscribersModalOpen(false)} 
+                  className="px-5 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[4px] text-[12.5px] font-medium transition-colors"
+                >
+                  Закрыть
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {avatarSelectionUser && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-black/50" 
+              onClick={() => setAvatarSelectionUser(null)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }} 
+              className="bg-white w-full max-w-md rounded-[4px] shadow-2xl relative z-10 border border-vk-separator overflow-hidden text-left flex flex-col max-h-[85vh]"
+            >
+              <div className="p-4 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[15px] font-bold text-[#2a5885]">Служебные аватарки сотрудника</h3>
+                <button onClick={() => setAvatarSelectionUser(null)} className="text-vk-text-secondary hover:text-vk-text cursor-pointer"><X size={20} /></button>
+              </div>
+              <div className="p-5 overflow-y-auto space-y-4">
+                <p className="text-[12px] text-vk-text-secondary leading-normal">
+                  Выберите аватарку из предложенного списка служебных изображений для пользователя <span className="font-bold text-black">{avatarSelectionUser.name}</span>:
+                </p>
+                <div className="grid grid-cols-2 gap-3.5">
+                  {[
+                    { name: 'Служебный пёс 1 (dog1)', url: '/dog1.png' },
+                    { name: 'Служебный пёс 2 (dog2)', url: '/dog2.jpeg' },
+                    { name: 'Кот Барсик', url: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&q=80&w=150&h=150' },
+                    { name: 'Мудрая Сова', url: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&q=80&w=150&h=150' },
+                    { name: 'Панда По', url: 'https://images.unsplash.com/photo-1508962914676-134849a727f0?auto=format&fit=crop&q=80&w=150&h=150' },
+                    { name: 'Агент Безопасности', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150&h=150' },
+                  ].map((av) => (
+                    <button
+                      type="button"
+                      key={av.name}
+                      onClick={() => {
+                        setUsers(prev => prev.map(u => {
+                          if (u.id === avatarSelectionUser.id) {
+                            return { ...u, avatar: av.url };
+                          }
+                          return u;
+                        }));
+                        setSelectedUserData(prev => prev && prev.id === avatarSelectionUser.id ? { ...prev, avatar: av.url } : prev);
+                        setInfoUser(prev => prev && prev.id === avatarSelectionUser.id ? { ...prev, avatar: av.url } : prev);
+                        
+                        addNotification('Успешно', `Аватарка пользователя "${avatarSelectionUser.name}" обновлена на "${av.name}"`);
+                        setAvatarSelectionUser(null);
+                      }}
+                      className="flex flex-col items-center gap-2 p-3 border border-vk-separator hover:border-[#5181b8] rounded-[4px] hover:bg-[#5181b8]/5 transition-all text-center cursor-pointer group"
+                    >
+                      <img 
+                        src={av.url} 
+                        alt={av.name} 
+                        referrerPolicy="no-referrer"
+                        className="w-14 h-14 rounded-full object-cover border border-[#dae1e8]" 
+                      />
+                      <span className="text-[11px] font-medium text-vk-text group-hover:text-[#2a5885] truncate max-w-full">
+                        {av.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
+                <button 
+                  type="button"
+                  onClick={() => setAvatarSelectionUser(null)} 
+                  className="px-5 py-1.5 bg-[#eaeef2] hover:bg-[#e4ebf0] text-[#55677d] rounded-[4px] text-[12.5px] font-medium transition-colors cursor-pointer"
+                >
+                  Отмена
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Onboarding Wizard View for new users */}
+      {isRegistered && currentUser && !currentUser.onboardingCompleted && (
+        <Onboarding
+          currentUser={currentUser}
+          users={users}
+          feedPosts={feedPosts}
+          mySubscriptions={mySubscriptions}
+          setMySubscriptions={setMySubscriptions}
+          mySubscribedDiscussions={mySubscribedDiscussions}
+          setMySubscribedDiscussions={setMySubscribedDiscussions}
+          addNotification={addNotification}
+          onComplete={(selectedInterests) => {
+            const updatedUser = { 
+              ...currentUser, 
+              onboardingCompleted: true, 
+              interests: selectedInterests 
+            };
+            setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+            setCurrentUser(updatedUser);
+            addNotification('Настройка завершена', 'Ваш профиль настроен и лента персонализирована!');
+          }}
+        />
+      )}
+
+      <div className="fixed bottom-6 left-6 z-[200] flex flex-col gap-2">
+        <AnimatePresence>
+          {notifications.map(n => (
+            <motion.div 
+              key={n.id} 
+              initial={{ x: -100, opacity: 0, scale: 0.9 }} 
+              animate={{ x: 0, opacity: 1, scale: 1 }} 
+              exit={{ x: -100, opacity: 0, scale: 0.9 }} 
+              transition={{ type: "spring", damping: 18, stiffness: 220 }}
+              className="bg-white/95 backdrop-blur-md p-4 shadow-xl min-w-[320px] max-w-[360px] rounded-2xl border border-zinc-200/70"
+            >
+              <div className="text-[#111827] font-bold text-xs mb-1">
+                {n.title === 'Успешно' && translations.notif_success_title ? translations.notif_success_title :
+                 n.title === 'Ошибка' && translations.notif_error_title ? translations.notif_error_title :
+                 n.title === 'Удалено' && translations.notif_delete_title ? translations.notif_delete_title :
+                 n.title === 'Быстрое обращение' && translations.notif_quick_request_title ? translations.notif_quick_request_title :
+                 translations[n.title] || n.title}
+              </div>
+              <div className="text-[#6B7280] text-[11.5px] leading-relaxed font-medium">
+                {n.message === 'Кнопка успешно размещена у пользователей!' && translations.notif_added_hotspot ? translations.notif_added_hotspot :
+                 n.message === 'Токен скопирован в буфер обмена' && translations.notif_copied_api ? translations.notif_copied_api :
+                 translations[n.message] || n.message}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}

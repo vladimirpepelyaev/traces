@@ -137,6 +137,7 @@ export interface AppUser {
     [key: string]: boolean;
   };
   role?: string;
+  roleList?: string[];
   isEmployee?: boolean;
   /** Служебный профиль платформы для официального взаимодействия с пользователями */
   isServiceProfile?: boolean;

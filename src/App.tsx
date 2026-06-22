@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Icon16WorkOutline, Icon24HammerOutline, Icon16Block } from '@vkontakte/icons';
 import { authService } from './services/auth/AuthService';
+import { useAuth } from './context/AuthContext';
 import { permissionService } from './services/permission/PermissionService';
 import { RealtimeService } from './services/realtime/RealtimeService';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -323,6 +324,8 @@ const SUPPORT_DESCRIPTIONS = [
 ];
 
 export default function App() {
+  const { user: authUser, loading: authLoading, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles } = useAuth();
+
   // activeTab state is now dynamically derived from React Router path below.
   const [supportTab, setSupportTab] = useState('my-questions');
   const [ticketRatings, setTicketRatings] = useState<Record<string, 'positive' | 'negative'>>({});
@@ -1007,21 +1010,19 @@ export default function App() {
 
   // Registration State
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   useEffect(() => {
-    const recoverSession = async () => {
-      try {
-        const user = await authService.getCurrentUser();
-        if (user) {
-          setCurrentUser(user);
-          setIsRegistered(true);
-        }
-      } catch (err) {
-        console.error('Session recovery failed', err);
+    if (authUser) {
+      setCurrentUser(authUser);
+      setIsRegistered(true);
+    } else {
+      if (!authLoading) {
+        setCurrentUser(null);
+        setIsRegistered(false);
       }
-    };
-    recoverSession();
-  }, []);
+    }
+  }, [authUser, authLoading]);
 
   useEffect(() => {
     if (currentUser) {
@@ -1034,7 +1035,6 @@ export default function App() {
   const isStaff = useMemo(() => {
     return permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser);
   }, [currentUser]);
-  const [isRegistered, setIsRegistered] = useState(false);
   
   const [isAdminState, setIsAdminState] = useState(false);
   const isAdminMode = useMemo(() => {
@@ -10859,6 +10859,32 @@ export default function App() {
     );
   };
 
+  const renderAccessDenied = (title: string, message: string) => {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="bg-white border border-[#e7e8ec] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-6 min-h-[400px] select-none"
+      >
+        <div className="p-4 bg-rose-50 rounded-full border border-rose-150 flex items-center justify-center">
+          <Icon16Block className="w-[48px] h-[48px] text-rose-500" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-lg font-bold text-rose-600 tracking-tight">{title}</h1>
+          <p className="text-zinc-500 text-[12px] max-w-sm mx-auto">
+            {message}
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/')}
+          className="px-5 py-2 text-white font-semibold text-xs rounded-xl bg-[#5181b8] hover:bg-[#5181b8]/90 transform active:scale-95 transition-all shadow-sm cursor-pointer"
+        >
+          Вернуться на главную
+        </button>
+      </motion.div>
+    );
+  };
+
   const handlePostComment = (postId: string, text: string) => {
     const newComment = {
       id: `c-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
@@ -11070,7 +11096,7 @@ export default function App() {
             if (regForm.login && (regForm.password || isLoginView)) {
               if (isLoginView) {
                 try {
-                  const loggedUser = await authService.login(regForm.login, regForm.password);
+                  const loggedUser = await authCtxSignIn(regForm.login, regForm.password);
                   
                   // Keep access restriction and recovery safety checks if the user demands not breaking existing features
                   const existingUser = users.find(u => u.id === loggedUser.id || u.login === loggedUser.login) || loggedUser;
@@ -11140,7 +11166,7 @@ export default function App() {
                   const finalUserId = inputCustomId || generatedId;
 
                   try {
-                    const newUser = await authService.register(regForm.name, regForm.login, regForm.password, regForm.status);
+                    const newUser = await authCtxSignUp(regForm.login, regForm.password, regForm.name, regForm.status);
                     newUser.id = finalUserId; // keep generated ID logic
 
                     setUsers(prev => [...prev, newUser]);
@@ -14155,6 +14181,38 @@ export default function App() {
       return render404Page();
     }
 
+    // Role-based route protection
+    const path = location.pathname;
+    const isSuperAdmin = roles.includes('super_admin');
+    const isAdmin = roles.includes('admin') || isSuperAdmin;
+    const isModerator = roles.includes('moderator') || isAdmin;
+    const isSupport = roles.includes('support') || isModerator;
+
+    // 1. /admin block
+    if (path.startsWith('/admin') || [
+      'admin', 'security', 'personnel', 'action-logs', 'monitoring', 'translations', 'quality-control', 'tasks'
+    ].includes(activeTab)) {
+      if (!isAdmin) {
+        return renderAccessDenied("Доступ ограничен — Администрация", "Раздел администрирования доступен только для главных администраторов и администраторов.");
+      }
+    }
+
+    // 2. /moderation block
+    if (path.startsWith('/moderation') || [
+      'moderation', 'appeals', 'spam', 'page_moderation'
+    ].includes(activeTab)) {
+      if (!isModerator) {
+        return renderAccessDenied("Доступ ограничен — Модерация", "Раздел модерации доступен только для модераторов системы.");
+      }
+    }
+
+    // 3. /support block
+    if (path.startsWith('/support') || activeTab === 'support' || activeTab.startsWith('support-category-')) {
+      if (!isSupport) {
+        return renderAccessDenied("Доступ ограничен — Служба поддержки", "Обращения поддержки доступны только для уполномоченных агентов поддержки.");
+      }
+    }
+
     const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;
     if (actualCurrentUser?.isBlocked || isProfileBlocked) {
       return renderBlocked();
@@ -15626,6 +15684,17 @@ export default function App() {
     return mainTabContent;
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#f0f2f5] flex flex-col items-center justify-center font-sans select-none">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-[#5181b8] border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase">Следы — Авторизация...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen font-sans selection:bg-zinc-200 selection:text-zinc-900 bg-[#fafaf9] pb-20">
       {/* Header */}
@@ -15677,7 +15746,7 @@ export default function App() {
                     </button>
                     <button 
                       onClick={async () => { 
-                        await authService.logout();
+                        await authCtxSignOut();
                         setIsRegistered(false); 
                         setCurrentUser(null); 
                         setIsAdminMode(false);
@@ -15734,7 +15803,7 @@ export default function App() {
                         return;
                       }
                       if (item.id === 'logout') {
-                        await authService.logout();
+                        await authCtxSignOut();
                         setIsRegistered(false);
                         setCurrentUser(null);
                         setIsAdminMode(false);

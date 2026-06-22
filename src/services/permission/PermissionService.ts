@@ -30,18 +30,18 @@ class PermissionServiceImpl implements PermissionService {
     }
 
     // Role-based resolution
-    const userRole = user.role || (user.login === 'admin' ? 'admin' : 'user');
+    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
 
     if (role === SYSTEM_ROLES.ADMIN) {
-      return userRole === SYSTEM_ROLES.ADMIN;
+      return rolesList.includes('admin') || rolesList.includes('super_admin');
     }
 
     if (role === SYSTEM_ROLES.MODERATOR) {
-      return userRole === SYSTEM_ROLES.ADMIN || userRole === SYSTEM_ROLES.MODERATOR;
+      return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator');
     }
 
     if (role === SYSTEM_ROLES.SUPPORT) {
-      return userRole === SYSTEM_ROLES.ADMIN || userRole === SYSTEM_ROLES.MODERATOR || userRole === SYSTEM_ROLES.SUPPORT;
+      return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator') || rolesList.includes('support');
     }
 
     if (role === SYSTEM_ROLES.USER) {
@@ -56,8 +56,8 @@ class PermissionServiceImpl implements PermissionService {
    */
   canModerate(user: AppUser | null): boolean {
     if (!user) return false;
-    const userRole = user.role || (user.login === 'admin' ? 'admin' : 'user');
-    return userRole === SYSTEM_ROLES.ADMIN || userRole === SYSTEM_ROLES.MODERATOR;
+    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
+    return rolesList.includes('admin') || rolesList.includes('super_admin') || rolesList.includes('moderator');
   }
 
   /**
@@ -65,8 +65,8 @@ class PermissionServiceImpl implements PermissionService {
    */
   isAdmin(user: AppUser | null): boolean {
     if (!user) return false;
-    const userRole = user.role || (user.login === 'admin' ? 'admin' : 'user');
-    return userRole === SYSTEM_ROLES.ADMIN;
+    const rolesList = user.roleList || (user.role ? [user.role] : (user.login === 'admin' ? ['admin'] : ['user']));
+    return rolesList.includes('admin') || rolesList.includes('super_admin');
   }
 }
 

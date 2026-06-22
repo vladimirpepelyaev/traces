@@ -201,10 +201,8 @@ export class PostRepositoryProvider {
       if (updates.likes !== undefined) dbUpdates.likes = updates.likes;
       if (updates.isApproved !== undefined) dbUpdates.is_approved = updates.isApproved;
       if (updates.moderatedBy !== undefined) dbUpdates.moderated_by = updates.moderatedBy;
-      if (updates.topicScores !== undefined) dbUpdates.topic_scores = updates.topicScores;
       if (updates.boostedUsers !== undefined) dbUpdates.boosted_users = updates.boostedUsers;
       if (updates.comments !== undefined) dbUpdates.comments = updates.comments;
-      if (updates.quietReactions !== undefined) dbUpdates.quiet_reactions = updates.quietReactions;
 
       const { error } = await supabase
         .from('posts')
@@ -244,7 +242,7 @@ export class PostRepositoryProvider {
       id: db.id,
       authorName: db.author_name,
       authorAvatar: db.author_avatar,
-      title: db.title || undefined,
+      title: undefined,
       text: db.text || undefined,
       image: db.image || undefined,
       likes: db.likes || 0,
@@ -255,10 +253,10 @@ export class PostRepositoryProvider {
       moderatedBy: db.moderated_by || undefined,
       isApproved: db.is_approved === null ? undefined : db.is_approved,
       postFormat: db.post_format || undefined,
-      topicScores: db.topic_scores || [],
+      topicScores: [],
       attentionScore: db.attention_score || 0,
       boostedUsers: db.boosted_users || [],
-      quietReactions: db.quiet_reactions || { saved: 0, returned: 0, continued: 0 }
+      quietReactions: { saved: 0, returned: 0, continued: 0 }
     };
   }
 
@@ -267,17 +265,14 @@ export class PostRepositoryProvider {
       id: post.id,
       author_name: post.authorName,
       author_avatar: post.authorAvatar,
-      title: post.title || null,
       text: post.text || null,
       image: post.image || null,
       likes: post.likes || 0,
       is_approved: post.isApproved !== undefined ? post.isApproved : true,
       moderated_by: post.moderatedBy || null,
       post_format: post.postFormat || null,
-      topic_scores: post.topicScores || [],
       attention_score: post.attentionScore || 0,
       boosted_users: post.boostedUsers || [],
-      quiet_reactions: post.quietReactions || { saved: 0, returned: 0, continued: 0 },
       comments: post.comments || [],
       created_at: post.timestamp || new Date().toISOString()
     };
@@ -416,10 +411,10 @@ export class DialogRepositoryProvider {
   async update(dialogId: string, updates: Partial<DialogComplaint>): Promise<void> {
     if (!isSupabaseConfigured) return;
     const dbUpdates: any = {};
-    if (updates.previewMessages !== undefined) dbUpdates.preview_messages = updates.previewMessages;
     if (updates.fullDialogueMessages !== undefined) dbUpdates.full_dialogue = updates.fullDialogueMessages;
     if (updates.hasCounterComplaint !== undefined) dbUpdates.has_counter_complaint = updates.hasCounterComplaint;
-    if (updates.violationHistory !== undefined) dbUpdates.violation_history = updates.violationHistory;
+    if (updates.counterComplaintText !== undefined) dbUpdates.counter_complaint_text = updates.counterComplaintText;
+    if (updates.aiAnalysis !== undefined) dbUpdates.ai_analysis = updates.aiAnalysis;
 
     const { error } = await supabase
       .from('dialog_complaints')
@@ -448,23 +443,23 @@ export class DialogRepositoryProvider {
   private mapDbToDialog(db: any): DialogComplaint {
     return {
       id: db.id,
-      offenderId: db.offender_id,
-      offenderName: db.offender_name,
-      offenderAvatar: db.offender_avatar,
-      offenderTrust: Number(db.offender_trust || 0),
-      offenderRisk: Number(db.offender_risk || 0),
-      violationType: db.violation_type,
-      source: db.source,
-      reporterId: db.reporter_id,
-      reporterName: db.reporter_name,
-      reporterAvatar: db.reporter_avatar,
-      participants: db.participants || {},
-      previewMessages: db.preview_messages || [],
+      offenderId: undefined as any,
+      offenderName: undefined as any,
+      offenderAvatar: undefined as any,
+      offenderTrust: 0,
+      offenderRisk: 0,
+      violationType: undefined as any,
+      source: undefined as any,
+      reporterId: undefined as any,
+      reporterName: undefined as any,
+      reporterAvatar: undefined as any,
+      participants: {},
+      previewMessages: [],
       contextBeforeMessages: db.context_before || [],
       contextAfterMessages: db.context_after || [],
       fullDialogueMessages: db.full_dialogue || [],
       aiAnalysis: db.ai_analysis || {},
-      violationHistory: db.violation_history || {},
+      violationHistory: {},
       hasCounterComplaint: db.has_counter_complaint || false,
       counterComplaintText: db.counter_complaint_text
     };
@@ -473,23 +468,10 @@ export class DialogRepositoryProvider {
   private mapDialogToDb(d: DialogComplaint): any {
     return {
       id: d.id,
-      offender_id: d.offenderId,
-      offender_name: d.offenderName,
-      offender_avatar: d.offenderAvatar,
-      offender_trust: d.offenderTrust,
-      offender_risk: d.offenderRisk,
-      violation_type: d.violationType,
-      source: d.source,
-      reporter_id: d.reporterId,
-      reporter_name: d.reporterName,
-      reporter_avatar: d.reporterAvatar,
-      participants: d.participants,
-      preview_messages: d.previewMessages,
       context_before: d.contextBeforeMessages,
       context_after: d.contextAfterMessages,
       full_dialogue: d.fullDialogueMessages,
       ai_analysis: d.aiAnalysis,
-      violation_history: d.violationHistory,
       has_counter_complaint: d.hasCounterComplaint,
       counter_complaint_text: d.counterComplaintText,
       created_at: new Date().toISOString()

@@ -101,7 +101,7 @@ export class UserRepository {
       .from('user_progress')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       handleSupabaseError(error, 'getProgress');

@@ -1,14 +1,23 @@
 /// <reference types="vite/client" />
-import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+import { createClient } from '@supabase/supabase-js'
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Missing Supabase env");
+const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim()
+const supabaseKey = String(import.meta.env.VITE_SUPABASE_KEY || '').trim()
+
+if (!supabaseUrl.startsWith('https://')) {
+  throw new Error(
+    `Invalid VITE_SUPABASE_URL: ${supabaseUrl}`
+  )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+if (!supabaseKey) {
+  throw new Error('Missing VITE_SUPABASE_KEY')
+}
 
-export const isSupabaseConfigured = true;
+export const supabase = createClient(
+  supabaseUrl,
+  supabaseKey
+)
 
+export const isSupabaseConfigured = true

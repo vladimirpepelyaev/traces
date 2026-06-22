@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Icon16WorkOutline, Icon24HammerOutline, Icon16Block } from '@vkontakte/icons';
-import { authService } from './services/auth/AuthService';
+import { authService, profileToAppUser } from './services/auth/AuthService';
 import { useAuth } from './context/AuthContext';
 import { permissionService } from './services/permission/PermissionService';
 import { RealtimeService } from './services/realtime/RealtimeService';
@@ -1994,16 +1994,13 @@ export default function App() {
         return;
       }
       try {
-        let { data, error } = await supabase.from('users').select('*');
+        const { data, error } = await supabase.from('profiles').select('*');
         if (error) {
-          const { data: profData, error: profError } = await supabase.from('profiles').select('*');
-          if (!profError && profData) {
-            data = profData;
-          } else {
-            data = null;
-          }
+          console.error('[App] Failed to load profiles from Supabase RLS/Error:', error);
+          setUsers([]);
+          return;
         }
-        const userList = (data || []) as AppUser[];
+        const userList = (data || []).map(profileToAppUser);
         setUsers(userList);
 
         // Generate deterministic subscribers map based on the loaded users

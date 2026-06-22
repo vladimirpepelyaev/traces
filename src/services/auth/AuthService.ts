@@ -22,50 +22,41 @@ function toEmail(login: string): string {
   return `${login.toLowerCase()}@sledy-moderator.ru`;
 }
 
-function mapProfileAndRolesToAppUser(profile: any, roles: string[]): AppUser {
-  const profileRole = profile.role || 'user';
-
-  // Rule 7: Computed permissions
-  let permissions: string[] = [];
-  if (profileRole === 'super_admin') {
-    permissions = ['admin', 'moderation', 'support'];
-  } else if (profileRole === 'admin') {
-    permissions = ['admin', 'moderation'];
-  } else if (profileRole === 'moderator' || profileRole === 'moderation') {
-    permissions = ['moderation'];
-  } else if (profileRole === 'support') {
-    permissions = ['support'];
-  } else {
-    permissions = [];
+export function profileToAppUser(profile: any): AppUser {
+  if (!profile) {
+    throw new Error('profile is required');
   }
-
-  const isSuperAdmin = profileRole === 'super_admin';
-  const isAdmin = profileRole === 'admin' || isSuperAdmin;
-  const isModerator = profileRole === 'moderator' || profileRole === 'moderation' || isSuperAdmin;
-  const isSupport = profileRole === 'support' || isSuperAdmin;
-  const isEmployee = isAdmin || isModerator || isSupport;
-
-  // Rule 6: roles list [profile.role] as a hybrid array with enumerable properties
-  const rolesArray: any = [profileRole];
-  rolesArray.support = isSupport;
-  rolesArray.moderation = isModerator;
-  rolesArray.spam = isModerator;
-  rolesArray.pro = isEmployee;
-  rolesArray.verification = isAdmin;
-  rolesArray.recovery = isAdmin;
-  rolesArray.feed_moderator = isModerator;
+  const role = profile.role || 'user';
+  
+  // Rule mapping
+  const isSuperAdmin = role === 'super_admin';
+  const isModerator = role === 'moderator' || role === 'moderation';
+  const isSupport = role === 'support';
+  
+  // Rule: isEmployee = true for super_admin, moderator, support
+  const isEmployee = isSuperAdmin || isModerator || isSupport;
+  
+  // Rule: roles list with specific booleans
+  const rolesArray: any = [role];
+  rolesArray.moderation = isSuperAdmin || isModerator;
+  rolesArray.support = isSuperAdmin || isSupport;
+  rolesArray.pro = isSuperAdmin;
+  rolesArray.spam = isSuperAdmin || isModerator;
+  rolesArray.verification = isSuperAdmin;
+  rolesArray.recovery = isSuperAdmin;
+  rolesArray.feed_moderator = isSuperAdmin || isModerator;
 
   const appUser: AppUser = {
     id: profile.id,
-    name: profile.display_name || profile.username,
-    login: profile.username,
+    name: profile.display_name || profile.username || 'user',
+    login: profile.username || '',
     avatar: profile.avatar_url || 'paw-prints-emoji-clipart-md.png',
     trustLevel: 1.0,
-    isVerified: isAdmin || isModerator,
+    isVerified: isSuperAdmin || isModerator,
     isBlocked: !!profile.blocked,
     regDate: profile.created_at ? new Date(profile.created_at).toLocaleDateString() : new Date().toLocaleDateString(),
-    role: profileRole,
-    roleList: [profileRole],
+    role: role,
+    roleList: [role],
     roles: rolesArray,
     isEmployee: isEmployee,
     onboardingCompleted: !!profile.onboarding_completed,
@@ -77,20 +68,46 @@ function mapProfileAndRolesToAppUser(profile: any, roles: string[]): AppUser {
       id: true,
       block: isEmployee,
       card: true,
-      verify: isAdmin,
+      verify: isSuperAdmin,
       info: true,
       complaints: true,
-      delete: isAdmin,
+      delete: isSuperAdmin,
       mark: isEmployee
     }
   };
 
-  // Rule 8: Required logs
-  console.log('PROFILE_ROLE', profileRole);
+  // Log permissions and roles
+  console.log('PROFILE_ROLE', role);
   console.log('APP_USER', appUser);
-  console.log('PERMISSIONS', permissions);
 
   return appUser;
+}
+
+function mapProfileAndRolesToAppUser(profile: any, roles: string[]): AppUser {
+  // Integrate the roles fetched if any, but default to profile properties
+  const user = profileToAppUser(profile);
+  if (roles && roles.length > 0) {
+    const role = roles[0];
+    const isSuperAdmin = role === 'super_admin';
+    const isModerator = role === 'moderator' || role === 'moderation';
+    const isSupport = role === 'support';
+    const isEmployee = isSuperAdmin || isModerator || isSupport;
+
+    user.role = role;
+    user.roleList = roles;
+    
+    const rolesArray: any = [...roles];
+    rolesArray.moderation = isSuperAdmin || isModerator;
+    rolesArray.support = isSuperAdmin || isSupport;
+    rolesArray.pro = isSuperAdmin;
+    rolesArray.spam = isSuperAdmin || isModerator;
+    rolesArray.verification = isSuperAdmin;
+    rolesArray.recovery = isSuperAdmin;
+    rolesArray.feed_moderator = isSuperAdmin || isModerator;
+    user.roles = rolesArray;
+    user.isEmployee = isEmployee;
+  }
+  return user;
 }
 
 class AuthServiceImpl implements AuthService {
@@ -170,37 +187,49 @@ class AuthServiceImpl implements AuthService {
       .eq('id', data.user.id)
       .single();
 
-    if (profileErr || !profile) {
-      const username = login;
-      const display_name = data.user.user_metadata?.name || username;
-      const { data: newProfile } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          username,
-          display_name,
-          avatar_url: 'paw-prints-emoji-clipart-md.png',
-          role: 'user',
-          onboarding_completed: false,
-          blocked: false
-        })
-        .select()
-        .single();
-      
-      if (newProfile) {
-        profile = newProfile;
+    if (profileErr) {
+      console.error('[AuthService] Error fetching profile on signIn:', profileErr);
+      if (profileErr.code === 'PGRST116') {
+        // Safe to create new profile as the row just doesn't exist
+        const username = login;
+        const display_name = data.user.user_metadata?.name || username;
+        const { data: newProfile, error: insertErr } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            username,
+            display_name,
+            avatar_url: 'paw-prints-emoji-clipart-md.png',
+            role: 'user',
+            onboarding_completed: false,
+            blocked: false
+          })
+          .select()
+          .single();
+
+        if (insertErr) {
+          console.error('[AuthService] Error inserting new profile:', insertErr);
+        } else {
+          profile = newProfile;
+        }
       } else {
-        profile = {
-          id: data.user.id,
-          username,
-          display_name,
-          avatar_url: 'paw-prints-emoji-clipart-md.png',
-          role: 'user',
-          onboarding_completed: false,
-          blocked: false,
-          created_at: data.user.created_at
-        };
+        // Enforce constraint: RLS or similar system database error, DO NOT insert or create a new profile!
+        console.log('[AuthService] RLS or query failure. Skipping profile auto-creation on signIn.');
       }
+    }
+
+    if (!profile) {
+      // Return fallback memory object and log it
+      profile = {
+        id: data.user.id,
+        username: login,
+        display_name: data.user.user_metadata?.name || login,
+        avatar_url: 'paw-prints-emoji-clipart-md.png',
+        role: 'user',
+        onboarding_completed: false,
+        blocked: false,
+        created_at: data.user.created_at
+      };
     }
 
     // Fetch roles
@@ -225,33 +254,47 @@ class AuthServiceImpl implements AuthService {
     }
 
     // Fetch profile
-    let { data: profile } = await supabase
+    let { data: profile, error: profileErr } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
 
+    if (profileErr) {
+      console.error('[AuthService] Error fetching profile on getCurrentUser:', profileErr);
+      if (profileErr.code === 'PGRST116') {
+        const username = user.email ? user.email.split('@')[0] : 'user';
+        const display_name = user.user_metadata?.name || username;
+        const { data: newProfile, error: insertErr } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            username,
+            display_name,
+            avatar_url: 'paw-prints-emoji-clipart-md.png',
+            role: 'user',
+            onboarding_completed: false,
+            blocked: false
+          })
+          .select()
+          .single();
+
+        if (insertErr) {
+          console.error('[AuthService] Error inserting profile on getCurrentUser:', insertErr);
+        } else {
+          profile = newProfile;
+        }
+      } else {
+        // RLS error, DO NOT insert or create a new profile!
+        console.log('[AuthService] RLS or query failure. Skipping profile auto-creation on getCurrentUser.');
+      }
+    }
+
     if (!profile) {
-      const username = user.email ? user.email.split('@')[0] : 'user';
-      const display_name = user.user_metadata?.name || username;
-      const { data: newProfile } = await supabase
-        .from('profiles')
-        .insert({
-          id: user.id,
-          username,
-          display_name,
-          avatar_url: 'paw-prints-emoji-clipart-md.png',
-          role: 'user',
-          onboarding_completed: false,
-          blocked: false
-        })
-        .select()
-        .single();
-      
-      profile = newProfile || {
+      profile = {
         id: user.id,
-        username,
-        display_name,
+        username: user.email ? user.email.split('@')[0] : 'user',
+        display_name: user.user_metadata?.name || (user.email ? user.email.split('@')[0] : 'user'),
         avatar_url: 'paw-prints-emoji-clipart-md.png',
         role: 'user',
         onboarding_completed: false,
@@ -270,17 +313,18 @@ class AuthServiceImpl implements AuthService {
     if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
-      .from('user_roles')
+      .from('profiles')
       .select('role')
-      .eq('user_id', userId);
+      .eq('id', userId)
+      .single();
 
     if (error || !data) {
-      console.error('Error loading roles from user_roles table:', error);
+      console.error('[AuthService] Error loading roles from profiles table:', error);
       return [];
     }
 
-    const roleStrings = data.map(r => r.role);
-    return roleStrings;
+    const role = data.role || 'user';
+    return [role];
   }
 
   async hasRole(userId: string, role: string): Promise<boolean> {

@@ -8,19 +8,24 @@ class RealtimeServiceProvider {
   private fallbackChannel: BroadcastChannel | null = null;
   private postCallbacks: RealtimeCallback[] = [];
   private alertCallbacks: RealtimeCallback[] = [];
+  private ticketCallbacks: RealtimeCallback[] = [];
+  private notificationCallbacks: RealtimeCallback[] = [];
 
   constructor() {
-    // Implement standard BroadcastChannel for local development cross-tab sync when Supabase is not configured
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         this.fallbackChannel = new BroadcastChannel('sledy-realtime');
         this.fallbackChannel.onmessage = (event) => {
           const { type, data } = event.data;
           console.log(`[RealtimeService Fallback] Received event ${type}:`, data);
-          if (type === 'POST_INSERT') {
+          if (type === 'POST_CHANGE') {
             this.postCallbacks.forEach(cb => cb(data));
           } else if (type === 'ALERT_INSERT') {
             this.alertCallbacks.forEach(cb => cb(data));
+          } else if (type === 'TICKET_CHANGE') {
+            this.ticketCallbacks.forEach(cb => cb(data));
+          } else if (type === 'NOTIFICATION_INSERT') {
+            this.notificationCallbacks.forEach(cb => cb(data));
           }
         };
       }
@@ -30,11 +35,10 @@ class RealtimeServiceProvider {
   }
 
   /**
-   * Subscribes to new post insertions.
-   * Uses real Supabase Realtime with automatic reconnection if configured, or BroadcastChannel fallback.
+   * Subscribes to posts inserts and updates (likes, comments, etc.).
    */
-  subscribePosts(onInsert: (post: any) => void): RealtimeChannel | null {
-    this.postCallbacks.push(onInsert);
+  subscribePosts(onChanges: (post: any) => void): RealtimeChannel | null {
+    this.postCallbacks.push(onChanges);
 
     if (isSupabaseConfigured) {
       console.log('[RealtimeService] Subscribing to postgres_changes for table "posts"');
@@ -43,23 +47,15 @@ class RealtimeServiceProvider {
         .channel('public:posts')
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'posts' },
+          { event: '*', schema: 'public', table: 'posts' },
           (payload) => {
-            console.log('[RealtimeService] New post via Supabase:', payload.new);
-            onInsert(payload.new);
+            console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
+            onChanges(payload.new);
           }
         )
         .subscribe((status, err) => {
-          console.log(`[RealtimeService] post channel status: ${status}`);
           if (err) {
             console.error('[RealtimeService] post channel error:', err);
-          }
-          // Handle reconnection if channel drops / re-subscribes
-          if (status === 'CLOSED') {
-            setTimeout(() => {
-              console.log('[RealtimeService] Reconnecting post channel...');
-              channel.subscribe();
-            }, 3000);
           }
         });
 
@@ -67,99 +63,117 @@ class RealtimeServiceProvider {
       return channel;
     }
 
-    console.log('[RealtimeService] Supabase not active. Using BroadcastChannel fallback.');
     return null;
   }
 
   /**
-   * Subscribes to new alerts/announcements insertions.
-   * Uses real Supabase Realtime with automatic reconnection if configured, or BroadcastChannel fallback.
+   * Subscribes to alert/announcements insertions.
    */
   subscribeAlerts(onInsert: (alert: any) => void): RealtimeChannel | null {
     this.alertCallbacks.push(onInsert);
 
     if (isSupabaseConfigured) {
-      console.log('[RealtimeService] Subscribing to postgres_changes for table "alerts" and "announcements"');
-
-      // Listen to both tables just in case a user defines either 'alerts' or 'announcements'
       const channel = supabase
         .channel('public:alerts')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'alerts' },
           (payload) => {
-            console.log('[RealtimeService] New alert via Supabase:', payload.new);
             onInsert(payload.new);
           }
         )
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'announcements' },
-          (payload) => {
-            console.log('[RealtimeService] New announcement via Supabase:', payload.new);
-            onInsert(payload.new);
-          }
-        )
-        .subscribe((status, err) => {
-          console.log(`[RealtimeService] alert channel status: ${status}`);
-          if (err) {
-            console.error('[RealtimeService] alert channel error:', err);
-          }
-          // Handle reconnection if channel drops / CLOSED
-          if (status === 'CLOSED') {
-            setTimeout(() => {
-              console.log('[RealtimeService] Reconnecting alert channel...');
-              channel.subscribe();
-            }, 3000);
-          }
-        });
+        .subscribe();
 
       this.channels.push(channel);
       return channel;
     }
 
-    console.log('[RealtimeService] Supabase not active. Using BroadcastChannel fallback.');
     return null;
   }
 
   /**
-   * Broadcasts a new post locally or to Supabase db.
+   * Subscribes to ticketing updates.
+   */
+  subscribeTickets(onChanges: (ticket: any) => void): RealtimeChannel | null {
+    this.ticketCallbacks.push(onChanges);
+
+    if (isSupabaseConfigured) {
+      const channel = supabase
+        .channel('public:support_tickets')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'support_tickets' },
+          (payload) => {
+            onChanges(payload.new);
+          }
+        )
+        .subscribe();
+
+      this.channels.push(channel);
+      return channel;
+    }
+
+    return null;
+  }
+
+  /**
+   * Subscribes to user notifications.
+   */
+  subscribeNotifications(onInsert: (notification: any) => void): RealtimeChannel | null {
+    this.notificationCallbacks.push(onInsert);
+
+    if (isSupabaseConfigured) {
+      const channel = supabase
+        .channel('public:notifications')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications' },
+          (payload) => {
+            onInsert(payload.new);
+          }
+        )
+        .subscribe();
+
+      this.channels.push(channel);
+      return channel;
+    }
+
+    return null;
+  }
+
+  /**
+   * Broadcasts a post change locally and on DB.
    */
   async broadcastPost(post: any) {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('posts').insert([post]);
-      } catch (err) {
-        console.error('[RealtimeService] Failed to insert post to Supabase:', err);
-      }
-    }
-    
-    // Always trigger locally & broadcast for other clients
     if (this.fallbackChannel) {
-      this.fallbackChannel.postMessage({ type: 'POST_INSERT', data: post });
+      this.fallbackChannel.postMessage({ type: 'POST_CHANGE', data: post });
     }
   }
 
   /**
-   * Broadcasts a new alert locally or to Supabase db.
+   * Broadcasts a new alert/announcement.
    */
   async broadcastAlert(alert: any) {
-    if (isSupabaseConfigured) {
-      try {
-        // Try inserting to 'alerts' first
-        const { error } = await supabase.from('alerts').insert([alert]);
-        if (error) {
-          // Fallback to 'announcements'
-          await supabase.from('announcements').insert([alert]);
-        }
-      } catch (err) {
-        console.error('[RealtimeService] Failed to insert alert to Supabase:', err);
-      }
-    }
-
-    // Always trigger locally & broadcast for other clients
     if (this.fallbackChannel) {
       this.fallbackChannel.postMessage({ type: 'ALERT_INSERT', data: alert });
+    }
+  }
+
+  /**
+   * Broadcasts support ticket changes.
+   */
+  async broadcastTicket(ticket: any) {
+    if (this.fallbackChannel) {
+      this.fallbackChannel.postMessage({ type: 'TICKET_CHANGE', data: ticket });
+    }
+  }
+
+  /**
+   * Broadcasts a notification.
+   */
+  async broadcastNotification(notification: any) {
+    if (this.fallbackChannel) {
+      this.fallbackChannel.postMessage({ type: 'NOTIFICATION_INSERT', data: notification });
     }
   }
 
@@ -167,13 +181,14 @@ class RealtimeServiceProvider {
    * Unsubscribes from all active subscriptions.
    */
   unsubscribe() {
-    console.log('[RealtimeService] Unsubscribing all channels...');
     this.channels.forEach(channel => {
       supabase.removeChannel(channel);
     });
     this.channels = [];
     this.postCallbacks = [];
     this.alertCallbacks = [];
+    this.ticketCallbacks = [];
+    this.notificationCallbacks = [];
   }
 }
 

@@ -6,6 +6,13 @@ import { useAuth } from './context/AuthContext';
 import { permissionService } from './services/permission/PermissionService';
 import { RealtimeService } from './services/realtime/RealtimeService';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { 
+  profileRepository, feedRepository, postRepository, commentRepository, 
+  messageRepository, dialogRepository, moderationRepository, reportRepository, 
+  notificationRepository, alertRepository, ticketRepository, transferRepository, 
+  onboardingRepository, settingsRepository, historyRepository, searchRepository, 
+  reactionRepository 
+} from './services/database/Repository';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   SpamDecision, Complaint, Ticket, FeedPost, ComplaintHistoryItem, AppUser, 
@@ -492,10 +499,76 @@ export default function App() {
   }
 
   // State
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [spamComplaints, setSpamComplaints] = useState<Complaint[]>([]);
+  const [complaints, _setComplaintsOriginal] = useState<Complaint[]>([]);
+  const setComplaints = (updateValue: any) => {
+    _setComplaintsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
 
-  const [dialogComplaints, setDialogComplaints] = useState<DialogComplaint[]>([
+        // 1. Newly added complaints
+        const added = next.filter(c => !prevIds.has(c.id));
+        added.forEach(comp => {
+          reportRepository.insert(comp).catch(err => {
+            console.error('[Interception] Error inserting complaint:', err);
+          });
+        });
+
+        // 2. Soft-deleted complaints
+        const deletedIds = prev.filter(c => !nextIds.has(c.id)).map(c => c.id);
+        deletedIds.forEach(id => {
+          reportRepository.softDelete(id).catch(err => {
+            console.error('[Interception] Error soft-deleting complaint:', err);
+          });
+        });
+
+        // 3. Updated complaints
+        const nextMap = new Map(next.map(c => [c.id, c]));
+        prev.forEach(oldComp => {
+          const newComp = nextMap.get(oldComp.id);
+          if (newComp) {
+            if (oldComp.moderatedBy !== newComp.moderatedBy || oldComp.reason !== newComp.reason) {
+              reportRepository.update(newComp.id, newComp).catch(err => {
+                console.error('[Interception] Error updating complaint:', err);
+              });
+            }
+          }
+        });
+      }
+      return next;
+    });
+  };
+
+  const [spamComplaints, _setSpamComplaintsOriginal] = useState<Complaint[]>([]);
+  const setSpamComplaints = (updateValue: any) => {
+    _setSpamComplaintsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Newly added spam complaints
+        const added = next.filter(c => !prevIds.has(c.id));
+        added.forEach(comp => {
+          reportRepository.insert({ ...comp, dept: 'Spam' }).catch(err => {
+            console.error('[Interception] Error inserting spam complaint:', err);
+          });
+        });
+
+        // 2. Soft-deleted spam complaints
+        const deletedIds = prev.filter(c => !nextIds.has(c.id)).map(c => c.id);
+        deletedIds.forEach(id => {
+          reportRepository.softDelete(id).catch(err => {
+            console.error('[Interception] Error soft-deleting spam:', err);
+          });
+        });
+      }
+      return next;
+    });
+  };
+
+  const [dialogComplaints, _setDialogComplaintsOriginal] = useState<DialogComplaint[]>([
     {
       id: 'dc-1',
       offenderId: 'u-volkov',
@@ -644,6 +717,47 @@ export default function App() {
       hasCounterComplaint: false
     }
   ]);
+  const setDialogComplaints = (updateValue: any) => {
+    _setDialogComplaintsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Newly added dialog complaints
+        const added = next.filter(d => !prevIds.has(d.id));
+        added.forEach(dlg => {
+          dialogRepository.insert(dlg).catch(err => {
+            console.error('[Interception] Error inserting dialog:', err);
+          });
+        });
+
+        // 2. Soft-deleted dialog complaints
+        const deletedIds = prev.filter(d => !nextIds.has(d.id)).map(d => d.id);
+        deletedIds.forEach(id => {
+          dialogRepository.softDelete(id).catch(err => {
+            console.error('[Interception] Error soft-deleting dialog:', err);
+          });
+        });
+
+        // 3. Updated dialog complaints
+        const nextMap = new Map(next.map(d => [d.id, d]));
+        prev.forEach(oldDlg => {
+          const newDlg = nextMap.get(oldDlg.id);
+          if (newDlg) {
+            if (JSON.stringify(oldDlg.previewMessages) !== JSON.stringify(newDlg.previewMessages) ||
+                JSON.stringify(oldDlg.fullDialogueMessages) !== JSON.stringify(newDlg.fullDialogueMessages) ||
+                oldDlg.hasCounterComplaint !== newDlg.hasCounterComplaint) {
+              dialogRepository.update(newDlg.id, newDlg).catch(err => {
+                console.error('[Interception] Error updating dialog:', err);
+              });
+            }
+          }
+        });
+      }
+      return next;
+    });
+  };
 
   const [selectedDialogMessageIds, setSelectedDialogMessageIds] = useState<Record<string, string[]>>({
     'dc-1': ['m1-4', 'm1-5'],
@@ -775,7 +889,42 @@ export default function App() {
       timestamp: new Date()
     }
   ]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  
+  const [tickets, _setTicketsOriginal] = useState<Ticket[]>([]);
+  const setTickets = (updateValue: any) => {
+    _setTicketsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Detected newly added tickets
+        const added = next.filter(t => !prevIds.has(t.id));
+        added.forEach(ticket => {
+          ticketRepository.insertTicket(ticket).catch(err => {
+            console.error('[Interception] Error inserting ticket:', err);
+          });
+        });
+
+        // 2. Detected updated tickets
+        const nextMap = new Map(next.map(t => [t.id, t]));
+        prev.forEach(oldTicket => {
+          const newTicket = nextMap.get(oldTicket.id);
+          if (newTicket) {
+            const statusChanged = oldTicket.status !== newTicket.status;
+            const messagesChanged = (oldTicket.messages?.length || 0) !== (newTicket.messages?.length || 0);
+            if (statusChanged || messagesChanged) {
+              ticketRepository.updateTicket(newTicket.id, newTicket).catch(err => {
+                console.error('[Interception] Error updating ticket:', err);
+              });
+            }
+          }
+        });
+      }
+      return next;
+    });
+  };
+
   const [notifications, setNotifications] = useState<ToastNotification[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
   const [isModerationStarted, setIsModerationStarted] = useState(false);
@@ -920,7 +1069,53 @@ export default function App() {
 
   const [openedTicket, setOpenedTicket] = useState<Ticket | null>(null);
   const [activeSupportTickets, setActiveSupportTickets] = useState<Ticket[]>([]);
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  
+  const [feedPosts, _setFeedPostsOriginal] = useState<FeedPost[]>([]);
+  const setFeedPosts = (updateValue: any) => {
+    _setFeedPostsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Detected newly added posts
+        const added = next.filter(p => !prevIds.has(p.id));
+        added.forEach(post => {
+          postRepository.insert(post).catch(err => {
+            console.error('[Interception] Error inserting post:', err);
+          });
+        });
+
+        // 2. Detected soft-deleted posts
+        const deletedIds = prev.filter(p => !nextIds.has(p.id)).map(p => p.id);
+        deletedIds.forEach(id => {
+          postRepository.softDelete(id).catch(err => {
+            console.error('[Interception] Error soft-deleting post:', err);
+          });
+        });
+
+        // 3. Detected updated posts
+        const nextMap = new Map(next.map(p => [p.id, p]));
+        prev.forEach(oldPost => {
+          const newPost = nextMap.get(oldPost.id);
+          if (newPost) {
+            const likesChanged = oldPost.likes !== newPost.likes;
+            const appChanged = oldPost.isApproved !== newPost.isApproved;
+            const modChanged = oldPost.moderatedBy !== newPost.moderatedBy;
+            const commentsCountChanged = (oldPost.comments?.length || 0) !== (newPost.comments?.length || 0);
+
+            if (likesChanged || appChanged || modChanged || commentsCountChanged) {
+              postRepository.update(newPost.id, newPost).catch(err => {
+                console.error('[Interception] Error updating post:', err);
+              });
+            }
+          }
+        });
+      }
+      return next;
+    });
+  };
+
   const [allTopics, setAllTopics] = useState<string[]>(BASE_TOPICS);
   const [expandedPostTopicIds, setExpandedPostTopicIds] = useState<Record<string, boolean>>({});
   const [topicScoreEditPost, setTopicScoreEditPost] = useState<FeedPost | null>(null);
@@ -1024,9 +1219,234 @@ export default function App() {
     }
   }, [authUser, authLoading]);
 
+  const restoreSession = async () => {
+    console.log('[Boot] restoreSession() - restoring login session');
+    const user = await authService.getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+      return user;
+    }
+    return null;
+  };
+
+  const loadProfile = async (userId: string) => {
+    console.log('[Boot] loadProfile() - reading user profile from DB', userId);
+    try {
+      const profile = await profileRepository.getProfile(userId);
+      if (profile && profile.publicSettings) {
+        setPublicSettings(profile.publicSettings);
+      }
+      return profile;
+    } catch (e) {
+      console.error('[Boot] loadProfile failed:', e);
+      return null;
+    }
+  };
+
+  const loadDialogs = async () => {
+    console.log('[Boot] loadDialogs() - loading dialogs and messenger messages');
+    try {
+      const dbDialogs = await dialogRepository.getAll();
+      if (dbDialogs && dbDialogs.length > 0) {
+        _setDialogComplaintsOriginal(dbDialogs);
+      } else {
+        console.log('[Migration] Migrating/Seeding dialog_complaints default database states...');
+        for (const dlg of dialogComplaints) {
+          await dialogRepository.insert(dlg);
+        }
+      }
+
+      // Also load/hydrate companion messenger messages
+      const dbMsgs = await messageRepository.getAll();
+      if (dbMsgs && dbMsgs.length > 0) {
+        _setMessengerMessagesOriginal(dbMsgs);
+      } else {
+        console.log('[Migration] Migrating/Seeding messenger_messages default database states...');
+        for (const msg of messengerMessages) {
+          await messageRepository.insert(msg);
+        }
+      }
+    } catch (e) {
+      console.error('[Boot] loadDialogs/messages failed:', e);
+    }
+  };
+
+  const loadFeed = async () => {
+    console.log('[Boot] loadFeed() - loading feed posts');
+    try {
+      const posts = await postRepository.getAll();
+      if (posts && posts.length > 0) {
+        _setFeedPostsOriginal(posts);
+      } else {
+        // Migration seed
+        const defaultMockPosts: FeedPost[] = [
+          {
+            id: 'post_1',
+            authorName: 'Алексей К.',
+            authorAvatar: '',
+            title: 'Почему люди стали меньше читать?',
+            text: 'В последние годы заметен спад интереса к объемной художественной литературе. Клиповое мышление и бесконечные ленты соцсетей приучили нас потреблять информацию короткими порциями. Согласны ли вы, что книга сегодня проигрывает борьбу за внимание?',
+            likes: 12,
+            timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+            comments: [
+              { id: 'c-1', authorId: 'mock-id-1', authorName: 'Мария П.', authorAvatar: '', text: 'Абсолютно согласна! Очень сложно стало концентрироваться на длинном тексте.', timestamp: '3 часа назад' }
+            ],
+            postFormat: 'QUESTION',
+            isApproved: true,
+            topicScores: [ { topic: 'Книги', score: 90 }, { topic: 'Культура', score: 70 } ]
+          },
+          {
+            id: 'post_2',
+            authorName: 'Мария П.',
+            authorAvatar: '',
+            title: 'Наблюдение про удалённую работу',
+            text: 'После трех лет в распределенной команде я поняла одно: доверие важнее любого тайм-трекера. Если вы начинаете следить за каждой минутой сотрудника, вы уже проиграли. Результаты работы всегда говорят сами за себя.',
+            likes: 24,
+            timestamp: new Date(Date.now() - 3600000 * 8).toISOString(),
+            comments: [],
+            postFormat: 'OPINION',
+            isApproved: true,
+            topicScores: [ { topic: 'Карьера', score: 85 }, { topic: 'Управление', score: 60 } ]
+          },
+          {
+            id: 'post_3',
+            authorName: 'Елена С.',
+            authorAvatar: '',
+            title: 'Как решить проблему выгорания инженеров поддержки',
+            text: 'В нашей компании мы внедрили ротацию задач для инженеров техподдержки. Каждую четвертую неделю они занимаются не тикетами, а написанием документации, обучением или мелкими багами. Выгорание снизилось почти до нуля.',
+            likes: 38,
+            timestamp: new Date(Date.now() - 3600000 * 12).toISOString(),
+            comments: [],
+            postFormat: 'SOLUTION',
+            isApproved: true,
+            topicScores: [ { topic: 'Управление', score: 95 }, { topic: 'Карьера', score: 75 } ]
+          }
+        ];
+        _setFeedPostsOriginal(defaultMockPosts);
+        for (const p of defaultMockPosts) {
+          await postRepository.insert(p);
+        }
+      }
+    } catch (e) {
+      console.error('[Boot] loadFeed failed:', e);
+    }
+  };
+
+  const loadNotifications = async (userId: string) => {
+    console.log('[Boot] loadNotifications() - loading notifications for', userId);
+    try {
+      const dbNotifs = await notificationRepository.getAll(userId);
+      if (dbNotifs && dbNotifs.length > 0) {
+        setUserNotifications(dbNotifs);
+      }
+    } catch (e) {
+      console.error('[Boot] loadNotifications failed:', e);
+    }
+  };
+
+  const loadAlerts = async () => {
+    console.log('[Boot] loadAlerts() - loading active platform alerts');
+    try {
+      const dbAlerts = await alertRepository.getAll();
+      if (dbAlerts && dbAlerts.length > 0) {
+        const mappedAlerts = dbAlerts.map((a: any) => ({
+          id: a.id,
+          tag: a.tag || 'Инфо',
+          title: a.title,
+          text: a.text,
+          date: new Date(a.created_at).toLocaleDateString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+          author: 'Система',
+          isPinned: false
+        }));
+        setAnnouncements(mappedAlerts);
+      }
+    } catch (e) {
+      console.error('[Boot] loadAlerts failed:', e);
+    }
+  };
+
+  const loadTickets = async (userId: string, isUserStaff: boolean) => {
+    console.log('[Boot] loadTickets() - loading user/staff support tickets');
+    try {
+      const dbTickets = await ticketRepository.getAll(userId, isUserStaff);
+      _setTicketsOriginal(dbTickets);
+    } catch (e) {
+      console.error('[Boot] loadTickets failed:', e);
+    }
+  };
+
+  const loadHistory = async () => {
+    console.log('[Boot] loadHistory() - loading dynamic audit trails and moderation logs');
+    try {
+      const dbLogs = await moderationRepository.getActions();
+      if (dbLogs && dbLogs.length > 0) {
+        _setProfileModerationLogsOriginal(dbLogs);
+      }
+
+      // Load main report complaints
+      const dbComplaints = await reportRepository.getAll();
+      if (dbComplaints && dbComplaints.length > 0) {
+        _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam'));
+        _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+      }
+    } catch (e) {
+      console.error('[Boot] loadHistory failed:', e);
+    }
+  };
+
+  const hydrateStore = async (userId: string, isUserStaff: boolean) => {
+    console.log('[Boot] hydrateStore() - finalizing real-time stream connections and local data states');
+    try {
+      RealtimeService.subscribeTickets((updatedTicket: any) => {
+        _setTicketsOriginal((prev: any) => {
+          const mapped = {
+            id: updatedTicket.id,
+            userId: updatedTicket.user_id,
+            userName: updatedTicket.user_name,
+            userAvatar: updatedTicket.user_avatar,
+            title: updatedTicket.title,
+            status: updatedTicket.status,
+            messages: updatedTicket.messages || [],
+            urgency: updatedTicket.urgency || 'low',
+            category: updatedTicket.category,
+            source: updatedTicket.source,
+            serviceProfileId: updatedTicket.service_profile_id,
+            serviceProfileName: updatedTicket.service_profile_name,
+            serviceProfileAvatar: updatedTicket.service_profile_avatar
+          };
+          if (prev.some((t: any) => t.id === mapped.id)) {
+            return prev.map((t: any) => t.id === mapped.id ? mapped : t);
+          }
+          return [mapped, ...prev];
+        });
+      });
+    } catch (e) {
+      console.error('[Boot] hydrateStore subscriptions failed:', e);
+    }
+  };
+
+  const hydrateFromSupabase = async (userId: string, isUserStaff: boolean) => {
+    console.log('[App] Starting full structured bootload sequence from Supabase...', userId);
+    
+    // Explicit requested pipeline sequence:
+    // restoreSession() -> loadProfile() -> loadDialogs() -> loadFeed() -> loadNotifications() -> loadAlerts() -> loadTickets() -> loadHistory() -> hydrateStore()
+    const activeUser = await restoreSession();
+    const targetUserId = activeUser ? activeUser.id : userId;
+    
+    await loadProfile(targetUserId);
+    await loadDialogs();
+    await loadFeed();
+    await loadNotifications(targetUserId);
+    await loadAlerts();
+    await loadTickets(targetUserId, isUserStaff);
+    await loadHistory();
+    await hydrateStore(targetUserId, isUserStaff);
+  };
+
   useEffect(() => {
     if (currentUser) {
       setPublicSettings(currentUser.publicSettings || DEFAULT_PUBLIC_SETTINGS);
+      hydrateFromSupabase(currentUser.id, permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser));
     } else {
       setPublicSettings(DEFAULT_PUBLIC_SETTINGS);
     }
@@ -1278,7 +1698,7 @@ export default function App() {
     supportTicketId?: string;
   }
 
-  const [messengerMessages, setMessengerMessages] = useState<MessengerMessage[]>([
+  const [messengerMessages, _setMessengerMessagesOriginal] = useState<MessengerMessage[]>([
     {
       id: 'mm-1',
       senderId: '2',
@@ -1310,6 +1730,32 @@ export default function App() {
       unread: false
     }
   ]);
+  const setMessengerMessages = (updateValue: any) => {
+    _setMessengerMessagesOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Newly added chat messages
+        const added = next.filter(m => !prevIds.has(m.id));
+        added.forEach(msg => {
+          messageRepository.insert(msg).catch(err => {
+            console.error('[Interception] Error inserting message:', err);
+          });
+        });
+
+        // 2. Deleted chat messages
+        const deletedIds = prev.filter(m => !nextIds.has(m.id)).map(m => m.id);
+        deletedIds.forEach(id => {
+          messageRepository.delete(id).catch(err => {
+            console.error('[Interception] Error deleting message:', err);
+          });
+        });
+      }
+      return next;
+    });
+  };
 
   const [activeChatPartnerId, setActiveChatPartnerId] = useState<string | null>(null);
   const [messengerSearchQuery, setMessengerSearchQuery] = useState('');
@@ -1910,7 +2356,31 @@ export default function App() {
   const [isProfileInfoModalOpen, setIsProfileInfoModalOpen] = useState(false);
   const [isOperatorIdModalOpen, setIsOperatorIdModalOpen] = useState(false);
   const [isOperatorAvatarModalOpen, setIsOperatorAvatarModalOpen] = useState(false);
-  const [profileModerationLogs, setProfileModerationLogs] = useState<{ id: string, action: string, timestamp: Date }[]>([]);
+  
+  const [profileModerationLogs, _setProfileModerationLogsOriginal] = useState<{ id: string, action: string, timestamp: Date }[]>([]);
+  const setProfileModerationLogs = (updateValue: any) => {
+    _setProfileModerationLogsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const newItems = next.filter(i => !prevIds.has(i.id));
+        newItems.forEach(item => {
+          moderationRepository.insertAction({
+            id: item.id || `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+            type: 'moderation',
+            action: item.action,
+            targetId: undefined,
+            targetName: undefined,
+            message: item.action,
+            operatorId: currentUser?.id || 'system',
+            operatorName: currentUser?.name || 'Система',
+            timestamp: item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp || Date.now())
+          }).catch(err => console.error("Error logging moderation action to Supabase:", err));
+        });
+      }
+      return next;
+    });
+  };
 
   // States for the new VK Actions dropdown features
   const [isBugsModalOpen, setIsBugsModalOpen] = useState(false);

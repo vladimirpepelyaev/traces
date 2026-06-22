@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { PostFormat, POST_FORMATS } from '../post-format/postFormatTypes';
 import { GoogleGenAI } from "@google/genai";
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 interface PostComposerProps {
   currentUser: any;
@@ -90,42 +91,45 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
   // Handle draft loading on create-mode open
   useEffect(() => {
-    if (isOpen && !isEditMode) {
-      const savedDraft = localStorage.getItem('vk_post_draft');
-      if (savedDraft) {
+    const loadDraft = async () => {
+      if (isOpen && !isEditMode && currentUser?.id && isSupabaseConfigured) {
         try {
-          const parsed = JSON.parse(savedDraft);
-          setTitle(parsed.title || '');
-          setPostFormat(parsed.postFormat || 'OPINION');
-          setMedia(parsed.media || '');
-          if (editorRef.current) {
-            editorRef.current.innerHTML = parsed.content || '';
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('drafts')
+            .eq('id', currentUser.id)
+            .single();
+          if (error) throw error;
+          const drafts = data?.drafts;
+          if (drafts && drafts.vk_post_draft) {
+            const parsed = drafts.vk_post_draft;
+            setTitle(parsed.title || '');
+            setPostFormat(parsed.postFormat || 'OPINION');
+            setMedia(parsed.media || '');
+            if (editorRef.current) {
+              editorRef.current.innerHTML = parsed.content || '';
+            }
+            setAutosaveStatus('saved');
           }
-          setAutosaveStatus('saved');
         } catch (e) {
-          console.error("Failed to recover draft:", e);
+          console.error("Failed to recover draft from Supabase:", e);
         }
       }
-    }
-  }, [isOpen, isEditMode]);
+    };
+    loadDraft();
+  }, [isOpen, isEditMode, currentUser?.id]);
 
-  // Handle auto-open after onboarding or on custom event
+  // Handle auto-open on custom event
   useEffect(() => {
     const handleCheckComposer = () => {
-      if (localStorage.getItem('open_composer_after_onboarding') === 'true') {
-        localStorage.removeItem('open_composer_after_onboarding');
-        setIsOpen(true);
-      }
+      setIsOpen(true);
     };
-    handleCheckComposer();
     
-    // Check periodically or via custom window events
+    // Check via custom window events
     window.addEventListener('open-post-composer', handleCheckComposer);
-    const interval = setInterval(handleCheckComposer, 500);
     
     return () => {
       window.removeEventListener('open-post-composer', handleCheckComposer);
-      clearInterval(interval);
     };
   }, []);
 
@@ -138,7 +142,11 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       clearTimeout(autosaveTimerRef.current);
     }
 
-    autosaveTimerRef.current = setTimeout(() => {
+    autosaveTimerRef.current = setTimeout(async () => {
+      if (!currentUser?.id || !isSupabaseConfigured) {
+        setAutosaveStatus('saved');
+        return;
+      }
       try {
         const draftData = {
           title,
@@ -147,7 +155,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           content: editorRef.current?.innerHTML || '',
           updatedAt: Date.now()
         };
-        localStorage.setItem('vk_post_draft', JSON.stringify(draftData));
+        const { error } = await supabase
+          .from('profiles')
+          .update({ drafts: { vk_post_draft: draftData } })
+          .eq('id', currentUser.id);
+
+        if (error) throw error;
         setAutosaveStatus('saved');
       } catch (e) {
         setAutosaveStatus('error');
@@ -454,7 +467,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         setTitle('');
         setMedia('');
         if (editorRef.current) editorRef.current.innerHTML = '';
-        localStorage.removeItem('vk_post_draft');
+        if (isSupabaseConfigured && currentUser?.id) {
+          supabase
+            .from('profiles')
+            .update({ drafts: {} })
+            .eq('id', currentUser.id)
+            .then(({ error }) => {
+              if (error) console.error('Error clearing draft on Supabase:', error);
+            });
+        }
         setIsOpen(false);
       }
     }

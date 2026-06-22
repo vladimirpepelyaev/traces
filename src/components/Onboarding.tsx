@@ -51,7 +51,7 @@ interface OnboardingProps {
   setMySubscriptions: React.Dispatch<React.SetStateAction<string[]>>;
   mySubscribedDiscussions: string[];
   setMySubscribedDiscussions: React.Dispatch<React.SetStateAction<string[]>>;
-  onComplete: (selectedInterests: string[]) => void;
+  onComplete: (selectedInterests: string[], openComposer?: boolean) => void;
   addNotification: (title: string, message: string) => void;
 }
 
@@ -156,8 +156,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   const handleCompleteWithComposer = () => {
-    localStorage.setItem('open_composer_after_onboarding', 'true');
-    onComplete(selectedInterests);
+    onComplete(selectedInterests, true);
   };
 
   // Mock structures for interactive screens

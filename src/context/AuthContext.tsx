@@ -49,7 +49,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const newUser = await authService.signUp(login, password, name, status);
       setUser(newUser);
-      setRoles(['user']);
+      const userRoles = await authService.getRoles(newUser.id);
+      setRoles(userRoles);
       return newUser;
     } finally {
       setLoading(false);

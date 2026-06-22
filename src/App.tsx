@@ -11030,186 +11030,201 @@ export default function App() {
     addNotification('Сигнал принят! 🔥', 'Добавлено +20 к уровню общественного внимания публикации.');
   };
 
-  const renderRegistration = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[400px] mx-auto mt-10 bg-vk-white p-8 rounded-[4px] border border-vk-separator space-y-6">
-      <div className="text-center">
-        <h1 className="text-[20px] font-medium text-vk-text">{isLoginView ? 'Вход' : 'Регистрация'}</h1>
-        <p className="text-[13px] text-vk-text-secondary mt-1">{isLoginView ? 'Используйте логин и пароль' : 'Создайте новый аккаунт'}</p>
-      </div>
+  const renderRegistration = () => {
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      console.log("REGISTER_CLICK");
+      console.log("REGISTER_START");
+      
+      const isLogin = isLoginView;
+      if (regForm.login && (regForm.password || isLogin)) {
+        if (isLogin) {
+          try {
+            const loggedUser = await authCtxSignIn(regForm.login, regForm.password);
+            
+            // Keep access restriction and recovery safety checks if the user demands not breaking existing features
+            const existingUser = users.find(u => u.id === loggedUser.id || u.login === loggedUser.login) || loggedUser;
+            
+            if (existingUser.isAccessRestricted) {
+              setLoginRejectReason(`Доступ закрыт модератором: ${existingUser.accessRestrictedReason}`);
+              return;
+            }
 
-      {isLoginView && loginRejectReason && (
-        <div className="bg-[#fff9cc] text-vk-text text-[12px] px-3 py-2 rounded-[2px] text-center font-normal border border-[#fff2cc] leading-tight">
-          <div className="font-bold mb-0.5 text-[11px] uppercase tracking-wide opacity-70 text-[#7a6b00]">Доступ отклонен</div>
-          {loginRejectReason}
-        </div>
-      )}
+            // Recovery logic
+            if (existingUser.recoveryApproval === 'rejected') {
+              setLoginRejectReason(existingUser.recoveryRejectReason || 'Заявка на восстановление отклонена');
+              return;
+            }
+            setLoginRejectReason(null);
 
-      <div className="space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Логин</label>
-          <input 
-            type="text" 
-            placeholder="Ваш логин" 
-            className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
-            value={regForm.login}
-            onChange={(e) => setRegForm({ ...regForm, login: e.target.value })}
-          />
+            if (existingUser.recoveryApproval === 'approved') {
+              // Allow login for recovered account without password checking
+              setCurrentUser(existingUser);
+              setIsRegistered(true);
+              if (existingUser.login === 'admin') {
+                setIsAdminMode(true);
+              }
+              
+              // After first login, clear recovery status
+              setUsers(prev => prev.map(u => u.id === existingUser.id ? { ...u, recoveryApproval: null } : u));
+              addNotification('Вход выполнен', `Доступ успешно восстановлен.`);
+              return;
+            }
+
+            // Normal login without password validation via AuthService
+            setCurrentUser(existingUser);
+            setIsRegistered(true);
+            if (existingUser.login === 'admin') {
+              setIsAdminMode(true);
+            }
+            addNotification('Успех', 'Вход выполнен');
+          } catch (error) {
+            console.error("Login Error:", error);
+            addNotification('Ошибка', 'Не удалось войти в систему');
+          }
+        } else {
+          // Create new user (registration)
+          if (regForm.name && regForm.login && regForm.password) {
+            const inputCustomId = (regForm as any).customId ? (regForm as any).customId.trim() : '';
+            
+            // Checking if user ID or login is already taken
+            const isLoginTaken = users.some(u => u.login.toLowerCase() === regForm.login.toLowerCase() || u.id === regForm.login);
+            if (isLoginTaken) {
+              addNotification('Ошибка', 'Пользователь с таким логином или ID уже существует');
+              return;
+            }
+
+            if (inputCustomId) {
+              if (!/^\d+$/.test(inputCustomId)) {
+                addNotification('Ошибка', 'ID пользователя может быть только цифровым, без букв и символов.');
+                return;
+              }
+              if (users.some(u => u.id === inputCustomId)) {
+                addNotification('Ошибка', 'Этот ID уже зарегистрирован. Пожалуйста, укажите другой.');
+                return;
+              }
+            }
+
+            // Determine ascending sequence numerical ID:
+            const numericIds = users.map(u => parseInt(u.id) || 0).filter(i => i > 0);
+            const generatedId = (numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1).toString();
+            const finalUserId = inputCustomId || generatedId;
+
+            try {
+              console.log("REGISTER_REQUEST");
+              const newUser = await authCtxSignUp(regForm.login, regForm.password, regForm.name, regForm.status);
+              console.log("REGISTER_SUCCESS");
+              newUser.id = finalUserId; // keep generated ID logic
+
+              setUsers(prev => [...prev, newUser]);
+              setCurrentUser(newUser);
+              if (regForm.login === 'admin') {
+                setIsAdminMode(true);
+              }
+              setIsRegistered(true);
+              addNotification('Успех', 'Аккаунт создан');
+            } catch (err) {
+              console.error(err);
+              addNotification('Ошибка', 'Не удалось зарегистрироваться');
+            }
+          } else {
+            addNotification('Ошибка', 'Заполните все поля для регистрации');
+          }
+        }
+      } else {
+        addNotification('Ошибка', 'Введите логин и пароль');
+      }
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-[400px] mx-auto mt-10 bg-vk-white p-8 rounded-[4px] border border-vk-separator space-y-6">
+        <div className="text-center">
+          <h1 className="text-[20px] font-medium text-vk-text">{isLoginView ? 'Вход' : 'Регистрация'}</h1>
+          <p className="text-[13px] text-vk-text-secondary mt-1">{isLoginView ? 'Используйте логин и пароль' : 'Создайте новый аккаунт'}</p>
         </div>
-        <div className="space-y-1.5">
-          <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Пароль</label>
-          <input 
-            type="password" 
-            placeholder="Ваш пароль" 
-            className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
-            value={regForm.password}
-            onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
-          />
-        </div>
-        
-        {!isLoginView && (
-          <>
-            <div className="space-y-1.5">
-              <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Имя</label>
-              <input 
-                type="text" 
-                placeholder="Ваше имя" 
-                className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
-                value={regForm.name}
-                onChange={(e) => setRegForm({ ...regForm, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Статус</label>
-              <input 
-                type="text" 
-                placeholder="Что у вас нового?" 
-                className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
-                value={regForm.status}
-                onChange={(e) => setRegForm({ ...regForm, status: e.target.value })}
-              />
-            </div>
-          </>
+
+        {isLoginView && loginRejectReason && (
+          <div className="bg-[#fff9cc] text-vk-text text-[12px] px-3 py-2 rounded-[2px] text-center font-normal border border-[#fff2cc] leading-tight">
+            <div className="font-bold mb-0.5 text-[11px] uppercase tracking-wide opacity-70 text-[#7a6b00]">Доступ отклонен</div>
+            {loginRejectReason}
+          </div>
         )}
 
-        <button 
-          onClick={async () => {
-            if (regForm.login && (regForm.password || isLoginView)) {
-              if (isLoginView) {
-                try {
-                  const loggedUser = await authCtxSignIn(regForm.login, regForm.password);
-                  
-                  // Keep access restriction and recovery safety checks if the user demands not breaking existing features
-                  const existingUser = users.find(u => u.id === loggedUser.id || u.login === loggedUser.login) || loggedUser;
-                  
-                  if (existingUser.isAccessRestricted) {
-                    setLoginRejectReason(`Доступ закрыт модератором: ${existingUser.accessRestrictedReason}`);
-                    return;
-                  }
-
-                  // Recovery logic
-                  if (existingUser.recoveryApproval === 'rejected') {
-                    setLoginRejectReason(existingUser.recoveryRejectReason || 'Заявка на восстановление отклонена');
-                    return;
-                  }
-                  setLoginRejectReason(null);
-
-                  if (existingUser.recoveryApproval === 'approved') {
-                    // Allow login for recovered account without password checking
-                    setCurrentUser(existingUser);
-                    setIsRegistered(true);
-                    if (existingUser.login === 'admin') {
-                      setIsAdminMode(true);
-                    }
-                    
-                    // After first login, clear recovery status
-                    setUsers(prev => prev.map(u => u.id === existingUser.id ? { ...u, recoveryApproval: null } : u));
-                    addNotification('Вход выполнен', `Доступ успешно восстановлен.`);
-                    return;
-                  }
-
-                  // Normal login without password validation via AuthService
-                  setCurrentUser(existingUser);
-                  setIsRegistered(true);
-                  if (existingUser.login === 'admin') {
-                    setIsAdminMode(true);
-                  }
-                  addNotification('Успех', 'Вход выполнен');
-                } catch (error) {
-                  addNotification('Ошибка', 'Не удалось войти в систему');
-                }
-              } else {
-                // Create new user (registration)
-                if (regForm.name && regForm.login && regForm.password) {
-                  const inputCustomId = (regForm as any).customId ? (regForm as any).customId.trim() : '';
-                  
-                  // Checking if user ID or login is already taken
-                  const isLoginTaken = users.some(u => u.login.toLowerCase() === regForm.login.toLowerCase() || u.id === regForm.login);
-                  if (isLoginTaken) {
-                    addNotification('Ошибка', 'Пользователь с таким логином или ID уже существует');
-                    return;
-                  }
-
-                  if (inputCustomId) {
-                    if (!/^\d+$/.test(inputCustomId)) {
-                      addNotification('Ошибка', 'ID пользователя может быть только цифровым, без букв и символов.');
-                      return;
-                    }
-                    if (users.some(u => u.id === inputCustomId)) {
-                      addNotification('Ошибка', 'Этот ID уже зарегистрирован. Пожалуйста, укажите другой.');
-                      return;
-                    }
-                  }
-
-                  // Determine ascending sequence numerical ID:
-                  const numericIds = users.map(u => parseInt(u.id) || 0).filter(i => i > 0);
-                  const generatedId = (numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1).toString();
-                  const finalUserId = inputCustomId || generatedId;
-
-                  try {
-                    const newUser = await authCtxSignUp(regForm.login, regForm.password, regForm.name, regForm.status);
-                    newUser.id = finalUserId; // keep generated ID logic
-
-                    setUsers(prev => [...prev, newUser]);
-                    setCurrentUser(newUser);
-                    if (regForm.login === 'admin') {
-                      setIsAdminMode(true);
-                    }
-                    setIsRegistered(true);
-                    addNotification('Успех', 'Аккаунт создан');
-                  } catch (err) {
-                    addNotification('Ошибка', 'Не удалось зарегистрироваться');
-                  }
-                } else {
-                  addNotification('Ошибка', 'Заполните все поля для регистрации');
-                }
-              }
-            } else {
-              addNotification('Ошибка', 'Введите логин и пароль');
-            }
-          }}
-          className="w-full bg-[#4bb34b] text-white py-2.5 rounded-[4px] text-[14px] font-medium hover:bg-[#52c152] transition-colors mt-2"
-        >
-          {isLoginView ? 'Войти' : 'Регистрация'}
-        </button>
-
-        <div className="flex flex-col gap-3 pt-2 text-center text-[13px]">
-          <button 
-            onClick={() => setIsLoginView(!isLoginView)}
-            className="text-[#2a5885] hover:underline"
-          >
-            {isLoginView ? 'Зарегистрироваться' : 'У меня уже есть аккаунт'}
-          </button>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Логин</label>
+            <input 
+              type="text" 
+              placeholder="Ваш логин" 
+              className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+              value={regForm.login}
+              onChange={(e) => setRegForm({ ...regForm, login: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Пароль</label>
+            <input 
+              type="password" 
+              placeholder="Ваш пароль" 
+              className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+              value={regForm.password}
+              onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+            />
+          </div>
           
+          {!isLoginView && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Имя</label>
+                <input 
+                  type="text" 
+                  placeholder="Ваше имя" 
+                  className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                  value={regForm.name}
+                  onChange={(e) => setRegForm({ ...regForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[12.5px] text-vk-text-secondary ml-1 font-medium">Статус</label>
+                <input 
+                  type="text" 
+                  placeholder="Что у вас нового?" 
+                  className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                  value={regForm.status}
+                  onChange={(e) => setRegForm({ ...regForm, status: e.target.value })}
+                />
+              </div>
+            </>
+          )}
+
           <button 
-            onClick={() => setIsRestoreModalOpen(true)}
-            className="text-[#55677d] hover:underline"
+            type="submit"
+            className="w-full bg-[#4bb34b] text-white py-2.5 rounded-[4px] text-[14px] font-medium hover:bg-[#52c152] transition-colors mt-2"
           >
-            Восстановить доступ
+            {isLoginView ? 'Войти' : 'Регистрация'}
           </button>
-        </div>
-      </div>
-    </motion.div>
-  );
+
+          <div className="flex flex-col gap-3 pt-2 text-center text-[13px]">
+            <button 
+              type="button"
+              onClick={() => setIsLoginView(!isLoginView)}
+              className="text-[#2a5885] hover:underline"
+            >
+              {isLoginView ? 'Зарегистрироваться' : 'У меня уже есть аккаунт'}
+            </button>
+            
+            <button 
+              type="button"
+              onClick={() => setIsRestoreModalOpen(true)}
+              className="text-[#55677d] hover:underline"
+            >
+              Восстановить доступ
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    );
+  };
 
   const renderBlocked = () => {
     const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;

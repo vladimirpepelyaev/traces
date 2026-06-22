@@ -77,20 +77,15 @@ class AuthServiceImpl implements AuthService {
   async signUp(login: string, password?: string, name?: string, status?: string): Promise<AppUser> {
     console.log(`AuthService: signUp for ${login}`);
     if (!isSupabaseConfigured) {
-      throw new Error("Supabase is not configured. Specify VITE_SUPABASE_URL and VITE_SUPABASE_KEY.");
+      console.warn("Supabase is not configured. Specify VITE_SUPABASE_URL and VITE_SUPABASE_KEY. Trying to call Supabase signUp anyway.");
     }
 
     const email = toEmail(login);
+    const pass = password || 'default_pass_123';
+    
     const { data, error } = await supabase.auth.signUp({
       email,
-      password: password || 'default_pass_123',
-      options: {
-        data: {
-          name: name || login,
-          login: login,
-          status: status || 'Участник сообщества'
-        }
-      }
+      password: pass
     });
 
     if (error) {
@@ -101,49 +96,35 @@ class AuthServiceImpl implements AuthService {
       throw new Error('Registration failed');
     }
 
-    // Insert into profiles
+    // Insert into profiles table
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
       username: login,
-      display_name: name || login,
-      avatar_url: 'paw-prints-emoji-clipart-md.png'
+      created_at: data.user.created_at
     });
 
     if (profileError) {
       console.error('Profiles DB Table insert failed:', profileError);
     }
 
-    // Insert into user_roles
-    const roleId = crypto.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2));
-    const { error: roleError } = await supabase.from('user_roles').insert({
-      id: roleId,
-      user_id: data.user.id,
-      role: 'user'
-    });
-
-    if (roleError) {
-      console.error('Roles DB Table default role insert failed:', roleError);
-    }
-
     return mapProfileAndRolesToAppUser({
       id: data.user.id,
       username: login,
-      display_name: name || login,
-      avatar_url: 'paw-prints-emoji-clipart-md.png',
       created_at: data.user.created_at
-    }, ['user']);
+    }, []);
   }
 
   async signIn(login: string, password?: string): Promise<AppUser> {
     console.log(`AuthService: signIn for ${login}`);
     if (!isSupabaseConfigured) {
-      throw new Error("Supabase is not configured. Specify VITE_SUPABASE_URL and VITE_SUPABASE_KEY.");
+      console.warn("Supabase is not configured. Specify VITE_SUPABASE_URL and VITE_SUPABASE_KEY. Trying to call Supabase signIn anyway.");
     }
 
     const email = toEmail(login);
+    const pass = password || 'default_pass_123';
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      password: password || 'default_pass_123'
+      password: pass
     });
 
     if (error) {
@@ -246,7 +227,7 @@ class AuthServiceImpl implements AuthService {
   }
 
   async getRoles(userId: string): Promise<string[]> {
-    if (!isSupabaseConfigured) return ['user'];
+    if (!isSupabaseConfigured) return [];
 
     const { data, error } = await supabase
       .from('user_roles')
@@ -255,13 +236,10 @@ class AuthServiceImpl implements AuthService {
 
     if (error || !data) {
       console.error('Error loading roles from user_roles table:', error);
-      return ['user'];
+      return [];
     }
 
     const roleStrings = data.map(r => r.role);
-    if (roleStrings.length === 0) {
-      return ['user'];
-    }
     return roleStrings;
   }
 

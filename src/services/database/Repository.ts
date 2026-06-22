@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, handleSupabaseError } from '../../lib/supabase';
 import { FeedPost, Ticket, ModeratorAction, AppUser, Complaint, DialogComplaint, DialogMessage } from '../../types';
 
 export interface PlatformNotification {
@@ -162,6 +162,7 @@ export class PostRepositoryProvider {
 
       if (error) {
         console.error('[PostRepository] Error loading posts:', error);
+        handleSupabaseError(error, 'PostRepository.getAll');
         return [];
       }
       return (data || []).map(p => this.mapDbToPost(p));
@@ -183,6 +184,7 @@ export class PostRepositoryProvider {
 
       if (error) {
         console.error('[PostRepository] Error inserting post:', error);
+        handleSupabaseError(error, 'PostRepository.insert');
         throw error;
       }
       return this.mapDbToPost(data);
@@ -211,6 +213,7 @@ export class PostRepositoryProvider {
 
       if (error) {
         console.error('[PostRepository] Error updating post:', error);
+        handleSupabaseError(error, 'PostRepository.update');
         throw error;
       }
     } catch (e) {
@@ -228,6 +231,7 @@ export class PostRepositoryProvider {
 
       if (error) {
         console.error('[PostRepository] Error soft-deleting post:', error);
+        handleSupabaseError(error, 'PostRepository.softDelete');
         throw error;
       }
     } catch (e) {
@@ -391,6 +395,7 @@ export class DialogRepositoryProvider {
 
     if (error) {
       console.error('[DialogRepository] Error select dialogs:', error);
+      handleSupabaseError(error, 'DialogRepository.getAll');
       return [];
     }
     return (data || []).map(d => this.mapDbToDialog(d));
@@ -403,6 +408,7 @@ export class DialogRepositoryProvider {
       .insert(this.mapDialogToDb(dialog));
     if (error) {
       console.error('[DialogRepository] Error insert dialog:', error);
+      handleSupabaseError(error, 'DialogRepository.insert');
       throw error;
     }
   }
@@ -421,6 +427,7 @@ export class DialogRepositoryProvider {
       .eq('id', dialogId);
     if (error) {
       console.error('[DialogRepository] Error update dialog:', error);
+      handleSupabaseError(error, 'DialogRepository.update');
       throw error;
     }
   }
@@ -433,6 +440,7 @@ export class DialogRepositoryProvider {
       .eq('id', dialogId);
     if (error) {
       console.error('[DialogRepository] Error softDelete dialog:', error);
+      handleSupabaseError(error, 'DialogRepository.softDelete');
       throw error;
     }
   }

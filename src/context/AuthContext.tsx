@@ -208,7 +208,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
     try {
       await userRepository.completeOnboarding(user.id);
-      await userRepository.saveProgress(user.id, { currentStep: 'completed', completedSteps: interests || [] });
+      await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
       setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [] } : null);
     } catch (err) {
       console.error('Error completing onboarding:', err);
@@ -218,7 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const saveProgress = async (currentStep: string | null, completedSteps: string[]) => {
     if (!user) return;
     try {
-      await userRepository.saveProgress(user.id, { currentStep, completedSteps });
+      await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep, completedSteps });
       setUser(prev => prev ? { ...prev, interests: completedSteps } : null);
     } catch (err) {
       console.error('Error saving progress:', err);

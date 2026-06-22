@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, handleSupabaseError } from '../../lib/supabase';
 import { AppUser } from '../../types';
 import { authService } from '../auth/AuthService';
 
@@ -16,6 +16,7 @@ export interface UserProfile {
 
 export interface UserProgress {
   user_id: string;
+  course_id: string;
   current_step: string | null;
   completed_steps: string[];
   updated_at?: string;
@@ -102,7 +103,12 @@ export class UserRepository {
       .eq('user_id', userId)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      handleSupabaseError(error, 'getProgress');
+      return null;
+    }
+
+    if (!data) {
       return null;
     }
 
@@ -119,6 +125,7 @@ export class UserRepository {
 
     return {
       user_id: data.user_id,
+      course_id: data.course_id || 'main_course',
       current_step: data.current_step,
       completed_steps,
       updated_at: data.updated_at
@@ -128,20 +135,25 @@ export class UserRepository {
   /**
    * Saves user progress (upserts current step and completed steps)
    */
-  async saveProgress(userId: string, progress: { currentStep?: string | null; completedSteps?: string[] }): Promise<void> {
+  async saveProgress(userId: string, progress: { courseId?: string; currentStep?: string | null; completedSteps?: string[] }): Promise<void> {
     if (!isSupabaseConfigured) return;
+
+    // "при создании записи всегда обязательно передавай course_id"
+    // "нельзя создавать user_progress без курса"
+    const courseId = progress.courseId || 'main_course';
 
     const { error } = await supabase
       .from('user_progress')
       .upsert({
         user_id: userId,
+        course_id: courseId,
         current_step: progress.currentStep || null,
         completed_steps: progress.completedSteps || [],
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' });
 
     if (error) {
-      console.error('Error saving user progress:', error);
+      handleSupabaseError(error, 'saveProgress');
       throw error;
     }
   }

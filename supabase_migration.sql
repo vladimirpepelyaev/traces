@@ -54,6 +54,7 @@ CREATE POLICY "Enable read/write for own user_records" ON user_records
 -- 3. Table user_progress
 CREATE TABLE IF NOT EXISTS user_progress (
   user_id UUID PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  course_id TEXT NOT NULL,
   current_step TEXT,
   completed_steps JSONB DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT now()

@@ -69,7 +69,9 @@ class RealtimeServiceProvider {
    * Subscribes to posts inserts and updates (likes, comments, etc.).
    */
   subscribePosts(onChanges: (post: any) => void): RealtimeChannel | null {
-    this.postCallbacks.push(onChanges);
+    if (!this.postCallbacks.includes(onChanges)) {
+      this.postCallbacks.push(onChanges);
+    }
 
     if (isSupabaseConfigured) {
       try {
@@ -83,8 +85,14 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: '*', schema: 'public', table: 'posts' },
             (payload) => {
-              console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
-              onChanges(payload.new);
+              try {
+                if (payload.new) {
+                  console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
+                  onChanges(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing post callback:', cbErr);
+              }
             }
           )
           .subscribe((status, err) => {
@@ -107,7 +115,9 @@ class RealtimeServiceProvider {
    * Subscribes to alert/announcements insertions.
    */
   subscribeAlerts(onInsert: (alert: any) => void): RealtimeChannel | null {
-    this.alertCallbacks.push(onInsert);
+    if (!this.alertCallbacks.includes(onInsert)) {
+      this.alertCallbacks.push(onInsert);
+    }
 
     if (isSupabaseConfigured) {
       try {
@@ -119,7 +129,13 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'alerts' },
             (payload) => {
-              onInsert(payload.new);
+              try {
+                if (payload.new) {
+                  onInsert(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing alerts callback:', cbErr);
+              }
             }
           )
           .subscribe((_status, err) => {
@@ -142,7 +158,9 @@ class RealtimeServiceProvider {
    * Subscribes to ticketing updates.
    */
   subscribeTickets(onChanges: (ticket: any) => void): RealtimeChannel | null {
-    this.ticketCallbacks.push(onChanges);
+    if (!this.ticketCallbacks.includes(onChanges)) {
+      this.ticketCallbacks.push(onChanges);
+    }
 
     if (isSupabaseConfigured) {
       try {
@@ -154,7 +172,13 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: '*', schema: 'public', table: 'support_tickets' },
             (payload) => {
-              onChanges(payload.new);
+              try {
+                if (payload.new) {
+                  onChanges(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing tickets callback:', cbErr);
+              }
             }
           )
           .subscribe((_status, err) => {
@@ -177,7 +201,9 @@ class RealtimeServiceProvider {
    * Subscribes to user notifications.
    */
   subscribeNotifications(onInsert: (notification: any) => void): RealtimeChannel | null {
-    this.notificationCallbacks.push(onInsert);
+    if (!this.notificationCallbacks.includes(onInsert)) {
+      this.notificationCallbacks.push(onInsert);
+    }
 
     if (isSupabaseConfigured) {
       try {
@@ -189,7 +215,13 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'notifications' },
             (payload) => {
-              onInsert(payload.new);
+              try {
+                if (payload.new) {
+                  onInsert(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing notifications callback:', cbErr);
+              }
             }
           )
           .subscribe((_status, err) => {
@@ -222,7 +254,13 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'messenger_messages' },
             (payload) => {
-              onInsert(payload.new);
+              try {
+                if (payload.new) {
+                  onInsert(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing messenger callback:', cbErr);
+              }
             }
           )
           .subscribe((_status, err) => {
@@ -254,7 +292,13 @@ class RealtimeServiceProvider {
             'postgres_changes',
             { event: '*', schema: 'public', table: 'reactions' },
             (payload) => {
-              onChanges(payload.new);
+              try {
+                if (payload.new) {
+                  onChanges(payload.new);
+                }
+              } catch (cbErr) {
+                console.error('[RealtimeService] Error executing reactions callback:', cbErr);
+              }
             }
           )
           .subscribe((_status, err) => {

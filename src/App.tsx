@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Icon16WorkOutline, Icon24HammerOutline, Icon16Block } from '@vkontakte/icons';
 import { authService, profileToAppUser } from './services/auth/AuthService';
@@ -1082,7 +1082,11 @@ export default function App() {
         // 1. Detected newly added posts
         const added = next.filter(p => !prevIds.has(p.id));
         added.forEach(post => {
-          postRepository.insert(post).catch(err => {
+          postRepository.insert(post).then((savedPost) => {
+            _setFeedPostsOriginal(current => {
+              return current.map(p => p.id === post.id ? savedPost : p);
+            });
+          }).catch(err => {
             console.error('[Interception] Error inserting post:', err);
           });
         });
@@ -1229,6 +1233,8 @@ export default function App() {
   // Registration State
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const isHydratingRef = useRef<boolean>(false);
+  const lastHydratedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (authUser) {
@@ -1295,7 +1301,11 @@ export default function App() {
     try {
       const posts = await postRepository.getAll();
       if (posts && posts.length > 0) {
-        _setFeedPostsOriginal(posts);
+        _setFeedPostsOriginal(prev => {
+          const incomingIds = new Set(posts.map(p => p.id));
+          const localOnly = prev.filter(p => !incomingIds.has(p.id));
+          return [...localOnly, ...posts];
+        });
       } else {
         // Migration seed
         const defaultMockPosts: FeedPost[] = [
@@ -1341,7 +1351,11 @@ export default function App() {
             topicScores: [ { topic: 'Управление', score: 95 }, { topic: 'Карьера', score: 75 } ]
           }
         ];
-        _setFeedPostsOriginal(defaultMockPosts);
+        _setFeedPostsOriginal(prev => {
+          const incomingIds = new Set(defaultMockPosts.map(p => p.id));
+          const localOnly = prev.filter(p => !incomingIds.has(p.id));
+          return [...localOnly, ...defaultMockPosts];
+        });
       }
     } catch (e) {
       console.error('[Boot] loadFeed failed:', e);
@@ -1442,19 +1456,21 @@ export default function App() {
   };
 
   const hydrateFromSupabase = async (userId: string, isUserStaff: boolean) => {
+    if (isHydratingRef.current) {
+      console.log('[Boot] Already bootstrapping. Skipping overlaps.');
+      return;
+    }
+    if (lastHydratedUserIdRef.current === userId) {
+      console.log('[Boot] Already hydrated for user:', userId);
+      return;
+    }
+    isHydratingRef.current = true;
     console.log('[App] Starting full structured bootload sequence from Supabase...', userId);
     
     // Explicit requested pipeline sequence:
-    // restoreSession() -> ensureProfileExists() -> loadProfile() -> loadOnboarding() -> initRealtime() -> render()
+    // ensureProfileExists() -> loadProfile() -> loadOnboarding() -> initRealtime() -> render()
     
-    // 1. restoreSession()
-    let activeUser: any = null;
-    try {
-      activeUser = await restoreSession();
-    } catch (e) {
-      console.error('[Boot] restoreSession failed:', e);
-    }
-    const targetUserId = activeUser ? activeUser.id : userId;
+    const targetUserId = userId;
 
     // 2. ensureProfileExists()
     try {
@@ -1464,8 +1480,9 @@ export default function App() {
     }
 
     // 3. loadProfile()
+    let profile: any = null;
     try {
-      await loadProfile(targetUserId);
+      profile = await loadProfile(targetUserId);
     } catch (e) {
       console.error('[Boot] loadProfile failed:', e);
     }
@@ -1473,11 +1490,9 @@ export default function App() {
     // 4. loadOnboarding()
     try {
       const progress = await userRepository.getProgress(targetUserId);
-      if (progress) {
-        const onboardingCompleted = progress.current_step === 'completed' || !!(currentUser && currentUser.onboardingCompleted);
-        if (currentUser) {
-          setCurrentUser(prev => prev ? { ...prev, onboardingCompleted } : null);
-        }
+      const onboardingCompleted = !!(profile?.onboarding_completed);
+      if (currentUser) {
+        setCurrentUser(prev => prev ? { ...prev, onboardingCompleted } : null);
       }
     } catch (e) {
       console.error('[Boot] loadOnboarding failed:', e);
@@ -1526,6 +1541,9 @@ export default function App() {
     } catch (e) {
       console.error('[Boot] initRealtime / hydrateStore failed:', e);
     }
+
+    lastHydratedUserIdRef.current = userId;
+    isHydratingRef.current = false;
   };
 
   useEffect(() => {
@@ -1534,8 +1552,9 @@ export default function App() {
       hydrateFromSupabase(currentUser.id, permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser));
     } else {
       setPublicSettings(DEFAULT_PUBLIC_SETTINGS);
+      lastHydratedUserIdRef.current = null;
     }
-  }, [currentUser?.id, currentUser?.publicSettings]);
+  }, [currentUser?.id]);
 
   const isStaff = useMemo(() => {
     return permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser);
@@ -10133,6 +10152,16 @@ export default function App() {
 
   const filteredFeedPosts = useMemo(() => {
     let result = [...feedPosts];
+
+    // Filter out unapproved posts except for staff and the author itself (is_approved === null, or author === current user is NOT hidden)
+    result = result.filter(p => {
+      if (p.isApproved === true) return true;
+      if (p.isApproved === null || p.isApproved === undefined) return true;
+      const isEmployee = isAdminMode || currentUser?.isEmployee || (currentUser && isWorker(currentUser));
+      if (isEmployee) return true;
+      if (currentUser && (p.authorName === currentUser.name || p.authorId === currentUser.id)) return true;
+      return false;
+    });
 
     if (enableFeedModes) {
       if (feedMode === 'discussing') {

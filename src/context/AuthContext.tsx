@@ -283,11 +283,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid UUID');
       }
       await ensureProfileExists();
-      await userRepository.completeOnboarding(authUser.id);
+      // 1. сохранить progress
       await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
-      setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [], currentStep: 'completed' } : null);
+      
+      // 2. обновить profile: onboarding_completed=true
+      await userRepository.completeOnboarding(authUser.id);
+      
+      // 3. После update сделать: await refetchProfile() (handled via refreshUser)
+      await refreshUser();
     } catch (err) {
       console.error('Error completing onboarding:', err);
+      throw err;
     }
   };
 

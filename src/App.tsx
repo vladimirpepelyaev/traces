@@ -2008,14 +2008,19 @@ export default function App() {
   // --- React Router integration and Tab State derivation ---
   const location = useLocation();
   const navigate = useNavigate();
-  const { userId, postId } = useParams<{ userId?: string; postId?: string }>();
+  // Directly parse userId and postId from the pathname to avoid empty useParams() outside Routes
+  const matchUserPath = location.pathname.match(/^\/(?:u|user)\/([^/]+)/);
+  const userId = matchUserPath ? matchUserPath[1] : undefined;
+
+  const matchPostPath = location.pathname.match(/^\/post\/([^/]+)/);
+  const postId = matchPostPath ? matchPostPath[1] : undefined;
 
   // Determine active tab based on path location
   const activeTab = useMemo(() => {
     const path = location.pathname;
     if (path === '/' || path === '') return 'profile';
     if (path === '/feed') return 'feed';
-    if (path.startsWith('/u/')) return 'profile';
+    if (path.startsWith('/u/') || path.startsWith('/user/')) return 'profile';
     if (path.startsWith('/post/')) return 'post';
     if (path === '/settings') return 'settings';
     if (path === '/admin') return 'admin';
@@ -2053,10 +2058,10 @@ export default function App() {
     }
   };
 
-  // Synchronize URL /u/:userId parameter with selectedUserData state
+  // Synchronize URL /u/:userId or /user/:userId parameter with selectedUserData state
   useEffect(() => {
     const path = location.pathname;
-    if (path.startsWith('/u/') && userId) {
+    if ((path.startsWith('/u/') || path.startsWith('/user/')) && userId) {
       if (!selectedUserData || selectedUserData.id !== userId) {
         const found = users.find(u => u.id === userId);
         if (found) {
@@ -2068,13 +2073,14 @@ export default function App() {
         setSelectedUserData(null);
       }
     }
-  }, [location.pathname, userId, users]);
+  }, [location.pathname, userId, users, selectedUserData]);
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
     if (path === '/' || path === '') return true;
     if (path === '/feed') return true;
     if (path.startsWith('/u/')) return true;
+    if (path.startsWith('/user/')) return true;
     if (path.startsWith('/post/')) return true;
     if (path === '/settings') return true;
     if (path === '/admin') return true;
@@ -2464,7 +2470,7 @@ export default function App() {
       label: `ID ${u.id}`,
       onClick: () => {
         setSelectedUserData(u);
-        setActiveTab('profile');
+        navigate('/user/' + u.id);
       }
     }));
 
@@ -3664,7 +3670,7 @@ export default function App() {
                     <UserAvatar user={users.find(u => u.id === item.id || u.name === item.userName)} avatarUrl={item.userAvatar || users.find(u => u.id === item.id || u.name === item.userName)?.avatar} className="w-8 h-8 border border-vk-separator" />
                     <div>
                       <div onClick={() => { 
-                        setSelectedUserData({
+                        const userObj = {
                           id: item.id,
                           name: item.userName,
                           avatar: `https://i.pravatar.cc/150?u=${item.id}`,
@@ -3672,8 +3678,9 @@ export default function App() {
                           isVerified: false,
                           isBlocked: false,
                           regDate: 'сегодня'
-                        });
-                        setActiveTab('profile'); 
+                        };
+                        setSelectedUserData(userObj);
+                        navigate('/user/' + item.id); 
                       }} className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{item.userName}</div>
                       <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {Math.random().toFixed(2)}</div>
                     </div>
@@ -3884,7 +3891,7 @@ export default function App() {
                     <div 
                       onClick={() => {
                         setSelectedUserData(targetUser);
-                        setActiveTab('profile');
+                        navigate('/user/' + targetUser.id);
                       }} 
                       className="w-12 h-12 rounded-full overflow-hidden border border-vk-separator cursor-pointer hover:opacity-85 transition-opacity"
                     >
@@ -3898,7 +3905,7 @@ export default function App() {
                               handlePostCardClickWithAlt(e, targetUser.name, 'name');
                             } else {
                               setSelectedUserData(targetUser);
-                              setActiveTab('profile');
+                              navigate('/user/' + targetUser.id);
                             }
                           }} 
                           className="text-[13.5px] font-bold text-[#2a5885] hover:underline cursor-pointer font-sans"
@@ -4208,7 +4215,7 @@ export default function App() {
                     <span 
                       onClick={() => {
                         setSelectedUserData(user);
-                        setActiveTab('profile');
+                        navigate('/user/' + user.id);
                       }}
                       className="text-[#2a5885] hover:underline cursor-pointer"
                     >
@@ -5808,7 +5815,7 @@ export default function App() {
                           onClick={(e) => {
                             e.preventDefault();
                             setSelectedUserData(user);
-                            setActiveTab('profile');
+                            navigate('/user/' + user.id);
                           }} 
                           className="text-[13px] font-semibold text-[#285473] hover:underline cursor-pointer"
                         >
@@ -9717,7 +9724,7 @@ export default function App() {
                            const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
                            setSelectedUserData(u);
                            setOpenUserMenuId(null); 
-                           setActiveTab('profile');
+                           navigate('/user/' + u.id);
                          }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Просмотреть Профиль</button>
                          
                          <div className="border-t border-[#f0f2f5] my-1" />
@@ -9824,7 +9831,7 @@ export default function App() {
                       onClick={() => {
                         if (isAgentView && targetUser) {
                           setSelectedUserData(targetUser);
-                          setActiveTab('profile');
+                          navigate('/user/' + targetUser.id);
                         }
                       }}
                       className={`w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#e7e8ec] bg-gray-100 ${isAgentView ? 'cursor-pointer hover:opacity-85 transition-opacity' : ''}`}
@@ -9846,7 +9853,7 @@ export default function App() {
                             onClick={() => {
                               if (targetUser) {
                                 setSelectedUserData(targetUser);
-                                setActiveTab('profile');
+                                navigate('/user/' + targetUser.id);
                               }
                             }}
                             className="text-[13px] font-bold text-[#2a5885] hover:underline cursor-pointer"
@@ -10167,7 +10174,7 @@ export default function App() {
                           const target = users.find(u => u.login === req.senderLogin || u.id === req.senderId);
                           if (target) {
                             setSelectedUserData(target);
-                            setActiveTab('profile');
+                            navigate('/user/' + target.id);
                           }
                         }} 
                         className="ml-1 cursor-pointer hover:underline text-[#2a5885] font-bold"
@@ -10180,7 +10187,7 @@ export default function App() {
                             const target = users.find(u => u.login === req.senderLogin || u.id === req.senderId);
                             if (target) {
                               setSelectedUserData(target);
-                              setActiveTab('profile');
+                              navigate('/user/' + target.id);
                             }
                           }}
                           className="ml-1 cursor-pointer hover:underline opacity-70 font-normal"
@@ -10682,7 +10689,7 @@ export default function App() {
                 }
                 const u = users.find(usr => usr.name === post.authorName) || { id: `u-${post.id}`, name: post.authorName, avatar: post.authorAvatar, trustLevel: 0.88, isVerified: false, isBlocked: false, regDate: 'сегодня' };
                 setSelectedUserData(u);
-                setActiveTab('profile');
+                navigate('/user/' + u.id);
               }} 
               className="w-10 h-10 rounded-full overflow-hidden border border-zinc-150 cursor-pointer shrink-0"
             >
@@ -10704,7 +10711,7 @@ export default function App() {
                     }
                     const u = users.find(usr => usr.name === post.authorName) || { id: `u-${post.id}`, name: post.authorName, avatar: post.authorAvatar, trustLevel: 0.88, isVerified: false, isBlocked: false, regDate: 'сегодня' };
                     setSelectedUserData(u);
-                    setActiveTab('profile');
+                    navigate('/user/' + u.id);
                   }} 
                   className="text-[13.5px] font-bold text-zinc-800 hover:text-blue-500 cursor-pointer transition-colors truncate max-w-[150px]"
                 >
@@ -11138,7 +11145,7 @@ export default function App() {
           commentsDisabled={isServiceProfileUser(currentUser)}
           onUserSelect={(u) => {
             setSelectedUserData(u);
-            setActiveTab('profile');
+            navigate('/user/' + u.id);
           }}
           onCommentReact={(commentId, rxType) => handleCommentReact(post.id, commentId, rxType)}
         />
@@ -11217,7 +11224,7 @@ export default function App() {
       addNotification={addNotification}
       onUserSelect={(u) => {
         setSelectedUserData(u);
-        setActiveTab('profile');
+        navigate('/user/' + u.id);
       }}
     />
   );
@@ -12747,7 +12754,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setSelectedUserData(activePartner);
-                        setActiveTab('profile');
+                        navigate('/user/' + activePartner.id);
                       }}
                       className="px-3 py-1.5 hover:bg-[#eef2f5] text-[#2a5885] rounded-[4px] text-[12.5px] font-semibold transition-all"
                     >
@@ -12986,7 +12993,7 @@ export default function App() {
           {staffMembers.map(member => (
             <div key={member.id} className="p-4 flex items-center gap-4 hover:bg-[#f9fafc] transition-colors">
               <div 
-                onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }}
+                onClick={() => { setSelectedUserData(member); navigate('/user/' + member.id); }}
                 className="w-12 h-12 rounded-full overflow-hidden border border-vk-separator cursor-pointer shrink-0"
               >
                 <img 
@@ -13000,7 +13007,7 @@ export default function App() {
               <div className="grow">
                 <div className="flex items-center gap-2">
                   <span 
-                    onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }} 
+                    onClick={() => { setSelectedUserData(member); navigate('/user/' + member.id); }} 
                     className="text-[14px] font-semibold text-[#2a5885] hover:underline cursor-pointer"
                   >
                     {member.name}
@@ -13030,7 +13037,7 @@ export default function App() {
               </div>
               
               <button 
-                onClick={() => { setSelectedUserData(member); setActiveTab('profile'); }}
+                onClick={() => { setSelectedUserData(member); navigate('/user/' + member.id); }}
                 className="px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#e1e5eb] text-[#55677d] rounded-[4px] text-[12px] font-medium transition-colors"
                 title="Перейти в профиль"
               >
@@ -13060,7 +13067,7 @@ export default function App() {
                      <div>
                         <div onClick={() => {
                           const u = users.find(u => u.id === appeal.userId);
-                          if (u) { setSelectedUserData(u); setActiveTab('profile'); }
+                          if (u) { setSelectedUserData(u); navigate('/user/' + u.id); }
                         }} className="text-[13px] font-semibold text-[#285473] hover:underline cursor-pointer">{appeal.userName}</div>
                         <div className="text-[11px] text-vk-text-secondary">{appeal.date} • {appeal.reason}</div>
                      </div>
@@ -13472,7 +13479,7 @@ export default function App() {
                           isBlocked: false,
                           regDate: 'сегодня'
                         });
-                        setActiveTab('profile'); 
+                        navigate('/user/' + item.id); 
                       }} 
                       className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{item.userName}</div>
                       <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {Math.random().toFixed(2)}</div>
@@ -14625,7 +14632,7 @@ export default function App() {
                       isBlocked: false,
                       regDate: 'ранее'
                     });
-                    setActiveTab('profile');
+                    navigate('/user/' + log.complaint.userId);
                   }}
                 >
                   {log.complaint.userName}
@@ -15063,7 +15070,7 @@ export default function App() {
                                e.stopPropagation();
                                const u = users.find(u => u.name === t.userName) || { id: t.userId, name: t.userName, avatar: t.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
                                setSelectedUserData(u);
-                               setActiveTab('profile');
+                               navigate('/user/' + u.id);
                              }} className="flex items-center gap-3 group/author">
                                <UserAvatar user={users.find(u => u.name === t.userName)} avatarUrl={t.userAvatar || users.find(u => u.name === t.userName)?.avatar} className="w-9 h-9 border border-vk-separator" />
                                <div>
@@ -16369,6 +16376,7 @@ export default function App() {
                    <Route path="/" element={renderContent()} />
                    <Route path="/feed" element={renderContent()} />
                    <Route path="/u/:userId" element={renderContent()} />
+                   <Route path="/user/:userId" element={renderContent()} />
                    <Route path="/post/:postId" element={renderContent()} />
                    <Route path="/settings" element={renderContent()} />
                    <Route path="/admin" element={renderContent()} />
@@ -17065,7 +17073,7 @@ export default function App() {
                               isBlocked: false,
                               regDate: 'ранее'
                             });
-                            setActiveTab('profile');
+                            navigate('/user/' + selectedActionLog.complaint.userId);
                             setSelectedActionLog(null);
                           }}
                           className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer"
@@ -17200,7 +17208,7 @@ export default function App() {
                             isBlocked: false,
                             regDate: 'ранее'
                           });
-                          setActiveTab('profile'); 
+                          navigate('/user/' + reviewingComplaintLog.complaint.userId); 
                           setReviewingComplaintLog(null);
                         }} className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{reviewingComplaintLog.complaint.userName}</div>
                         <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {parseFloat(reviewingComplaintLog.complaint.rating || '0.7').toFixed(2)}</div>
@@ -18023,7 +18031,7 @@ export default function App() {
                       key={subU.id}
                       onClick={() => {
                         setSelectedUserData(subU);
-                        setActiveTab('profile');
+                        navigate('/user/' + subU.id);
                         setIsSubscribersModalOpen(false);
                       }}
                       className="flex items-center gap-3 p-2 rounded-[4px] hover:bg-[#f0f2f5] cursor-pointer transition-colors group"

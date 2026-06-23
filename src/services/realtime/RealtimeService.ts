@@ -142,6 +142,50 @@ class RealtimeServiceProvider {
   }
 
   /**
+   * Subscribes to messenger messages.
+   */
+  subscribeMessengerMessages(onInsert: (message: any) => void): RealtimeChannel | null {
+    if (isSupabaseConfigured) {
+      const channel = supabase
+        .channel('public:messenger_messages')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messenger_messages' },
+          (payload) => {
+            onInsert(payload.new);
+          }
+        )
+        .subscribe();
+
+      this.channels.push(channel);
+      return channel;
+    }
+    return null;
+  }
+
+  /**
+   * Subscribes to reactions changes (likes, dislikes).
+   */
+  subscribeReactions(onChanges: (reaction: any) => void): RealtimeChannel | null {
+    if (isSupabaseConfigured) {
+      const channel = supabase
+        .channel('public:reactions')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'reactions' },
+          (payload) => {
+            onChanges(payload.new);
+          }
+        )
+        .subscribe();
+
+      this.channels.push(channel);
+      return channel;
+    }
+    return null;
+  }
+
+  /**
    * Broadcasts a post change locally and on DB.
    */
   async broadcastPost(post: any) {

@@ -5,7 +5,8 @@ import { authService, profileToAppUser } from './services/auth/AuthService';
 import { useAuth } from './context/AuthContext';
 import { permissionService } from './services/permission/PermissionService';
 import { RealtimeService } from './services/realtime/RealtimeService';
-import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { supabase, isSupabaseConfigured, ensureProfileExists } from './lib/supabase';
+import { userRepository } from './services/user/UserRepository';
 import { 
   profileRepository, feedRepository, postRepository, commentRepository, 
   messageRepository, dialogRepository, moderationRepository, reportRepository, 
@@ -1272,10 +1273,8 @@ export default function App() {
       if (dbDialogs && dbDialogs.length > 0) {
         _setDialogComplaintsOriginal(dbDialogs);
       } else {
-        console.log('[Migration] Migrating/Seeding dialog_complaints default database states...');
-        for (const dlg of dialogComplaints) {
-          await dialogRepository.insert(dlg);
-        }
+        console.log('[Migration] Loading dialog_complaints default memory state...');
+        _setDialogComplaintsOriginal(dialogComplaints);
       }
 
       // Also load/hydrate companion messenger messages
@@ -1283,10 +1282,8 @@ export default function App() {
       if (dbMsgs && dbMsgs.length > 0) {
         _setMessengerMessagesOriginal(dbMsgs);
       } else {
-        console.log('[Migration] Migrating/Seeding messenger_messages default database states...');
-        for (const msg of messengerMessages) {
-          await messageRepository.insert(msg);
-        }
+        console.log('[Migration] Loading messenger_messages default memory state...');
+        _setMessengerMessagesOriginal(messengerMessages);
       }
     } catch (e) {
       console.error('[Boot] loadDialogs/messages failed:', e);
@@ -1345,9 +1342,6 @@ export default function App() {
           }
         ];
         _setFeedPostsOriginal(defaultMockPosts);
-        for (const p of defaultMockPosts) {
-          await postRepository.insert(p);
-        }
       }
     } catch (e) {
       console.error('[Boot] loadFeed failed:', e);
@@ -1451,18 +1445,87 @@ export default function App() {
     console.log('[App] Starting full structured bootload sequence from Supabase...', userId);
     
     // Explicit requested pipeline sequence:
-    // restoreSession() -> loadProfile() -> loadDialogs() -> loadFeed() -> loadNotifications() -> loadAlerts() -> loadTickets() -> loadHistory() -> hydrateStore()
-    const activeUser = await restoreSession();
-    const targetUserId = activeUser ? activeUser.id : userId;
+    // restoreSession() -> ensureProfileExists() -> loadProfile() -> loadOnboarding() -> initRealtime() -> render()
     
-    await loadProfile(targetUserId);
-    await loadDialogs();
-    await loadFeed();
-    await loadNotifications(targetUserId);
-    await loadAlerts();
-    await loadTickets(targetUserId, isUserStaff);
-    await loadHistory();
-    await hydrateStore(targetUserId, isUserStaff);
+    // 1. restoreSession()
+    let activeUser: any = null;
+    try {
+      activeUser = await restoreSession();
+    } catch (e) {
+      console.error('[Boot] restoreSession failed:', e);
+    }
+    const targetUserId = activeUser ? activeUser.id : userId;
+
+    // 2. ensureProfileExists()
+    try {
+      await ensureProfileExists();
+    } catch (e) {
+      console.error('[Boot] ensureProfileExists failed:', e);
+    }
+
+    // 3. loadProfile()
+    try {
+      await loadProfile(targetUserId);
+    } catch (e) {
+      console.error('[Boot] loadProfile failed:', e);
+    }
+
+    // 4. loadOnboarding()
+    try {
+      const progress = await userRepository.getProgress(targetUserId);
+      if (progress) {
+        const onboardingCompleted = progress.current_step === 'completed' || !!(currentUser && currentUser.onboardingCompleted);
+        if (currentUser) {
+          setCurrentUser(prev => prev ? { ...prev, onboardingCompleted } : null);
+        }
+      }
+    } catch (e) {
+      console.error('[Boot] loadOnboarding failed:', e);
+    }
+
+    // Load supplemental data (never blocking the boot sequence)
+    try {
+      await loadDialogs();
+    } catch (e) {
+      console.error('[Boot] loadDialogs failed:', e);
+    }
+
+    try {
+      await loadFeed();
+    } catch (e) {
+      console.error('[Boot] loadFeed failed:', e);
+    }
+
+    try {
+      await loadNotifications(targetUserId);
+    } catch (e) {
+      console.error('[Boot] loadNotifications failed:', e);
+    }
+
+    try {
+      await loadAlerts();
+    } catch (e) {
+      console.error('[Boot] loadAlerts failed:', e);
+    }
+
+    try {
+      await loadTickets(targetUserId, isUserStaff);
+    } catch (e) {
+      console.error('[Boot] loadTickets failed:', e);
+    }
+
+    try {
+      await loadHistory();
+    } catch (e) {
+      console.error('[Boot] loadHistory failed:', e);
+    }
+
+    // 5. initRealtime() / hydrateStore()
+    try {
+      await hydrateStore(targetUserId, isUserStaff);
+    } catch (e) {
+      console.error('[Boot] initRealtime / hydrateStore failed:', e);
+    }
   };
 
   useEffect(() => {

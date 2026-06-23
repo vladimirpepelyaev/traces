@@ -15,55 +15,60 @@ export const isSupabaseConfigured = true;
 export async function ensureProfileExists(): Promise<void> {
   if (!isSupabaseConfigured) return;
 
-  const { data, error: userError } = await supabase.auth.getUser();
-  const user = data?.user;
-  if (userError || !user) {
-    return;
-  }
-
-  const existing = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('id', user.id)
-    .single();
-
-  const profileExists = !!(existing && existing.data);
-
-  console.log(
-    'PROFILE CHECK',
-    {
-      authId: user.id,
-      profileExists
+  try {
+    const { data, error: userError } = await supabase.auth.getUser();
+    const user = data?.user;
+    if (userError || !user) {
+      return;
     }
-  );
 
-  if (!profileExists) {
-    const { error: upsertError } = await supabase
+    const { data: existing, error } = await supabase
       .from('profiles')
-      .upsert({
-        id: user.id,
-        username:
-          user.user_metadata?.username ??
-          user.email?.split('@')[0] ??
-          'user',
+      .select('id, onboarding_completed')
+      .eq('id', user.id)
+      .maybeSingle();
 
-        display_name:
-          user.user_metadata?.display_name ??
-          user.email ??
-          'User',
+    const profileExists = !!existing;
 
-        role: 'user',
+    console.log(
+      'PROFILE CHECK',
+      {
+        authId: user.id,
+        profileExists,
+        existing
+      }
+    );
 
-        onboarding_completed: false,
+    if (!profileExists) {
+      const { error: upsertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          username:
+            user.user_metadata?.username ??
+            user.email?.split('@')[0] ??
+            'user',
 
-        blocked: false,
+          display_name:
+            user.user_metadata?.display_name ??
+            user.email ??
+            'User',
 
-        created_at:
-          new Date().toISOString()
-      });
-    if (upsertError) {
-      console.error('[ensureProfileExists] Error upserting profile:', upsertError);
+          role: 'user',
+
+          onboarding_completed: false,
+
+          blocked: false,
+
+          created_at:
+            new Date().toISOString()
+        });
+      if (upsertError) {
+        console.error('[ensureProfileExists] Error creating profile:', upsertError);
+      }
     }
+  } catch (err) {
+    console.error('[ensureProfileExists] Unexpected error:', err);
   }
 }
 

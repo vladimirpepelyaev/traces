@@ -54,9 +54,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const u = await authService.getCurrentUser();
       if (u) {
-        await ensureProfileExists();
-        const profile = await loadProfile(u.id);
-        const progress = await loadProgress(u.id);
+        try {
+          await ensureProfileExists();
+        } catch (profileExistErr) {
+          console.error('ensureProfileExists failed during restoreSession:', profileExistErr);
+        }
+
+        let profile: any = null;
+        try {
+          profile = await loadProfile(u.id);
+        } catch (profileLoadErr) {
+          console.error('loadProfile failed during restoreSession:', profileLoadErr);
+        }
+
+        let progress: any = null;
+        try {
+          progress = await loadProgress(u.id);
+        } catch (progressLoadErr) {
+          console.error('loadProgress failed during restoreSession:', progressLoadErr);
+        }
+
         const hydrated = hydrateStore(profile, progress);
 
         const finalRole = profile?.role || u.role || 'user';
@@ -64,12 +81,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...u,
           role: finalRole,
           roles: [finalRole],
-          ...(hydrated ? {
-            onboardingCompleted: hydrated.onboardingCompleted,
-            isBlocked: hydrated.isBlocked,
-            interests: hydrated.interests,
-            currentStep: hydrated.currentStep
-          } : {})
+          onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+          isBlocked: hydrated ? hydrated.isBlocked : false,
+          interests: hydrated ? hydrated.interests : [],
+          currentStep: hydrated ? hydrated.currentStep : null
         };
 
         if (consolidatedUser.isBlocked) {
@@ -102,9 +117,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
       const newUser = await authService.signUp(login, password, name, status);
-      await ensureProfileExists();
-      const profile = await loadProfile(newUser.id);
-      const progress = await loadProgress(newUser.id);
+      
+      try {
+        await ensureProfileExists();
+      } catch (profileExistErr) {
+        console.error('ensureProfileExists failed during signUp:', profileExistErr);
+      }
+
+      let profile: any = null;
+      try {
+        profile = await loadProfile(newUser.id);
+      } catch (profileLoadErr) {
+        console.error('loadProfile failed during signUp:', profileLoadErr);
+      }
+
+      let progress: any = null;
+      try {
+        progress = await loadProgress(newUser.id);
+      } catch (progressLoadErr) {
+        console.error('loadProgress failed during signUp:', progressLoadErr);
+      }
+
       const hydrated = hydrateStore(profile, progress);
 
       const finalRole = profile?.role || newUser.role || 'user';
@@ -112,12 +145,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...newUser,
         role: finalRole,
         roles: [finalRole],
-        ...(hydrated ? {
-          onboardingCompleted: hydrated.onboardingCompleted,
-          isBlocked: hydrated.isBlocked,
-          interests: hydrated.interests,
-          currentStep: hydrated.currentStep
-        } : {})
+        onboardingCompleted: hydrated ? hydrated.onboardingCompleted : false,
+        isBlocked: hydrated ? hydrated.isBlocked : false,
+        interests: hydrated ? hydrated.interests : [],
+        currentStep: hydrated ? hydrated.currentStep : null
       };
 
       setUser(consolidatedUser);
@@ -132,9 +163,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
       const loggedUser = await authService.signIn(login, password);
-      await ensureProfileExists();
-      const profile = await loadProfile(loggedUser.id);
-      const progress = await loadProgress(loggedUser.id);
+      
+      try {
+        await ensureProfileExists();
+      } catch (profileExistErr) {
+        console.error('ensureProfileExists failed during signIn:', profileExistErr);
+      }
+
+      let profile: any = null;
+      try {
+        profile = await loadProfile(loggedUser.id);
+      } catch (profileLoadErr) {
+        console.error('loadProfile failed during signIn:', profileLoadErr);
+      }
+
+      let progress: any = null;
+      try {
+        progress = await loadProgress(loggedUser.id);
+      } catch (progressLoadErr) {
+        console.error('loadProgress failed during signIn:', progressLoadErr);
+      }
+
       const hydrated = hydrateStore(profile, progress);
 
       const finalRole = profile?.role || loggedUser.role || 'user';
@@ -142,12 +191,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...loggedUser,
         role: finalRole,
         roles: [finalRole],
-        ...(hydrated ? {
-          onboardingCompleted: hydrated.onboardingCompleted,
-          isBlocked: hydrated.isBlocked,
-          interests: hydrated.interests,
-          currentStep: hydrated.currentStep
-        } : {})
+        onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+        isBlocked: hydrated ? hydrated.isBlocked : false,
+        interests: hydrated ? hydrated.interests : [],
+        currentStep: hydrated ? hydrated.currentStep : null
       };
 
       if (consolidatedUser.isBlocked) {
@@ -185,9 +232,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const u = await authService.getCurrentUser();
       if (u) {
-        await ensureProfileExists();
-        const profile = await loadProfile(u.id);
-        const progress = await loadProgress(u.id);
+        try {
+          await ensureProfileExists();
+        } catch (profileExistErr) {
+          console.error('ensureProfileExists failed during refreshUser:', profileExistErr);
+        }
+
+        let profile: any = null;
+        try {
+          profile = await loadProfile(u.id);
+        } catch (profileLoadErr) {
+          console.error('loadProfile failed during refreshUser:', profileLoadErr);
+        }
+
+        let progress: any = null;
+        try {
+          progress = await loadProgress(u.id);
+        } catch (progressLoadErr) {
+          console.error('loadProgress failed during refreshUser:', progressLoadErr);
+        }
+
         const hydrated = hydrateStore(profile, progress);
 
         const finalRole = profile?.role || u.role || 'user';
@@ -195,12 +259,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...u,
           role: finalRole,
           roles: [finalRole],
-          ...(hydrated ? {
-            onboardingCompleted: hydrated.onboardingCompleted,
-            isBlocked: hydrated.isBlocked,
-            interests: hydrated.interests,
-            currentStep: hydrated.currentStep
-          } : {})
+          onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+          isBlocked: hydrated ? hydrated.isBlocked : false,
+          interests: hydrated ? hydrated.interests : [],
+          currentStep: hydrated ? hydrated.currentStep : null
         };
 
         setUser(consolidatedUser);

@@ -19,6 +19,7 @@ import {
   Footprints
 } from 'lucide-react';
 import { AppUser, FeedPost } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 export const ONBOARDING_TOPICS = [
   'Технологии',
@@ -66,8 +67,31 @@ export const Onboarding: React.FC<OnboardingProps> = ({
   onComplete,
   addNotification
 }) => {
-  const [step, setStep] = useState<number>(1);
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const { saveProgress } = useAuth();
+
+  const step = useMemo(() => {
+    if (!currentUser?.currentStep) return 1;
+    if (currentUser.currentStep.startsWith('step_')) {
+      const num = parseInt(currentUser.currentStep.replace('step_', ''), 10);
+      return isNaN(num) ? 1 : num;
+    }
+    if (currentUser.currentStep === 'completed') return 6;
+    return 1;
+  }, [currentUser?.currentStep]);
+
+  const setStep = async (newStep: number | ((prev: number) => number)) => {
+    let nextStepVal: number;
+    if (typeof newStep === 'function') {
+      nextStepVal = newStep(step);
+    } else {
+      nextStepVal = newStep;
+    }
+    const stepStr = nextStepVal >= 6 ? 'completed' : `step_${nextStepVal}`;
+    console.log('[Onboarding] Updating step to DB:', stepStr);
+    await saveProgress(stepStr, selectedInterests);
+  };
+
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(() => currentUser?.interests || []);
   
   // Highlighting or active states for mock representations
   const [activeScreen1Trace, setActiveScreen1Trace] = useState<number>(0);
@@ -96,11 +120,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleToggleInterest = (topic: string) => {
     setSelectedInterests(prev => {
-      if (prev.includes(topic)) {
-        return prev.filter(t => t !== topic);
-      } else {
-        return [...prev, topic];
-      }
+      const next = prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic];
+      saveProgress(`step_${step}`, next);
+      return next;
     });
   };
 

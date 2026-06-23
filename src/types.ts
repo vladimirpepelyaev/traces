@@ -149,6 +149,7 @@ export interface AppUser {
   publicSettings?: PublicProfileSettings;
   onboardingCompleted?: boolean;
   interests?: string[];
+  currentStep?: string | null;
   boostsLeft?: number;
   boostsUsed?: number;
   boostsResetTime?: string;

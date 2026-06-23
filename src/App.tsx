@@ -1145,6 +1145,28 @@ export default function App() {
   const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
   const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
   const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
+  const updateSettingsAndStore = async (newSettings: PublicProfileSettings, overrideDisplayName?: string, overrideStatus?: string) => {
+    setPublicSettings(newSettings);
+    if (currentUser) {
+      const updatedU = {
+        ...currentUser,
+        publicSettings: newSettings,
+        name: overrideDisplayName !== undefined ? overrideDisplayName : (newSettings.displayName || currentUser.name),
+        status: overrideStatus !== undefined ? overrideStatus : (newSettings.bio || currentUser.status)
+      };
+      setCurrentUser(updatedU);
+      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
+      try {
+        await profileRepository.saveProfile(currentUser.id, {
+          public_settings: newSettings,
+          display_name: overrideDisplayName !== undefined ? overrideDisplayName : (newSettings.displayName || currentUser.name)
+        });
+        console.log('[Persistence] Profile successfully saved to Supabase:', newSettings);
+      } catch (err) {
+        console.error('[Persistence] Error saving profile to Supabase:', err);
+      }
+    }
+  };
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState<boolean>(false);
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
   const [userActivity, setUserActivity] = useState<{ writing: number; reading: number; discussing: number }>({
@@ -11116,12 +11138,7 @@ export default function App() {
               onChange={(e) => {
                 const val = e.target.value;
                 const newSettings = { ...publicSettings, displayName: val };
-                setPublicSettings(newSettings);
-                if (currentUser) {
-                  const updatedU = { ...currentUser, publicSettings: newSettings, name: val || currentUser.name };
-                  setCurrentUser(updatedU);
-                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
-                }
+                updateSettingsAndStore(newSettings, val || currentUser?.name);
               }}
               className="w-full bg-[#fdfdfd] hover:bg-zinc-50 focus:bg-white text-zinc-800 px-3.5 py-2 rounded-xl border border-zinc-200 focus:border-[#4a76a8] text-xs transition-colors outline-none"
               placeholder="Введите новое имя..."
@@ -11135,12 +11152,7 @@ export default function App() {
               onChange={(e) => {
                 const val = e.target.value;
                 const newSettings = { ...publicSettings, bio: val };
-                setPublicSettings(newSettings);
-                if (currentUser) {
-                  const updatedU = { ...currentUser, publicSettings: newSettings, status: val };
-                  setCurrentUser(updatedU);
-                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
-                }
+                updateSettingsAndStore(newSettings, undefined, val);
               }}
               className="w-full bg-[#fdfdfd] hover:bg-zinc-50 focus:bg-white text-zinc-800 px-3.5 py-2 rounded-xl border border-zinc-200 focus:border-[#4a76a8] text-xs transition-colors outline-none min-h-[80px]"
               placeholder="Расскажите о себе..."
@@ -11156,11 +11168,7 @@ export default function App() {
                   checked={publicSettings.showName !== false}
                   onChange={(e) => {
                     const newSettings = { ...publicSettings, showName: e.target.checked };
-                    setPublicSettings(newSettings);
-                    if (currentUser) {
-                      const updatedU = { ...currentUser, publicSettings: newSettings };
-                      setCurrentUser(updatedU);
-                    }
+                    updateSettingsAndStore(newSettings);
                   }}
                   className="rounded text-[#4F7DF3]"
                 />
@@ -11173,11 +11181,7 @@ export default function App() {
                   checked={publicSettings.showAvatar !== false}
                   onChange={(e) => {
                     const newSettings = { ...publicSettings, showAvatar: e.target.checked };
-                    setPublicSettings(newSettings);
-                    if (currentUser) {
-                      const updatedU = { ...currentUser, publicSettings: newSettings };
-                      setCurrentUser(updatedU);
-                    }
+                    updateSettingsAndStore(newSettings);
                   }}
                   className="rounded text-[#4F7DF3]"
                 />
@@ -11190,11 +11194,7 @@ export default function App() {
                   checked={publicSettings.showActivity !== false}
                   onChange={(e) => {
                     const newSettings = { ...publicSettings, showActivity: e.target.checked };
-                    setPublicSettings(newSettings);
-                    if (currentUser) {
-                      const updatedU = { ...currentUser, publicSettings: newSettings };
-                      setCurrentUser(updatedU);
-                    }
+                    updateSettingsAndStore(newSettings);
                   }}
                   className="rounded text-[#4F7DF3]"
                 />
@@ -11207,11 +11207,7 @@ export default function App() {
                   checked={publicSettings.showDiscussions !== false}
                   onChange={(e) => {
                     const newSettings = { ...publicSettings, showDiscussions: e.target.checked };
-                    setPublicSettings(newSettings);
-                    if (currentUser) {
-                      const updatedU = { ...currentUser, publicSettings: newSettings };
-                      setCurrentUser(updatedU);
-                    }
+                    updateSettingsAndStore(newSettings);
                   }}
                   className="rounded text-[#4F7DF3]"
                 />
@@ -16422,12 +16418,7 @@ export default function App() {
               isOpen={isPrivacyModalOpen}
               settings={publicSettings}
               onSave={(newSettings) => {
-                setPublicSettings(newSettings);
-                if (currentUser) {
-                  const updatedU = { ...currentUser, publicSettings: newSettings };
-                  setCurrentUser(updatedU);
-                  setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
-                }
+                updateSettingsAndStore(newSettings);
                 setIsPrivacyModalOpen(false);
                 addNotification('Приватность', 'Настройки приватности успешно обновлены!');
               }}

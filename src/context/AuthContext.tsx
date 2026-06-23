@@ -65,7 +65,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...(hydrated ? {
             onboardingCompleted: hydrated.onboardingCompleted,
             isBlocked: hydrated.isBlocked,
-            interests: hydrated.interests
+            interests: hydrated.interests,
+            currentStep: hydrated.currentStep
           } : {})
         };
 
@@ -112,7 +113,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(hydrated ? {
           onboardingCompleted: hydrated.onboardingCompleted,
           isBlocked: hydrated.isBlocked,
-          interests: hydrated.interests
+          interests: hydrated.interests,
+          currentStep: hydrated.currentStep
         } : {})
       };
 
@@ -141,7 +143,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...(hydrated ? {
           onboardingCompleted: hydrated.onboardingCompleted,
           isBlocked: hydrated.isBlocked,
-          interests: hydrated.interests
+          interests: hydrated.interests,
+          currentStep: hydrated.currentStep
         } : {})
       };
 
@@ -192,7 +195,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...(hydrated ? {
             onboardingCompleted: hydrated.onboardingCompleted,
             isBlocked: hydrated.isBlocked,
-            interests: hydrated.interests
+            interests: hydrated.interests,
+            currentStep: hydrated.currentStep
           } : {})
         };
 
@@ -209,7 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await userRepository.completeOnboarding(user.id);
       await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
-      setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [] } : null);
+      setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [], currentStep: 'completed' } : null);
     } catch (err) {
       console.error('Error completing onboarding:', err);
     }

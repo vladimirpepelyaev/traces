@@ -453,13 +453,13 @@ export class DialogRepositoryProvider {
       reporterId: undefined as any,
       reporterName: undefined as any,
       reporterAvatar: undefined as any,
-      participants: {},
+      participants: {} as any,
       previewMessages: [],
       contextBeforeMessages: db.context_before || [],
       contextAfterMessages: db.context_after || [],
       fullDialogueMessages: db.full_dialogue || [],
       aiAnalysis: db.ai_analysis || {},
-      violationHistory: {},
+      violationHistory: {} as any,
       hasCounterComplaint: db.has_counter_complaint || false,
       counterComplaintText: db.counter_complaint_text
     };

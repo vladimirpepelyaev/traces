@@ -224,17 +224,7 @@ export const DiscussionComments: React.FC<DiscussionCommentsProps> = ({
         </div>
       </div>
       
-      {currentUser && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 bg-[#4F7DF3]/4 border border-[#4F7DF3]/15 rounded-xl text-[11.5px] text-zinc-700 select-none">
-          <div className="flex items-center gap-2">
-            <Sparkles size={13} className="text-[#4F7DF3] shrink-0" />
-            <span>Выбирайте содержательные комментарии. Вы можете в течение дня поставить только <strong>3 усиленные реакции</strong>.</span>
-          </div>
-          <div className="flex items-center gap-1.5 font-mono font-bold text-[#4F7DF3] bg-[#4F7DF3]/10 px-2.5 py-0.5 rounded-full text-[10.5px] select-none hover:bg-[#4F7DF3]/15 shrink-0 w-fit">
-            <span>🔥 {currentUser.boostsLeft !== undefined ? currentUser.boostsLeft : 3} / 3 усилений</span>
-          </div>
-        </div>
-      )}
+
 
       {comments.length === 0 ? (
         <p className="text-[11.5px] italic text-[#818c99] pl-3">Диалог еще не начат. Поделитесь вашим ходом мысли...</p>

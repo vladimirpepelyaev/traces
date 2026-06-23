@@ -94,13 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             currentStep: hydrated?.currentStep ?? 'step_1'
           };
 
-          if (consolidatedUser.isBlocked) {
-            console.warn("User is blocked. Rejecting loaded session.");
-            setUser(null);
-            setRoles([]);
-            return;
-          }
-
+          // If user is blocked, we still allow restoration of session so they don't get logged out!
           setUser(consolidatedUser);
           setRoles([finalRole]);
         } else {
@@ -208,10 +202,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentStep: hydrated?.currentStep ?? 'step_1'
       };
 
-      if (consolidatedUser.isBlocked) {
-        throw new Error('Доступ заблокирован модератором.');
-      }
-
+      // If user is blocked, we still allow authorization/login so they can read and sign out!
       setUser(consolidatedUser);
       setRoles([finalRole]);
       return consolidatedUser;

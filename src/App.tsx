@@ -2186,10 +2186,11 @@ export default function App() {
   // Determine active tab based on path location
   const activeTab = useMemo(() => {
     const path = location.pathname;
-    if (path === '/' || path === '') return 'profile';
+    if (path === '/' || path === '' || path === '/profile') return 'profile';
     if (path === '/feed') return 'feed';
+    if (path === '/messages') return 'internal-mail';
     if (path.startsWith('/u/') || path.startsWith('/user/')) return 'profile';
-    if (path.startsWith('/post/')) return 'post';
+    if (path === '/user') return 'profile';
     if (path === '/settings') return 'settings';
     if (path === '/admin') return 'admin';
     if (path.startsWith('/admin/')) {
@@ -2201,10 +2202,11 @@ export default function App() {
   }, [location.pathname]);
 
   const getPathForTab = (tabId: string): string => {
-    if (tabId === 'profile') return '/';
+    if (tabId === 'profile') return '/profile';
     if (tabId === 'feed') return '/feed';
     if (tabId === 'settings') return '/settings';
     if (tabId === 'admin') return '/admin';
+    if (tabId === 'internal-mail') return '/messages';
     
     if ([
       'spam', 'verification', 'tasks', 'internal-mail', 'support', 'appeals', 
@@ -2220,7 +2222,7 @@ export default function App() {
   const setActiveTab = (tab: string) => {
     if (tab === 'profile') {
       setSelectedUserData(null);
-      navigate('/');
+      navigate('/profile');
     } else {
       navigate(getPathForTab(tab));
     }
@@ -2236,7 +2238,7 @@ export default function App() {
           setSelectedUserData(found);
         }
       }
-    } else if (path === '/' || path === '/feed' || path === '/settings') {
+    } else if (path === '/' || path === '/profile' || path === '/feed' || path === '/settings') {
       if (selectedUserData !== null) {
         setSelectedUserData(null);
       }
@@ -2245,7 +2247,7 @@ export default function App() {
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
-    if (path === '/' || path === '') return true;
+    if (path === '/' || path === '' || path === '/profile' || path === '/messages' || path === '/user') return true;
     if (path === '/feed') return true;
     if (path.startsWith('/u/')) return true;
     if (path.startsWith('/user/')) return true;
@@ -10761,6 +10763,11 @@ export default function App() {
       return false;
     }
 
+    if (currentUser?.isBlocked) {
+      addNotification('Ограничение', 'Публикация невозможна. Ваш аккаунт ограничен модератором.');
+      return false;
+    }
+
     if (currentUser.isServiceProfile) {
       addNotification('Ограничение', 'Служебные профили не могут создавать публикации');
       return false;
@@ -11281,11 +11288,6 @@ export default function App() {
           >
             <Flame size={14} className={post.boostedUsers?.includes(currentUser?.id || currentUser?.name) ? 'fill-amber-500 text-amber-500' : 'text-zinc-400'} />
             <span>Заслуживает внимания</span>
-            {post.attentionScore !== undefined && post.attentionScore > 0 && (
-              <span className="text-[10px] bg-amber-50 border border-amber-100 text-amber-600 px-1 py-0.2 rounded font-mono font-bold">
-                {post.attentionScore}
-              </span>
-            )}
           </button>
 
           <button 
@@ -11302,7 +11304,7 @@ export default function App() {
         </div>
 
         {/* Staff Moderation block */}
-        {isStaff && !post.isApproved && (
+        {['moderator', 'admin', 'super_admin'].includes(currentUser?.role || '') && !post.isApproved && (
           <div className="px-4 pb-3 flex flex-wrap gap-2 border-t border-zinc-100 pt-3">
             <button 
               disabled={!!post.moderatedBy}
@@ -11916,6 +11918,11 @@ export default function App() {
       return;
     }
 
+    if (currentUser?.isBlocked) {
+      addNotification('Ограничение', 'Реакции недоступны. Ваш аккаунт ограничен модератором.');
+      return;
+    }
+
     // 1. Optimistic UI update (temporary bridge before database confirms)
     _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
       if (p.id !== postId) return p;
@@ -12005,53 +12012,128 @@ export default function App() {
     }
   };
 
-  const handlePostAttentionSignal = (postId: string) => {
+  const handlePostAttentionSignal = async (postId: string) => {
     if (!currentUser) {
       addNotification('Авторизация', 'Пожалуйста, войдите в аккаунт, чтобы проголосовать.');
       return;
     }
 
-    const signalsUsed = currentUser.postSignalsUsed || 0;
-    
-    // Find post in state to check if user already boosted it
-    const targetPost = feedPosts.find(p => p.id === postId);
-    if (!targetPost) return;
-
-    const boostedUsers = targetPost.boostedUsers || [];
-    const alreadyBoosted = boostedUsers.includes(currentUser.id || currentUser.name);
-
-    if (alreadyBoosted) {
-      addNotification('Голос учтен', 'Вы уже отправляли сигнал «Заслуживает внимания» для этой публикации.');
+    if (currentUser?.isBlocked) {
+      addNotification('Ограничение', 'Сигнал «Заслуживает внимания» недоступен. Ваш аккаунт ограничен модератором.');
       return;
     }
 
-    // Process limit (for posts, maximum 3 times a day)
-    if (signalsUsed >= 3) {
-      addNotification('Следы Premium', 'Оформите подписку Следы Premium в разделе «Это обсуждают» для отправки дополнительных сигналов!');
-      return;
+    const today = new Date().toISOString().split('T')[0];
+    let usedToday = 0;
+
+    try {
+      if (isSupabaseConfigured) {
+        // 1. Get current limit usage for today
+        const { data: limitData, error: selectErr } = await supabase
+          .from('user_attention_limits')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .eq('date', today)
+          .maybeSingle();
+
+        if (selectErr) {
+          console.error('[Attention] Error reading user_attention_limits:', selectErr);
+        }
+
+        usedToday = limitData ? (limitData.count || 0) : 0;
+
+        if (usedToday >= 3) {
+          addNotification('Лимит исчерпан', 'Вы можете отправлять сигнал не более 3 раз в день.');
+          return;
+        }
+
+        // Check if user already boosted this specific post to avoid duplicates
+        const targetPost = feedPosts.find(p => p.id === postId);
+        if (!targetPost) return;
+        
+        const currentAttention = targetPost.attentionScore || 0;
+        const newScore = currentAttention + 20;
+
+        // 2. Increment post attention_score
+        const { error: postUpdateErr } = await supabase
+          .from('posts')
+          .update({ attention_score: newScore })
+          .eq('id', postId);
+
+        if (postUpdateErr) {
+          console.error('[Attention] Error updating post attention_score:', postUpdateErr);
+        }
+
+        // 3. Upsert user limit count
+        const { error: limitUpsertErr } = await supabase
+          .from('user_attention_limits')
+          .upsert({
+            user_id: currentUser.id,
+            date: today,
+            count: usedToday + 1
+          }, { onConflict: 'user_id,date' });
+
+        if (limitUpsertErr) {
+          console.error('[Attention] Error upserting user_attention_limits:', limitUpsertErr);
+        }
+
+        // 4. Save event in attention_events
+        const { error: eventInsertErr } = await supabase
+          .from('attention_events')
+          .insert({
+            user_id: currentUser.id,
+            post_id: postId,
+            weight: 20
+          });
+
+        if (eventInsertErr) {
+          console.error('[Attention] Error inserting attention_events:', eventInsertErr);
+        }
+
+        // 5. Save event in reactions
+        const { error: reactionInsertErr } = await supabase
+          .from('reactions')
+          .insert({
+            id: `${currentUser.id}-${postId}-attention-${Date.now()}`,
+            post_id: postId,
+            user_id: currentUser.id,
+            type: 'attention'
+          });
+
+        if (reactionInsertErr) {
+          console.error('[Attention] Error inserting reaction:', reactionInsertErr);
+        }
+
+      } else {
+        // Fallback for non-configured or local-only environment
+        const signalsUsed = currentUser.postSignalsUsed || 0;
+        if (signalsUsed >= 3) {
+          addNotification('Лимит исчерпан', 'Вы можете отправлять сигнал не более 3 раз в день.');
+          return;
+        }
+        setCurrentUser((curr: any) => curr ? { ...curr, postSignalsUsed: (curr.postSignalsUsed || 0) + 1 } : null);
+      }
+
+      // Optimistic UI updates
+      setFeedPosts(prev => prev.map(p => {
+        if (p.id !== postId) return p;
+        const currentAttention = p.attentionScore !== undefined ? p.attentionScore : 0;
+        return {
+          ...p,
+          attentionScore: currentAttention + 20,
+          boostedUsers: [...(p.boostedUsers || []), currentUser.id || currentUser.name]
+        };
+      }));
+
+      addNotification('Сигнал принят! 🔥', 'Добавлено +20 к уровню внимания публикации.');
+
+      // 6. Force reload the feed from Database to refresh state
+      lastFeedLoadTimeRef.current = 0;
+      await loadFeed();
+
+    } catch (err) {
+      console.error('[Attention] Error during attention signal processing:', err);
     }
-
-    // Increment post's attentionScore
-    setFeedPosts(prev => prev.map(p => {
-      if (p.id !== postId) return p;
-      const currentAttention = p.attentionScore !== undefined ? p.attentionScore : ((p.likes || 0) * 2);
-      return {
-        ...p,
-        attentionScore: currentAttention + 20,
-        boostedUsers: [...(p.boostedUsers || []), currentUser.id || currentUser.name]
-      };
-    }));
-
-    // Update current user's signal usage count
-    setCurrentUser((curr: any) => {
-      if (!curr) return null;
-      return {
-        ...curr,
-        postSignalsUsed: (curr.postSignalsUsed || 0) + 1
-      };
-    });
-
-    addNotification('Сигнал принят! 🔥', 'Добавлено +20 к уровню общественного внимания публикации.');
   };
 
   const renderRegistration = () => {
@@ -12251,210 +12333,41 @@ export default function App() {
   };
 
   const renderBlocked = () => {
-    const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;
-    const info = actualCurrentUser?.profileBlockInfo || profileBlockInfo || { duration: 'Навсегда', reason: 'Нарушение правил сообщества', comment: '', isWithUnban: false };
-    const isTemp = info.duration !== 'Навсегда';
-    const isWithAppeal = !!info.isWithUnban;
-    const canAppeal = isTemp || isWithAppeal;
-
     return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white p-6 md:p-8 rounded-[2px] border border-[#dae1e8] text-center space-y-4 max-w-[560px] mx-auto mt-10 shadow-none">
-        
-        {/* Selector 5 wrap under div:nth-of-type(1) */}
-        <div className="flex justify-center text-center pb-2">
-          <div className="relative p-1 bg-transparent rounded-full">
-            <svg viewBox="0 0 120 120" className="w-[100px] h-[100px] mx-auto text-[#828282]" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-              {/* Clean grey lock/shield */}
-              <path d="M60 15 C80 25, 100 25, 100 25 C100 45, 100 70, 85 92 C75 102, 60 108, 60 108 C60 108, 45 102, 35 92 C20 70, 20 45, 20 25 C20 25, 40 25, 60 15 Z" fill="#f0f2f5" stroke="#828282" />
-              <circle cx="60" cy="55" r="12" stroke="#828282" strokeWidth="3.5" fill="none" />
-              <path d="M60 67 L60 81" stroke="#828282" strokeWidth="4" />
-            </svg>
-          </div>
-        </div>
-
-        {/* Heading Selector 4 */}
-        <h1 className="text-[17px] font-bold text-[#45668e] mt-4 mb-2 text-center tracking-normal font-sans border-b border-[#dae1e8] pb-3">
-          Доступ к странице ограничен
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        className="bg-white p-6 md:p-8 rounded-[2px] border border-[#dae1e8] text-center space-y-4 max-w-[560px] mx-auto mt-10 shadow-none"
+      >
+        <h1 className="text-[20px] font-bold text-red-600 mt-4 mb-2 text-center tracking-normal font-sans border-b border-[#dae1e8] pb-3">
+          Аккаунт ограничен
         </h1>
-
-        {/* Reason Block (div:nth-of-type(2)) */}
-        <div className="bg-[#f0f2f4] p-[15px] rounded-[2px] text-left border border-[#dae1e8]">
-          <p className="text-[12px] text-[#000000] font-semibold mb-2">
-            {isTemp ? (
-              "Ваш профиль был временно заблокирован за нарушение правил платформы, чтобы уберечь пользователей от нежелательного контента"
-            ) : isWithAppeal ? (
-              "Мы обнаружили на вашей странице подозрительную активность и заблокировали её, чтобы уберечь от злоумышленников."
-            ) : (
-              "Ваш профиль был заблокирован за нарушение правил платформы, чтобы уберечь пользователей от нежелательного контента"
-            )}
-          </p>
-          <div className="text-[11.5px] text-[#656565] space-y-1.5">
-            <div>
-              <strong>Причина:</strong> <span className="text-[#990000] font-medium">{info.reason || 'Нарушение правил сообщества'}</span>
-            </div>
-            <div>
-              <strong>Срок действия:</strong> <span className="text-[#333333] font-medium">{info.duration === 'Навсегда' ? 'навсегда' : info.duration ? `на ${info.duration}` : 'до выяснения обстоятельств'}</span>
-            </div>
-            {info.comment && (
-              <div className="pt-1 border-t border-[#dae1e8]/50 mt-1">
-                <strong>Комментарий модератора:</strong> <span className="italic text-[#333333]">«{info.comment}»</span>
-              </div>
-            )}
-          </div>
+        <p className="text-[14px] text-zinc-700 leading-relaxed font-sans text-center">
+          Доступ временно ограничен. Если считаете решение ошибочным — обратитесь в поддержку.
+        </p>
+        <div className="flex justify-center gap-4 pt-4">
+          <button
+            onClick={async () => {
+              await authCtxSignOut();
+              setIsRegistered(false);
+              setCurrentUser(null);
+              setIsAdminMode(false);
+              setIsUserMenuOpen(false);
+              navigate('/');
+            }}
+            className="px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-[4px] text-[13px] font-bold transition-colors cursor-pointer border border-zinc-200"
+          >
+            Выйти
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('support');
+            }}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-[4px] text-[13px] font-bold transition-colors cursor-pointer"
+          >
+            Написать в поддержку
+          </button>
         </div>
-
-        {/* Attached Violations (Selector 1: div:nth-of-type(3)) */}
-        {((info.examplesList && info.examplesList.length > 0) || (info.examples && Object.values(info.examples).some(v => v))) && (
-          <div className="bg-[#f0f2f4] p-[15px] rounded-[2px] text-left border border-[#dae1e8] space-y-2">
-            <span className="font-semibold text-[12px] text-[#000000] block pr-1 leading-normal">
-              Прикрепленные к блокировке нарушения:
-            </span>
-            <div className="space-y-2 text-[12px] text-[#000000]">
-              <div className="space-y-2">
-                {info.examplesList && info.examplesList.map((ex: string, idx: number) => (
-                  <div key={idx} className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8] text-[12px] font-normal text-left">
-                    {ex}
-                  </div>
-                ))}
-                {!info.examplesList && info.examples.posts && (
-                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
-                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Нарушающая публикация в ленте:</div>
-                    <div className="italic text-[#333333] font-normal text-[12px]">«{info.violatingPostText || feedPosts.find(p => p.authorName === currentUser?.name)?.text || 'Ваша публикация в ленте'}»</div>
-                  </div>
-                )}
-                {!info.examplesList && info.examples.name && (
-                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
-                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Имя профиля:</div>
-                    <div className="text-[#333333] font-normal text-[12px]">{currentUser?.name || '(Нет имени)'}</div>
-                  </div>
-                )}
-                {!info.examplesList && info.examples.status && (
-                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
-                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Статус профиля:</div>
-                    <div className="italic text-[#656565] font-normal text-[12px]">«{currentUser?.status || '(Нет статуса)'}»</div>
-                  </div>
-                )}
-                {!info.examplesList && info.examples.other && (
-                  <div className="bg-white p-2.5 rounded-[2px] border border-[#dae1e8]">
-                    <div className="text-[11px] text-[#656565] font-semibold mb-1">Другой контент:</div>
-                    <div className="text-[#333333] font-normal text-[12px]">Аватар или фотография Вашей страницы</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Appeal actions (div:nth-of-type(4)) */}
-        {canAppeal && (
-          <div className="pt-2 text-center">
-            {appeals.some(a => a.userId === currentUser?.id) ? (
-              <div className="flex flex-col items-center gap-2">
-                {/* Selector 2: p:nth-of-type(1) */}
-                <p className="text-[12px] font-bold text-[#a63232] bg-[#faeeee] border border-[#eeb9b9] p-3 rounded-[2px] w-full text-center">
-                  Апелляция подана
-                </p>
-                {/* Selector 3: div:nth-of-type(1) */}
-                <div className="text-[11.5px] text-[#656565] bg-[#fafbfc] border border-[#dae1e8] p-4 rounded-[2px] text-left w-full space-y-2">
-                  <div><span className="font-semibold text-[#000000] text-[12px]">Комментарий к заявке:</span></div>
-                  <p className="italic text-[#333333] border-l-2 border-[#b0c0d0] pl-3 py-1 bg-[#f5f7fa]">"{appeals.find(a => a.userId === currentUser?.id)?.text}"</p>
-                  <div className="text-[12px] text-[#000000] pt-1 flex items-center gap-1.5">
-                    <span>Статус:</span>
-                    <span className={appeals.find(a => a.userId === currentUser?.id)?.status === 'rejected' ? 'text-[#a63232] font-semibold' : 'text-[#656565]'}>
-                      {appeals.find(a => a.userId === currentUser?.id)?.status === 'rejected' ? 'Отклонено' : 'На проверке'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : !isAppealFormOpen ? (
-              <div className="flex flex-col items-center gap-3">
-                {/* Selector 2: p:nth-of-type(1) */}
-                <p className="text-[11.5px] text-[#656565] max-w-sm mx-auto leading-relaxed">
-                  Если Вы считаете, что блокировка была ошибочной, Вы можете подать подробное обращение.
-                </p>
-                <button 
-                  onClick={() => setIsAppealFormOpen(true)}
-                  className="bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
-                >
-                  Подать апелляцию
-                </button>
-              </div>
-            ) : (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="text-left space-y-3">
-                 {/* Selector 2: p:nth-of-type(1) */}
-                 <p className="text-[11px] text-[#656565] leading-relaxed mb-2">
-                   Пожалуйста, опишите ситуацию вежливо и по фактам. Ваше обращение рассмотрит Агент Поддержки.
-                 </p>
-                 {/* Selector 3: div:nth-of-type(1) */}
-                 <div className="text-[12px] font-bold text-[#45668e] mb-1">Текст апелляции:</div>
-                 <textarea 
-                   value={appealFormText}
-                   onChange={(e) => setAppealFormText(e.target.value)}
-                   placeholder="Опишите ситуацию, почему блокировка ошибочна..."
-                   className="w-full h-28 bg-[#f7f8fa] border border-[#dae1e8] p-3 rounded-[2px] text-[12px] focus:outline-none focus:border-[#4c75a3] resize-none"
-                 />
-                 <div className="flex gap-2">
-                    <button 
-                      onClick={() => {
-                        if (!appealFormText.trim()) return;
-                        const finalBlockedBy = info.blockedBy || 'Агент Поддержки';
-                        const finalDuration = info.duration || 'Навсегда';
-                        const finalReason = info.reason || 'Бан за нарушение правил';
-                        const attached = info.examples ? {
-                          posts: info.examples.posts ? (feedPosts.filter(p => p.authorName === currentUser?.name).map(p => p.text).filter(Boolean)[0] || 'Ваша публикация в ленте') : null,
-                          name: info.examples.name ? currentUser?.name : null,
-                          status: info.examples.status ? currentUser?.status : null,
-                          other: info.examples.other ? 'Нарушение фото/аватара' : null
-                        } : null;
-
-                        const newAppeal = {
-                          id: `ap-${Date.now()}`,
-                          userId: currentUser?.id,
-                          userName: currentUser?.name,
-                          blockedBy: finalBlockedBy,
-                          duration: finalDuration,
-                          reason: finalReason,
-                          attachedContent: attached,
-                          text: appealFormText,
-                          date: 'Только что',
-                          status: 'pending'
-                        };
-                        setAppeals(prev => [newAppeal, ...prev]);
-                        setIsAppealFormOpen(false);
-                        setAppealFormText('');
-                        addNotification('Апелляция отправлена', 'Ваша апелляция будет рассмотрена модераторами в течение 24 часов');
-                      }}
-                      className="bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
-                    >
-                      Отправить
-                    </button>
-                    <button 
-                      onClick={() => setIsAppealFormOpen(false)}
-                      className="bg-[#f0f2f5] text-[#55677d] px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#e5ebf1] transition-colors border border-[#cbd3da] cursor-pointer"
-                    >
-                      Отмена
-                    </button>
-                 </div>
-              </motion.div>
-            )}
-          </div>
-        )}
-
-        {currentUser?.id === '1' && (
-          <div className="pt-4 border-t border-[#dae1e8]">
-            <button
-              onClick={() => {
-                setUsers(prev => prev.map(u => u.id === '1' ? { ...u, isBlocked: false, profileBlockInfo: undefined } : u));
-                setIsProfileBlocked(false);
-                setCurrentUser(prev => prev ? { ...prev, isBlocked: false, profileBlockInfo: undefined } : null);
-                addNotification('Ограничение снято', 'Блокировка аккаунта администратора успешно снята');
-              }}
-              className="w-full bg-[#5f83aa] text-white px-5 py-2.5 rounded-[2px] text-[11.5px] font-bold hover:bg-[#688cb4] transition-colors border border-[#48688d] cursor-pointer"
-            >
-              Снять ограничение
-            </button>
-          </div>
-        )}
       </motion.div>
     );
   };
@@ -12855,6 +12768,10 @@ export default function App() {
 
     const handleSendMessage = () => {
       if (!newMessageInput.trim() || !activeChatPartnerId || !currentUser) return;
+      if (currentUser?.isBlocked) {
+        addNotification('Ограничение', 'Отправка сообщений заблокирована. Ваш аккаунт ограничен модератором.');
+        return;
+      }
       const msgText = newMessageInput.trim();
       const now = new Date();
       const currentFormattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -17135,7 +17052,9 @@ export default function App() {
                {isRegistered && currentUser ? (
                  <Routes>
                    <Route path="/" element={renderContent()} />
+                   <Route path="/profile" element={renderContent()} />
                    <Route path="/feed" element={renderContent()} />
+                   <Route path="/messages" element={renderContent()} />
                    <Route path="/u/:userId" element={renderContent()} />
                    <Route path="/user/:userId" element={renderContent()} />
                    <Route path="/post/:postId" element={renderContent()} />

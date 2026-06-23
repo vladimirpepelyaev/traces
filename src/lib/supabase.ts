@@ -96,4 +96,26 @@ export function handleSupabaseError(error: any, context?: string): void {
   }
 }
 
+export function isUuid(val: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
+export async function getCurrentUserId(): Promise<string> {
+  if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+  const { data, error: userError } = await supabase.auth.getUser();
+  const user = data?.user;
+  if (userError || !user) {
+    throw new Error('No user session found');
+  }
+  
+  if (!isUuid(user.id)) {
+    throw new Error(`User ID ${user.id} is not a valid UUID`);
+  }
+
+  await ensureProfileExists();
+
+  return user.id;
+}
+
+
 

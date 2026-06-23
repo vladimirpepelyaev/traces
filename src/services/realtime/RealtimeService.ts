@@ -41,26 +41,30 @@ class RealtimeServiceProvider {
     this.postCallbacks.push(onChanges);
 
     if (isSupabaseConfigured) {
-      console.log('[RealtimeService] Subscribing to postgres_changes for table "posts"');
-      
-      const channel = supabase
-        .channel('public:posts')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'posts' },
-          (payload) => {
-            console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
-            onChanges(payload.new);
-          }
-        )
-        .subscribe((status, err) => {
-          if (err) {
-            console.error('[RealtimeService] post channel error:', err);
-          }
-        });
+      try {
+        console.log('[RealtimeService] Subscribing to postgres_changes for table "posts"');
+        
+        const channel = supabase
+          .channel('public:posts')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'posts' },
+            (payload) => {
+              console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
+              onChanges(payload.new);
+            }
+          )
+          .subscribe((status, err) => {
+            if (err) {
+              console.error('[RealtimeService] post channel error:', err);
+            }
+          });
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to posts stream:', err);
+      }
     }
 
     return null;
@@ -73,19 +77,23 @@ class RealtimeServiceProvider {
     this.alertCallbacks.push(onInsert);
 
     if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel('public:alerts')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'alerts' },
-          (payload) => {
-            onInsert(payload.new);
-          }
-        )
-        .subscribe();
+      try {
+        const channel = supabase
+          .channel('public:alerts')
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'alerts' },
+            (payload) => {
+              onInsert(payload.new);
+            }
+          )
+          .subscribe();
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to alerts stream:', err);
+      }
     }
 
     return null;
@@ -98,19 +106,23 @@ class RealtimeServiceProvider {
     this.ticketCallbacks.push(onChanges);
 
     if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel('public:support_tickets')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'support_tickets' },
-          (payload) => {
-            onChanges(payload.new);
-          }
-        )
-        .subscribe();
+      try {
+        const channel = supabase
+          .channel('public:support_tickets')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'support_tickets' },
+            (payload) => {
+              onChanges(payload.new);
+            }
+          )
+          .subscribe();
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to tickets stream:', err);
+      }
     }
 
     return null;
@@ -123,19 +135,23 @@ class RealtimeServiceProvider {
     this.notificationCallbacks.push(onInsert);
 
     if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel('public:notifications')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'notifications' },
-          (payload) => {
-            onInsert(payload.new);
-          }
-        )
-        .subscribe();
+      try {
+        const channel = supabase
+          .channel('public:notifications')
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'notifications' },
+            (payload) => {
+              onInsert(payload.new);
+            }
+          )
+          .subscribe();
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to notifications stream:', err);
+      }
     }
 
     return null;
@@ -146,19 +162,23 @@ class RealtimeServiceProvider {
    */
   subscribeMessengerMessages(onInsert: (message: any) => void): RealtimeChannel | null {
     if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel('public:messenger_messages')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'messenger_messages' },
-          (payload) => {
-            onInsert(payload.new);
-          }
-        )
-        .subscribe();
+      try {
+        const channel = supabase
+          .channel('public:messenger_messages')
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'messenger_messages' },
+            (payload) => {
+              onInsert(payload.new);
+            }
+          )
+          .subscribe();
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to messenger_messages stream:', err);
+      }
     }
     return null;
   }
@@ -168,19 +188,23 @@ class RealtimeServiceProvider {
    */
   subscribeReactions(onChanges: (reaction: any) => void): RealtimeChannel | null {
     if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel('public:reactions')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'reactions' },
-          (payload) => {
-            onChanges(payload.new);
-          }
-        )
-        .subscribe();
+      try {
+        const channel = supabase
+          .channel('public:reactions')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'reactions' },
+            (payload) => {
+              onChanges(payload.new);
+            }
+          )
+          .subscribe();
 
-      this.channels.push(channel);
-      return channel;
+        this.channels.push(channel);
+        return channel;
+      } catch (err) {
+        console.error('[RealtimeService] Failed to subscribe to reactions stream:', err);
+      }
     }
     return null;
   }

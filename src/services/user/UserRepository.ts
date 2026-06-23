@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured, handleSupabaseError, ensureProfileExists } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, handleSupabaseError, ensureProfileExists, isUuid, getCurrentUserId } from '../../lib/supabase';
 import { AppUser } from '../../types';
 import { authService } from '../auth/AuthService';
 
@@ -46,6 +46,10 @@ export class UserRepository {
    */
   async getProfile(userId: string): Promise<UserProfile | null> {
     if (!isSupabaseConfigured) return null;
+    if (!isUuid(userId)) {
+      console.warn('[UserRepository] getProfile: userId is not a valid UUID:', userId);
+      return null;
+    }
 
     const { data, error } = await supabase
       .from('profiles')
@@ -77,6 +81,9 @@ export class UserRepository {
    */
   async saveProfile(userId: string, profileData: Partial<UserProfile>): Promise<void> {
     if (!isSupabaseConfigured) return;
+    if (!isUuid(userId)) {
+      throw new Error(`[UserRepository] saveProfile: userId is not a valid UUID: ${userId}`);
+    }
 
     const cleanData = { ...profileData };
     delete (cleanData as any).id;
@@ -98,6 +105,10 @@ export class UserRepository {
    */
   async getProgress(userId: string): Promise<UserProgress | null> {
     if (!isSupabaseConfigured) return null;
+    if (!isUuid(userId)) {
+      console.warn('[UserRepository] getProgress: userId is not a valid UUID:', userId);
+      return null;
+    }
 
     const { data, error } = await supabase
       .from('user_progress')
@@ -139,6 +150,9 @@ export class UserRepository {
    */
   async saveProgress(userId: string, progress: { courseId?: string; currentStep?: string | null; completedSteps?: string[] }): Promise<void> {
     if (!isSupabaseConfigured) return;
+    if (!isUuid(userId)) {
+      throw new Error(`[UserRepository] saveProgress: userId is not a valid UUID: ${userId}`);
+    }
 
     await ensureProfileExists();
 
@@ -167,6 +181,9 @@ export class UserRepository {
    */
   async saveRecord(userId: string, type: string, payload: any): Promise<void> {
     if (!isSupabaseConfigured) return;
+    if (!isUuid(userId)) {
+      throw new Error(`[UserRepository] saveRecord: userId is not a valid UUID: ${userId}`);
+    }
 
     await ensureProfileExists();
 
@@ -189,6 +206,10 @@ export class UserRepository {
    */
   async loadRecords(userId: string, type?: string): Promise<UserRecord[]> {
     if (!isSupabaseConfigured) return [];
+    if (!isUuid(userId)) {
+      console.warn('[UserRepository] loadRecords: userId is not a valid UUID:', userId);
+      return [];
+    }
 
     let query = supabase
       .from('user_records')

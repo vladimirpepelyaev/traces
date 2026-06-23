@@ -69,7 +69,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({
 }) => {
   const { saveProgress } = useAuth();
 
-  const step = useMemo(() => {
+  const [localStep, setLocalStep] = useState<number>(() => {
     if (!currentUser?.currentStep) return 1;
     if (currentUser.currentStep.startsWith('step_')) {
       const num = parseInt(currentUser.currentStep.replace('step_', ''), 10);
@@ -77,18 +77,47 @@ export const Onboarding: React.FC<OnboardingProps> = ({
     }
     if (currentUser.currentStep === 'completed') return 6;
     return 1;
+  });
+
+  const [saving, setSaving] = useState(false);
+
+  // Sync state if currentUser changes from outside
+  useEffect(() => {
+    if (currentUser?.currentStep) {
+      let extStep = 1;
+      if (currentUser.currentStep.startsWith('step_')) {
+        const num = parseInt(currentUser.currentStep.replace('step_', ''), 10);
+        extStep = isNaN(num) ? 1 : num;
+      } else if (currentUser.currentStep === 'completed') {
+        extStep = 6;
+      }
+      setLocalStep(extStep);
+    }
   }, [currentUser?.currentStep]);
 
+  const step = localStep;
+
   const setStep = async (newStep: number | ((prev: number) => number)) => {
+    if (saving) return;
     let nextStepVal: number;
     if (typeof newStep === 'function') {
-      nextStepVal = newStep(step);
+      nextStepVal = newStep(localStep);
     } else {
       nextStepVal = newStep;
     }
     const stepStr = nextStepVal >= 6 ? 'completed' : `step_${nextStepVal}`;
     console.log('[Onboarding] Updating step to DB:', stepStr);
-    await saveProgress(stepStr, selectedInterests);
+
+    setSaving(true);
+    try {
+      await saveProgress(stepStr, selectedInterests);
+      setLocalStep(nextStepVal);
+    } catch (err: any) {
+      console.error('[Onboarding] Error saving progress in setStep:', err);
+      addNotification('Ошибка сохранения', 'Не удалось сохранить настройки онбординга. Пожалуйста, попробуйте еще раз.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const [selectedInterests, setSelectedInterests] = useState<string[]>(() => currentUser?.interests || []);
@@ -121,7 +150,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({
   const handleToggleInterest = (topic: string) => {
     setSelectedInterests(prev => {
       const next = prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic];
-      saveProgress(`step_${step}`, next);
+      saveProgress(`step_${step}`, next).catch(err => {
+        console.error('[Onboarding] Error saving topic interest progress:', err);
+        addNotification('Предупреждение', 'Не удалось синхронизировать интересы с сервером.');
+      });
       return next;
     });
   };
@@ -617,18 +649,18 @@ export const Onboarding: React.FC<OnboardingProps> = ({
                     )}
 
                     <button
-                      disabled={step === 4 && !isStep4Valid}
+                      disabled={(step === 4 && !isStep4Valid) || saving}
                       onClick={handleNextStep}
                       id="onboarding-next-btn"
                       type="button"
                       className={`flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm ${
-                        step === 4 && !isStep4Valid
+                        (step === 4 && !isStep4Valid) || saving
                           ? 'bg-zinc-100 text-zinc-300 cursor-not-allowed shadow-none'
                           : 'bg-zinc-950 hover:bg-zinc-850 text-white'
                       }`}
                     >
-                      <span>{step === 5 ? 'Завершить настройку' : 'Продолжить'}</span>
-                      <ArrowRight size={13} />
+                      <span>{saving ? 'Сохранение...' : step === 5 ? 'Завершить настройку' : 'Продолжить'}</span>
+                      {!saving && <ArrowRight size={13} />}
                     </button>
                   </div>
                 </div>

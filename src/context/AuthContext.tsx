@@ -290,9 +290,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await ensureProfileExists();
       await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep, completedSteps });
-      setUser(prev => prev ? { ...prev, interests: completedSteps } : null);
+      setUser(prev => prev ? { ...prev, interests: completedSteps, currentStep: currentStep || undefined } : null);
     } catch (err) {
       console.error('Error saving progress:', err);
+      throw err;
     }
   };
 

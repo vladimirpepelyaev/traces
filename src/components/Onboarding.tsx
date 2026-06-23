@@ -191,26 +191,45 @@ export const Onboarding: React.FC<OnboardingProps> = ({
 
   const isStep4Valid = selectedInterests.length >= 1;
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
+    if (saving) return;
     if (step === 5) {
       // Step 5 completes setting up authors, moves to final screen
-      setStep(6);
+      await setStep(6);
     } else if (step === 6) {
       // Done - go to feed
-      onComplete(selectedInterests);
+      setSaving(true);
+      try {
+        await onComplete(selectedInterests);
+      } catch (err) {
+        console.error('[Onboarding] Error during onboarding completion:', err);
+        addNotification('Ошибка сохранения', 'Не удалось завершить настройку. Пожалуйста, попробуйте еще раз.');
+      } finally {
+        setSaving(false);
+      }
     } else {
-      setStep(prev => prev + 1);
+      await setStep(prev => prev + 1);
     }
   };
 
   const handlePrevStep = () => {
+    if (saving) return; // Prevent navigation during save
     if (step > 1) {
       setStep(prev => prev - 1);
     }
   };
 
-  const handleCompleteWithComposer = () => {
-    onComplete(selectedInterests, true);
+  const handleCompleteWithComposer = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onComplete(selectedInterests, true);
+    } catch (err) {
+      console.error('[Onboarding] Error during onboarding completion with composer:', err);
+      addNotification('Ошибка сохранения', 'Не удалось завершить настройку. Пожалуйста, попробуйте еще раз.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Mock structures for interactive screens
@@ -599,22 +618,28 @@ export const Onboarding: React.FC<OnboardingProps> = ({
                     </p>
                   </div>
 
-                  <div className="max-w-md mx-auto pt-2 space-y-2">
+                   <div className="max-w-md mx-auto pt-2 space-y-2">
                     <button
                       type="button"
+                      disabled={saving}
                       onClick={handleCompleteWithComposer}
-                      className="w-full py-3 rounded-xl text-xs font-bold bg-zinc-950 hover:bg-zinc-850 text-white transition-all cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                      className={`w-full py-3 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-2 ${
+                        saving ? 'bg-zinc-100 text-zinc-300 cursor-not-allowed shadow-none' : 'bg-zinc-950 hover:bg-zinc-850 text-white'
+                      }`}
                     >
-                      <span>Оставить первый след</span>
-                      <ArrowRight size={13} />
+                      <span>{saving ? 'Сохранение...' : 'Оставить первый след'}</span>
+                      {!saving && <ArrowRight size={13} />}
                     </button>
                     
                     <button
                       type="button"
+                      disabled={saving}
                       onClick={handleNextStep}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold text-zinc-500 hover:text-zinc-900 transition-all cursor-pointer border border-transparent"
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border border-transparent ${
+                        saving ? 'text-zinc-300 cursor-not-allowed' : 'text-zinc-500 hover:text-zinc-900'
+                      }`}
                     >
-                      Перейти в ленту
+                      {saving ? 'Сохранение...' : 'Перейти в ленту'}
                     </button>
                   </div>
                 </div>

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/auth/AuthService';
 import { userRepository, UserProfile, UserProgress } from '../services/user/UserRepository';
 import { AppUser } from '../types';
-import { ensureProfileExists } from '../lib/supabase';
+import { ensureProfileExists, supabase, isUuid } from '../lib/supabase';
 
 interface AuthContextType {
   user: AppUser | null;
@@ -81,10 +81,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...u,
           role: finalRole,
           roles: [finalRole],
-          onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+          onboardingCompleted: hydrated?.onboardingCompleted ?? false,
           isBlocked: hydrated ? hydrated.isBlocked : false,
           interests: hydrated ? hydrated.interests : [],
-          currentStep: hydrated ? hydrated.currentStep : null
+          currentStep: hydrated?.currentStep ?? 'step_1'
         };
 
         if (consolidatedUser.isBlocked) {
@@ -145,10 +145,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...newUser,
         role: finalRole,
         roles: [finalRole],
-        onboardingCompleted: hydrated ? hydrated.onboardingCompleted : false,
+        onboardingCompleted: hydrated?.onboardingCompleted ?? false,
         isBlocked: hydrated ? hydrated.isBlocked : false,
         interests: hydrated ? hydrated.interests : [],
-        currentStep: hydrated ? hydrated.currentStep : null
+        currentStep: hydrated?.currentStep ?? 'step_1'
       };
 
       setUser(consolidatedUser);
@@ -191,10 +191,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...loggedUser,
         role: finalRole,
         roles: [finalRole],
-        onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+        onboardingCompleted: hydrated?.onboardingCompleted ?? false,
         isBlocked: hydrated ? hydrated.isBlocked : false,
         interests: hydrated ? hydrated.interests : [],
-        currentStep: hydrated ? hydrated.currentStep : null
+        currentStep: hydrated?.currentStep ?? 'step_1'
       };
 
       if (consolidatedUser.isBlocked) {
@@ -259,10 +259,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...u,
           role: finalRole,
           roles: [finalRole],
-          onboardingCompleted: hydrated ? hydrated.onboardingCompleted : true,
+          onboardingCompleted: hydrated?.onboardingCompleted ?? false,
           isBlocked: hydrated ? hydrated.isBlocked : false,
           interests: hydrated ? hydrated.interests : [],
-          currentStep: hydrated ? hydrated.currentStep : null
+          currentStep: hydrated?.currentStep ?? 'step_1'
         };
 
         setUser(consolidatedUser);
@@ -274,11 +274,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const completeOnboarding = async (interests?: string[]) => {
-    if (!user) return;
     try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser || !authUser.id) {
+        throw new Error('Not authenticated');
+      }
+      if (!isUuid(authUser.id)) {
+        throw new Error('Invalid UUID');
+      }
       await ensureProfileExists();
-      await userRepository.completeOnboarding(user.id);
-      await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
+      await userRepository.completeOnboarding(authUser.id);
+      await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
       setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [], currentStep: 'completed' } : null);
     } catch (err) {
       console.error('Error completing onboarding:', err);
@@ -286,10 +292,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const saveProgress = async (currentStep: string | null, completedSteps: string[]) => {
-    if (!user) return;
     try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser || !authUser.id) {
+        throw new Error('Not authenticated');
+      }
+      if (!isUuid(authUser.id)) {
+        throw new Error('Invalid UUID');
+      }
       await ensureProfileExists();
-      await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep, completedSteps });
+      await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep, completedSteps });
       setUser(prev => prev ? { ...prev, interests: completedSteps, currentStep: currentStep || undefined } : null);
     } catch (err) {
       console.error('Error saving progress:', err);

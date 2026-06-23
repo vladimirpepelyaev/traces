@@ -239,6 +239,7 @@ export class PostRepositoryProvider {
   }
 
   private mapDbToPost(db: any): FeedPost {
+    const rawTime = db.created_at || db.timestamp;
     return {
       id: db.id,
       authorName: db.author_name,
@@ -247,7 +248,7 @@ export class PostRepositoryProvider {
       text: db.text || undefined,
       image: db.image || undefined,
       likes: db.likes || 0,
-      timestamp: db.created_at || db.timestamp,
+      timestamp: rawTime,
       isLiked: db.is_liked || false,
       isDownvoted: db.is_downvoted || false,
       comments: db.comments || [],
@@ -262,6 +263,26 @@ export class PostRepositoryProvider {
   }
 
   private mapPostToDb(post: FeedPost): any {
+    let rawCreatedAt: string;
+    if (post.timestamp && post.timestamp !== 'только что' && !isNaN(Date.parse(post.timestamp))) {
+      rawCreatedAt = new Date(post.timestamp).toISOString();
+    } else {
+      rawCreatedAt = new Date().toISOString();
+    }
+
+    const sanitizedComments = (post.comments || []).map(c => {
+      let cTime = c.timestamp;
+      if (!cTime || cTime === 'только что' || isNaN(Date.parse(cTime))) {
+        cTime = new Date().toISOString();
+      } else {
+        cTime = new Date(cTime).toISOString();
+      }
+      return {
+        ...c,
+        timestamp: cTime
+      };
+    });
+
     return {
       id: post.id,
       author_name: post.authorName,
@@ -274,8 +295,8 @@ export class PostRepositoryProvider {
       post_format: post.postFormat || null,
       attention_score: post.attentionScore || 0,
       boosted_users: post.boostedUsers || [],
-      comments: post.comments || [],
-      created_at: post.timestamp || new Date().toISOString()
+      comments: sanitizedComments,
+      created_at: rawCreatedAt
     };
   }
 }

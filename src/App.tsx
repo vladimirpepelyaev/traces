@@ -62,6 +62,7 @@ import {
   buildAccessRestrictedNotification,
   dispatchNotifications,
   navigateFromNotification,
+  formatRelativeTime,
 } from './features/notifications/notificationHelpers';
 import { PlatformNotification } from './features/notifications/notificationTypes';
 import { 
@@ -330,6 +331,33 @@ const SUPPORT_DESCRIPTIONS = [
   'Моя страница была взломана вчера вечером. Злоумышленники изменили привязанный номер телефона. У меня есть доступ к старой сим-карте и почте. Что делать?',
   'Почему мой охват в группе резко упал? Раньше посты видели тысячи человек, а теперь только несколько сотен. Алгоритмы изменились или на меня наложены санкции?'
 ];
+
+export function getPostDisplayTime(timestamp: string | undefined): string {
+  if (!timestamp) return 'только что';
+  if (timestamp === 'только что') return 'только что';
+  
+  if (
+    timestamp.includes('минут') || 
+    timestamp.includes('секунд') || 
+    timestamp.includes('назад') || 
+    timestamp.includes('вчера') || 
+    timestamp.includes('только что') ||
+    timestamp.includes('мин.') ||
+    timestamp.includes('ч.') ||
+    timestamp.includes('дн.')
+  ) {
+    return timestamp;
+  }
+
+  try {
+    const d = new Date(timestamp);
+    if (!isNaN(d.getTime())) {
+      return formatRelativeTime(d);
+    }
+  } catch (e) {}
+
+  return timestamp;
+}
 
 export default function App() {
   const { user: authUser, loading: authLoading, bootCompleted, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles, completeOnboarding } = useAuth();
@@ -5517,7 +5545,7 @@ export default function App() {
                           <div className="font-semibold text-[13px] text-[#2a5885] hover:underline cursor-pointer">
                             {post.authorName}
                           </div>
-                          <div className="text-[11px] text-[#818c99]">{post.timestamp}</div>
+                          <div className="text-[11px] text-[#818c99]">{getPostDisplayTime(post.timestamp)}</div>
                         </div>
                       </div>
                       <span className="text-[10px] text-vk-text-secondary font-mono bg-[#f5f6f8] px-1.5 py-0.5 rounded-[2px]">
@@ -6869,7 +6897,7 @@ export default function App() {
                       <div key={post.id} className="p-3 bg-white border border-[#e7e8ec] rounded-[3px] space-y-1.5 text-left text-[12px] leading-relaxed relative hover:border-[#cbccd3] transition-colors duration-150">
                         <div className="flex justify-between items-center text-[#818c99] text-[11px]">
                           <span className="font-semibold text-[#2c2d2e]">{post.authorName}</span>
-                          <span>{post.timestamp}</span>
+                          <span>{getPostDisplayTime(post.timestamp)}</span>
                         </div>
                         <p className="text-[#2c2d2e] break-words line-clamp-3">
                           {renderHighlightedContent(post.text || '', currentKeywords)}
@@ -7317,7 +7345,7 @@ export default function App() {
                                 {post.authorName}
                               </div>
                               <div className="text-[10px] text-[#818c99]">
-                                Время: {post.timestamp || 'только что'} · Публикация Стрима
+                                Время: {getPostDisplayTime(post.timestamp)} · Публикация Стрима
                               </div>
                             </div>
                           </div>
@@ -10454,7 +10482,7 @@ export default function App() {
       text: inputText,
       image: media,
       likes: 0,
-      timestamp: 'только что',
+      timestamp: new Date().toISOString(),
       comments: [],
       context: context,
       visualPriority: visualPriority,
@@ -10688,7 +10716,7 @@ export default function App() {
                 )}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
-                <span>{post.timestamp}</span>
+                <span>{getPostDisplayTime(post.timestamp)}</span>
                 {isEmployee && (
                   <>
                     <span>·</span>
@@ -11091,7 +11119,7 @@ export default function App() {
               authorName: currentUser?.name || 'Пользователь',
               authorAvatar: currentUser?.avatar || 'images.png',
               text: text,
-              timestamp: 'только что',
+              timestamp: new Date().toISOString(),
               type: type,
               parentCommentId,
               firesCount: 0,
@@ -11481,7 +11509,7 @@ export default function App() {
       authorName: currentUser?.name || 'Пользователь',
       authorAvatar: currentUser?.avatar || '',
       text: text,
-      timestamp: 'только что',
+      timestamp: new Date().toISOString(),
       firesCount: 0,
       negativeReactions: 0,
       positiveAttentionPct: 100,

@@ -53,6 +53,7 @@ export interface FeedPost {
   image?: string;
   likes: number;
   timestamp: string;
+  displayTime?: string;
   isLiked?: boolean;
   isDownvoted?: boolean;
   comments?: { 
@@ -62,6 +63,7 @@ export interface FeedPost {
     authorAvatar: string; 
     text: string; 
     timestamp: string;
+    displayTime?: string;
     type?: 'continue_thought' | 'disagree' | 'share_experience';
     parentCommentId?: string;
     firesCount?: number;

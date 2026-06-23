@@ -287,34 +287,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     onboardingSavedRef.current = true;
 
-    // 1. Instantly register in UI locally
-    setUser(prev => prev ? { 
-      ...prev, 
-      onboardingCompleted: true, 
-      interests: interests || prev.interests || [] 
-    } : null);
-
-    // 2. Quietly update DB in the background
-    (async () => {
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (!authUser || !authUser.id) return;
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser && authUser.id) {
         await ensureProfileExists();
 
         lastSavedStepRef.current = 'completed';
         lastSavedCompletedStepsRef.current = [...(interests || [])];
 
+        // 1. Save Progress
         await userRepository.saveProgress(authUser.id, { 
           courseId: 'main_course', 
           currentStep: 'completed', 
           completedSteps: interests || [] 
         });
+
+        // 2. Update Profile onboarding_completed: true
         await userRepository.completeOnboarding(authUser.id);
-        console.log('[AuthContext] Onboarding successfully synced with DB in background.');
-      } catch (err) {
-        console.error('[AuthContext] Background onboarding sync failed:', err);
+        
+        // 3. Refetch Profile / load latest
+        const latestProfile = await loadProfile(authUser.id);
+        
+        // 4. Update local user state
+        setUser(prev => prev ? { 
+          ...prev, 
+          onboardingCompleted: true, 
+          interests: interests || prev.interests || [],
+          ...latestProfile
+        } : null);
+        
+        console.log('[AuthContext] Onboarding fully synced synchronously and completed.');
+      } else {
+        // user fallback
+        setUser(prev => prev ? { 
+          ...prev, 
+          onboardingCompleted: true, 
+          interests: interests || prev.interests || [] 
+        } : null);
       }
-    })();
+    } catch (err) {
+      console.error('[AuthContext] Sequential onboarding sync failed:', err);
+      // fallback to local update if there is a network glitch
+      setUser(prev => prev ? { 
+        ...prev, 
+        onboardingCompleted: true, 
+        interests: interests || prev.interests || [] 
+      } : null);
+    }
   };
 
   const saveProgress = async (currentStep: string | null, completedSteps: string[]) => {

@@ -91,6 +91,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
   // Handle draft loading on create-mode open
   useEffect(() => {
+    let active = true;
     const loadDraft = async () => {
       if (isOpen && !isEditMode && currentUser?.id && isSupabaseConfigured) {
         try {
@@ -100,9 +101,11 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             .eq('id', currentUser.id)
             .single();
           if (error) throw error;
-          const drafts = data?.drafts;
-          if (drafts && drafts.vk_post_draft) {
-            const parsed = drafts.vk_post_draft;
+          if (!active) return;
+          const drafts = data?.drafts ?? [];
+          const vk_post_draft = (drafts && !Array.isArray(drafts)) ? (drafts as any).vk_post_draft : null;
+          if (vk_post_draft) {
+            const parsed = vk_post_draft;
             setTitle(parsed.title || '');
             setPostFormat(parsed.postFormat || 'OPINION');
             setMedia(parsed.media || '');
@@ -117,6 +120,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       }
     };
     loadDraft();
+    return () => {
+      active = false;
+    };
   }, [isOpen, isEditMode, currentUser?.id]);
 
   // Handle auto-open on custom event
@@ -470,7 +476,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         if (isSupabaseConfigured && currentUser?.id) {
           supabase
             .from('profiles')
-            .update({ drafts: {} })
+            .update({ drafts: [] })
             .eq('id', currentUser.id)
             .then(({ error }) => {
               if (error) console.error('Error clearing draft on Supabase:', error);

@@ -629,7 +629,7 @@ export const DiscussedNow: React.FC<DiscussedNowProps> = ({
                               authorName: currentUser?.name || 'Пользователь',
                               authorAvatar: currentUser?.avatar || 'images.png',
                               text: text,
-                              timestamp: 'только что',
+                              timestamp: new Date().toISOString(),
                               type: type,
                               parentCommentId: parentCountId,
                               firesCount: 0,

@@ -1,5 +1,33 @@
 import React, { useState } from 'react';
 import { Send, CornerDownRight, Bell, BellOff, Reply, Flame, Sparkles } from 'lucide-react';
+import { formatRelativeTime } from '../notifications/notificationHelpers';
+
+function getCommentDisplayTime(timestamp: string | undefined): string {
+  if (!timestamp) return 'только что';
+  if (timestamp === 'только что') return 'только что';
+  
+  if (
+    timestamp.includes('минут') || 
+    timestamp.includes('секунд') || 
+    timestamp.includes('назад') || 
+    timestamp.includes('вчера') || 
+    timestamp.includes('только что') ||
+    timestamp.includes('мин.') ||
+    timestamp.includes('ч.') ||
+    timestamp.includes('дн.')
+  ) {
+    return timestamp;
+  }
+
+  try {
+    const d = new Date(timestamp);
+    if (!isNaN(d.getTime())) {
+      return formatRelativeTime(d);
+    }
+  } catch (e) {}
+
+  return timestamp;
+}
 
 interface LocalAvatarProps {
   name: string;
@@ -240,7 +268,7 @@ export const DiscussionComments: React.FC<DiscussionCommentsProps> = ({
                       {comment.authorName}
                     </span>
                     {getTypeBadge(comment.type)}
-                    <span className="text-[10px] text-[#818c99]">{comment.timestamp}</span>
+                    <span className="text-[10px] text-[#818c99]">{getCommentDisplayTime(comment.timestamp)}</span>
                     <button
                       type="button"
                       onClick={() => {

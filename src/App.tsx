@@ -118,6 +118,7 @@ import {
   Image as ImageIcon,
   Heart,
   LogOut,
+  ThumbsUp,
   Megaphone,
   Globe,
   Activity,
@@ -2378,7 +2379,14 @@ export default function App() {
         setFeedPosts(prev => {
           if (prev.some(p => p.id === newPost.id)) {
             // Merge realtime alterations instead of overwriting local comments or metadata
-            return prev.map(p => p.id === newPost.id ? { ...p, ...newPost, comments: newPost.comments || p.comments } : p);
+            return prev.map(p => {
+              if (p.id === newPost.id) {
+                // Keep local calculated reaction states instead of overwriting with raw DB post values
+                const { likes, dislikes, isLiked, isDownvoted, ...rest } = newPost;
+                return { ...p, ...rest, comments: newPost.comments || p.comments };
+              }
+              return p;
+            });
           }
           return [newPost, ...prev];
         });
@@ -2586,7 +2594,7 @@ export default function App() {
       if (permissionService.isAdmin(currentUser)) return true; // EVERYTHING is visible for admin as requested
       
       // Basic tabs always accessible
-      if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy') {
+      if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy' || item.id === 'discussed-now') {
         return true;
       }
 
@@ -11902,48 +11910,71 @@ export default function App() {
     });
   };
 
-  const handleToggleReaction = async (postId: string, reactionType: 'like' | 'downvote') => {
+   const handleToggleReaction = async (postId: string, reactionType: 'like' | 'downvote') => {
     if (!currentUser?.id) {
       addNotification('Авторизация', 'Пожалуйста, войдите в аккаунт, чтобы оставить реакцию.');
       return;
     }
 
-    try {
-      await reactionRepository.toggle(postId, currentUser.id, reactionType);
+    // 1. Optimistic UI update (temporary bridge before database confirms)
+    _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
+      if (p.id !== postId) return p;
+      let nextIsLiked = p.isLiked;
+      let nextIsDownvoted = p.isDownvoted;
+      let nextLikes = p.likes || 0;
+      let nextDislikes = (p as any).dislikes || 0;
       
-      _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
-        if (p.id !== postId) return p;
-        let nextIsLiked = p.isLiked;
-        let nextIsDownvoted = p.isDownvoted;
-        let nextLikes = p.likes || 0;
-        let nextDislikes = (p as any).dislikes || 0;
-        
-        if (reactionType === 'like') {
-          if (nextIsLiked) {
-            nextIsLiked = false;
-            nextLikes = Math.max(0, nextLikes - 1);
-          } else {
-            if (nextIsDownvoted) {
-              nextIsDownvoted = false;
-              nextDislikes = Math.max(0, nextDislikes - 1);
-            }
-            nextIsLiked = true;
-            nextLikes++;
-          }
+      if (reactionType === 'like') {
+        if (nextIsLiked) {
+          nextIsLiked = false;
+          nextLikes--;
         } else {
           if (nextIsDownvoted) {
             nextIsDownvoted = false;
+            nextLikes += 2; // (up + 1) - (down - 1) = up - down + 2
             nextDislikes = Math.max(0, nextDislikes - 1);
           } else {
-            if (nextIsLiked) {
-              nextIsLiked = false;
-              nextLikes = Math.max(0, nextLikes - 1);
-            }
-            nextIsDownvoted = true;
-            nextDislikes++;
+            nextLikes++;
           }
+          nextIsLiked = true;
         }
-        return { ...p, isLiked: nextIsLiked, isDownvoted: nextIsDownvoted, likes: nextLikes, dislikes: nextDislikes };
+      } else {
+        if (nextIsDownvoted) {
+          nextIsDownvoted = false;
+          nextLikes++; // None - (down - 1) = up - down + 1
+          nextDislikes = Math.max(0, nextDislikes - 1);
+        } else {
+          if (nextIsLiked) {
+            nextIsLiked = false;
+            nextLikes -= 2; // (up - 1) - (down + 1) = up - down - 2
+          } else {
+            nextLikes--;
+          }
+          nextIsDownvoted = true;
+          nextDislikes++;
+        }
+      }
+      return { ...p, isLiked: nextIsLiked, isDownvoted: nextIsDownvoted, likes: nextLikes, dislikes: nextDislikes };
+    }));
+
+    try {
+      // 2. Perform the actual database operation
+      await reactionRepository.toggle(postId, currentUser.id, reactionType);
+      
+      // 3. AFTER DB response, make sure we "invalidate" our optimistic state by fetching the EXCLUSIVE facts from database!
+      const rxData = await reactionRepository.getForPost(postId);
+      const likesCount = rxData.filter((r: any) => r.type === 'like').length;
+      const downvotesCount = rxData.filter((r: any) => r.type === 'downvote').length;
+
+      _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
+        if (p.id !== postId) return p;
+        return {
+          ...p,
+          likes: likesCount - downvotesCount,
+          dislikes: downvotesCount,
+          isLiked: rxData.some((r: any) => r.user_id === currentUser.id && r.type === 'like'),
+          isDownvoted: rxData.some((r: any) => r.user_id === currentUser.id && r.type === 'downvote')
+        };
       }));
 
       if (reactionType === 'like') {
@@ -11954,6 +11985,23 @@ export default function App() {
     } catch (err) {
       console.error('[handleToggleReaction] Error toggling reaction:', err);
       addNotification('Ошибка', 'Не удалось сохранить реакцию. Попробуйте еще раз.');
+      
+      // Revert to database state by refetching everything or refresh this post:
+      try {
+        const rxData = await reactionRepository.getForPost(postId);
+        const likesCount = rxData.filter((r: any) => r.type === 'like').length;
+        const downvotesCount = rxData.filter((r: any) => r.type === 'downvote').length;
+        _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
+          if (p.id !== postId) return p;
+          return {
+            ...p,
+            likes: likesCount - downvotesCount,
+            dislikes: downvotesCount,
+            isLiked: rxData.some((r: any) => r.user_id === currentUser.id && r.type === 'like'),
+            isDownvoted: rxData.some((r: any) => r.user_id === currentUser.id && r.type === 'downvote')
+          };
+        }));
+      } catch (_) {}
     }
   };
 
@@ -16802,7 +16850,8 @@ export default function App() {
                 )}
                </div>
                
-               <div className="w-[230px] shrink-0 space-y-3">
+               {(isAdminMode || currentUser?.isEmployee || isWorker(currentUser)) && (
+                 <div className="w-[230px] shrink-0 space-y-3">
                   {(isAdminMode || currentUser?.isEmployee || isWorker(currentUser)) && (
                     <div className="bg-vk-white rounded-[2px] p-4 border border-vk-separator">
                       <div className="space-y-2">
@@ -16907,10 +16956,11 @@ export default function App() {
                       </div>
                     </div>
                   )}
-              </div>
-            </div>
-            )}
-          </motion.div>
+                 </div>
+               )}
+             </div>
+             )}
+           </motion.div>
         );
       }
     }
@@ -17126,9 +17176,9 @@ export default function App() {
 
       {/* Persistent Mobile Bottom Navigation Bar */}
       {isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked) && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 md:hidden flex justify-around items-center py-2 px-3 pb-[calc(8px+env(safe-area-inset-bottom))] shadow-[0_-2px_12px_rgba(0,0,0,0.04)] select-none">
+        <div className="fixed bottom-0 left-0 right-0 z-[1000] bg-white/95 backdrop-blur-md border-t border-zinc-200/80 md:hidden flex justify-around items-center py-2 px-3 pb-[calc(8px+env(safe-area-inset-bottom))] shadow-[0_-2px_12px_rgba(0,0,0,0.04)] select-none">
           {[
-            { id: 'feed', icon: LayoutGrid, label: 'Лента', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
+            { id: 'feed', icon: LayoutGrid, label: 'Следы', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
             { id: 'discussed-now', icon: Flame, label: 'Обсуждают', action: () => { setFeedMode('discussing'); setActiveTab('feed'); navigate('/feed'); } },
             { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', action: () => { setActiveTab('internal-mail'); navigate('/internal-mail'); }, count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
             { id: 'notifications', icon: Bell, label: 'Уведомления', action: () => { setActiveTab('notifications'); navigate('/notifications'); }, count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },

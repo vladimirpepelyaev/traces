@@ -231,7 +231,7 @@ export class PostRepositoryProvider {
         const downvotesCount = postRx.filter((r: any) => r.type === 'downvote').length;
 
         // Final calculated rating
-        post.likes = likesCount;
+        post.likes = likesCount - downvotesCount;
         (post as any).dislikes = downvotesCount;
 
         if (currentUserId) {

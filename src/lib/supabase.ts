@@ -12,6 +12,61 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const isSupabaseConfigured = true;
 
+export async function ensureProfileExists(): Promise<void> {
+  if (!isSupabaseConfigured) return;
+
+  const { data, error: userError } = await supabase.auth.getUser();
+  const user = data?.user;
+  if (userError || !user) {
+    return;
+  }
+
+  const existing = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('id', user.id)
+    .single();
+
+  const profileExists = !!(existing && existing.data);
+
+  console.log(
+    'PROFILE CHECK',
+    {
+      authId: user.id,
+      profileExists
+    }
+  );
+
+  if (!profileExists) {
+    const { error: upsertError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        username:
+          user.user_metadata?.username ??
+          user.email?.split('@')[0] ??
+          'user',
+
+        display_name:
+          user.user_metadata?.display_name ??
+          user.email ??
+          'User',
+
+        role: 'user',
+
+        onboarding_completed: false,
+
+        blocked: false,
+
+        created_at:
+          new Date().toISOString()
+      });
+    if (upsertError) {
+      console.error('[ensureProfileExists] Error upserting profile:', upsertError);
+    }
+  }
+}
+
 /**
  * Handles Supabase errors by parsing the message, code and logging it.
  * Explicitly supports PGRST204, 400 Bad Request, 406 Not Acceptable and standard error objects.

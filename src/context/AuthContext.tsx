@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/auth/AuthService';
 import { userRepository, UserProfile, UserProgress } from '../services/user/UserRepository';
 import { AppUser } from '../types';
+import { ensureProfileExists } from '../lib/supabase';
 
 interface AuthContextType {
   user: AppUser | null;
@@ -53,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const u = await authService.getCurrentUser();
       if (u) {
+        await ensureProfileExists();
         const profile = await loadProfile(u.id);
         const progress = await loadProgress(u.id);
         const hydrated = hydrateStore(profile, progress);
@@ -100,7 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
       const newUser = await authService.signUp(login, password, name, status);
-      
+      await ensureProfileExists();
       const profile = await loadProfile(newUser.id);
       const progress = await loadProgress(newUser.id);
       const hydrated = hydrateStore(profile, progress);
@@ -130,7 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
       const loggedUser = await authService.signIn(login, password);
-      
+      await ensureProfileExists();
       const profile = await loadProfile(loggedUser.id);
       const progress = await loadProgress(loggedUser.id);
       const hydrated = hydrateStore(profile, progress);
@@ -183,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const u = await authService.getCurrentUser();
       if (u) {
+        await ensureProfileExists();
         const profile = await loadProfile(u.id);
         const progress = await loadProgress(u.id);
         const hydrated = hydrateStore(profile, progress);
@@ -211,6 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const completeOnboarding = async (interests?: string[]) => {
     if (!user) return;
     try {
+      await ensureProfileExists();
       await userRepository.completeOnboarding(user.id);
       await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
       setUser(prev => prev ? { ...prev, onboardingCompleted: true, interests: interests || [], currentStep: 'completed' } : null);
@@ -222,6 +226,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const saveProgress = async (currentStep: string | null, completedSteps: string[]) => {
     if (!user) return;
     try {
+      await ensureProfileExists();
       await userRepository.saveProgress(user.id, { courseId: 'main_course', currentStep, completedSteps });
       setUser(prev => prev ? { ...prev, interests: completedSteps } : null);
     } catch (err) {
@@ -232,6 +237,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const saveRecord = async (type: string, payload: any) => {
     if (!user) return;
     try {
+      await ensureProfileExists();
       await userRepository.saveRecord(user.id, type, payload);
     } catch (err) {
       console.error('Error saving record:', err);

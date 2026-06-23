@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured, handleSupabaseError } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, handleSupabaseError, ensureProfileExists } from '../../lib/supabase';
 import { FeedPost, Ticket, ModeratorAction, AppUser, Complaint, DialogComplaint, DialogMessage } from '../../types';
 
 export interface PlatformNotification {
@@ -175,6 +175,7 @@ export class PostRepositoryProvider {
   async insert(post: FeedPost): Promise<FeedPost> {
     if (!isSupabaseConfigured) return post;
     try {
+      await ensureProfileExists();
       const dbPost = this.mapPostToDb(post);
       const { data, error } = await supabase
         .from('posts')
@@ -286,6 +287,7 @@ export class CommentRepositoryProvider {
   async insertComment(postId: string, comment: any): Promise<void> {
     if (!isSupabaseConfigured) return;
     try {
+      await ensureProfileExists();
       const { data, error } = await supabase
         .from('posts')
         .select('comments')
@@ -668,6 +670,7 @@ export class NotificationRepositoryProvider {
   async insert(userId: string, targetId: string, notification: PlatformNotification): Promise<void> {
     if (!isSupabaseConfigured) return;
     try {
+      await ensureProfileExists();
       const { error } = await supabase
         .from('notifications')
         .insert({
@@ -1071,6 +1074,7 @@ export class SearchRepositoryProvider {
 export class ReactionRepositoryProvider {
   async saveReaction(postId: string, userId: string, type: 'like' | 'downvote'): Promise<void> {
     if (!isSupabaseConfigured) return;
+    await ensureProfileExists();
     const { error } = await supabase
       .from('reactions')
       .upsert({

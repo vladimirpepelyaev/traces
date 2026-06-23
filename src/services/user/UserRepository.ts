@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured, handleSupabaseError } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, handleSupabaseError, ensureProfileExists } from '../../lib/supabase';
 import { AppUser } from '../../types';
 import { authService } from '../auth/AuthService';
 
@@ -140,6 +140,8 @@ export class UserRepository {
   async saveProgress(userId: string, progress: { courseId?: string; currentStep?: string | null; completedSteps?: string[] }): Promise<void> {
     if (!isSupabaseConfigured) return;
 
+    await ensureProfileExists();
+
     // "при создании записи всегда обязательно передавай course_id"
     // "нельзя создавать user_progress без курса"
     const courseId = progress.courseId || 'main_course';
@@ -165,6 +167,8 @@ export class UserRepository {
    */
   async saveRecord(userId: string, type: string, payload: any): Promise<void> {
     if (!isSupabaseConfigured) return;
+
+    await ensureProfileExists();
 
     const { error } = await supabase
       .from('user_records')

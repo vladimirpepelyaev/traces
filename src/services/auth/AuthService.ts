@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, ensureProfileExists } from '../../lib/supabase';
 import { AppUser } from '../../types';
 
 export interface AuthService {
@@ -134,6 +134,8 @@ class AuthServiceImpl implements AuthService {
       throw new Error('Registration failed');
     }
 
+    await ensureProfileExists();
+
     // Insert into profiles table
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
@@ -180,6 +182,8 @@ class AuthServiceImpl implements AuthService {
     if (!data.user) {
       throw new Error('Auth failed');
     }
+
+    await ensureProfileExists();
 
     // Fetch profile
     let { data: profile, error: profileErr } = await supabase
@@ -253,6 +257,8 @@ class AuthServiceImpl implements AuthService {
     if (error || !user) {
       return null;
     }
+
+    await ensureProfileExists();
 
     // Fetch profile
     let { data: profile, error: profileErr } = await supabase

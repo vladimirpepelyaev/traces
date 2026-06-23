@@ -67,7 +67,7 @@ async function startServer() {
     // Bulletproof SPA redirect rewrite for non-file dev paths
     app.use((req, res, next) => {
       if (req.method === "GET" && !req.path.includes(".") && !req.path.startsWith("/api/")) {
-        req.url = "/";
+        req.url = req.originalUrl;
       }
       next();
     });

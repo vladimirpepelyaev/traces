@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Icon16WorkOutline, Icon24HammerOutline, Icon16Block } from '@vkontakte/icons';
 import { authService, profileToAppUser } from './services/auth/AuthService';
@@ -479,18 +480,101 @@ export default function App() {
   };
 
   const handleComplainAboutProfile = (user: any) => {
-    const newComplaint = {
-      id: `cmpl-profile-${Date.now()}`,
-      userId: user.id,
-      userName: user.name,
-      userAvatar: user.avatar,
-      type: 'Жалоба на страницу',
-      content: `Создана жалоба на аккаунт пользователя ${user.name} в раздел «Модерация профилей»`,
+    setReportingProfile(user);
+    setComplaintError(null);
+    setIsSendingComplaint(false);
+  };
+
+  const handleComplainAboutPost = (post: any) => {
+    setReportingPost(post);
+    setComplaintError(null);
+    setIsSendingComplaint(false);
+    setOpenUserMenuId(null);
+  };
+
+  const handleProfileReportSubmit = async (reason: string) => {
+    if (!reportingProfile || !currentUser) return;
+    setIsSendingComplaint(true);
+    setComplaintError(null);
+
+    const complaint: Complaint = {
+      id: crypto.randomUUID(),
+      userId: currentUser.id,
+      userName: currentUser.name || 'Anonymous',
+      userAvatar: currentUser.avatar || '',
+      type: "profile",
+      targetId: reportingProfile.id,
+      targetName: reportingProfile.name || 'Anonymous',
+      target_type: "profile",
+      target_status: "pending",
+      reason: reason,
+      dept: "Модерация страниц",
+      status: "pending",
+      content: `Создана жалоба на аккаунт пользователя ${reportingProfile.name} в раздел «Модерация профилей». Причина: ${reason}`,
       rating: 'Высокий риск',
-      timestamp: new Date()
+      created_at: new Date().toISOString()
     };
-    setPageComplaints(prev => [newComplaint, ...prev]);
-    addNotification('Жалоба отправлена', `Жалоба на аккаунт ${user.name} успешно передана модераторам профилей`);
+
+    try {
+      // 1. Insert to DB and select back inside reportRepository.insert
+      const inserted = await reportRepository.insert(complaint);
+      
+      // 2. Fetch all from DB and update state (Source of truth is DB only)
+      const allComplaints = await reportRepository.getAll();
+      if (allComplaints) {
+        _setComplaintsOriginal(allComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+        _setSpamComplaintsOriginal(allComplaints.filter(c => c.dept === 'Spam'));
+        _setPageComplaintsOriginal(allComplaints.filter(c => c.dept === 'Модерация страниц'));
+      }
+      
+      // 3. Show success toast and close only after successful DB insert
+      addNotification('Жалоба отправлена', `Жалоба на аккаунт ${reportingProfile.name} успешно передана модераторам профилей`);
+      setReportingProfile(null);
+    } catch (err: any) {
+      console.error('[ProfileReport] Error:', err);
+      setComplaintError(err.message || 'Ошибка соединения с сервером при отправке жалобы');
+    } finally {
+      setIsSendingComplaint(false);
+    }
+  };
+
+  const handlePostReportSubmit = async (reason: string) => {
+    if (!reportingPost || !currentUser) return;
+    setIsSendingComplaint(true);
+    setComplaintError(null);
+
+    const complaint: Complaint = {
+      id: crypto.randomUUID(),
+      userId: currentUser.id,
+      userName: currentUser.name || 'Anonymous',
+      userAvatar: currentUser.avatar || '',
+      type: "post",
+      targetId: reportingPost.id,
+      targetName: reportingPost.authorName || 'Anonymous',
+      reason: reason,
+      dept: "Модерация",
+      status: "pending",
+      content: reportingPost.text || 'Жалоба на контент в посте',
+      rating: 'Умеренный риск',
+      image: reportingPost.image
+    };
+
+    try {
+      // 1. Insert to DB and select back
+      const inserted = await reportRepository.insert(complaint);
+
+      // 2. Add to local state
+      _setComplaintsOriginal(prev => [inserted, ...prev]);
+
+      // 3. Show success and close
+      addNotification('Жалоба отправлена', 'Ваша жалоба на публикацию передана в отдел Модерации');
+      setReportingPost(null);
+    } catch (err: any) {
+      console.error('[PostReport] Error:', err);
+      setComplaintError(err.message || 'Ошибка соединения с сервером при отправке жалобы');
+    } finally {
+      setIsSendingComplaint(false);
+    }
   };
 
   const handlePostCardClickWithAlt = (e: React.MouseEvent, text: string, type: 'post' | 'name' | 'status' = 'post') => {
@@ -800,44 +884,76 @@ export default function App() {
   const [moderatorResolutionNotes, setModeratorResolutionNotes] = useState<Record<string, string>>({});
   const [pmRestrictions, setPmRestrictions] = useState<Record<string, { durationMs: number; startedAt: number; reason?: string }>>({});
   
-  const [complaintActionsLog, setComplaintActionsLog] = useState<LoggedComplaintAction[]>([
-    {
-      id: 'cal-1',
-      complaint: {
-        id: 'c-old-1',
-        userId: 'u-101',
-        userName: 'Иван Петров',
-        userAvatar: 'https://i.pravatar.cc/150?u=u-old-1',
-        type: 'Мошенничество',
-        content: 'Переведи 100 рублей на QIWI, срочно нужно!',
-        rating: '0.85'
-      },
-      actionType: 'block_delete',
-      actionName: 'Заблокировать и удалить',
-      source: 'main',
-      timestamp: new Date(Date.now() - 3600000).toLocaleString(),
-      details: 'Причина: Спам/Мошенничество',
-      operatorName: 'Агент Поддержки'
-    },
-    {
-      id: 'cal-2',
-      complaint: {
-        id: 'c-old-2',
-        userId: 'u-102',
-        userName: 'Анна Сидорова',
-        userAvatar: 'https://i.pravatar.cc/150?u=u-old-2',
-        type: 'Оскорбление',
-        content: 'Вы все дураки и не лечитесь',
-        rating: '0.45'
-      },
-      actionType: 'ignore',
-      actionName: 'Игнорировать',
-      source: 'spam',
-      timestamp: new Date(Date.now() - 7200000).toLocaleString(),
-      details: 'Причина: Не выявлено нарушений правил',
-      operatorName: 'Агент Поддержки'
+  // Helper to map DB moderation_actions payload to LoggedComplaintAction structures
+  const mapDbActionToLoggedComplaintAction = (a: any): LoggedComplaintAction => {
+    let complaintObj = {
+      id: `c-${a.id}`,
+      userId: a.targetId || a.target_id || '',
+      userName: a.targetName || a.target_name || '',
+      userAvatar: 'images.png',
+      type: 'Модерация',
+      content: a.message,
+      rating: '0.90'
+    };
+    let detailsStr = a.message;
+    let sourceVal: LoggedComplaintAction['source'] = 'main';
+    let actionTypeVal: LoggedComplaintAction['actionType'] = 'ignore';
+
+    if (a.message && a.message.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(a.message);
+        if (parsed.complaint) complaintObj = parsed.complaint;
+        if (parsed.details) detailsStr = parsed.details;
+        if (parsed.source) sourceVal = parsed.source;
+        if (parsed.actionType) actionTypeVal = parsed.actionType;
+      } catch (_) {}
     }
-  ]);
+
+    return {
+      id: a.id,
+      complaint: complaintObj,
+      actionType: actionTypeVal,
+      actionName: a.action,
+      source: sourceVal,
+      timestamp: a.timestamp ? new Date(a.timestamp).toLocaleString() : new Date().toLocaleString(),
+      details: detailsStr,
+      operatorName: a.operatorName || 'Агент Поддержки'
+    };
+  };
+
+  const [complaintActionsLog, _setComplaintActionsLogOriginal] = useState<LoggedComplaintAction[]>([]);
+  const setComplaintActionsLog = (updateValue: any) => {
+    _setComplaintActionsLogOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const newItems = next.filter(i => !prevIds.has(i.id));
+        newItems.forEach(item => {
+          const dbAction = {
+            id: item.id || `cal-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+            type: 'moderation' as any,
+            action: item.actionName,
+            targetId: item.complaint?.userId || null,
+            targetName: item.complaint?.userName || null,
+            message: JSON.stringify({
+              complaint: item.complaint,
+              details: item.details,
+              source: item.source,
+              actionType: item.actionType
+            }),
+            operatorId: currentUser?.id || 'system',
+            operatorName: item.operatorName || operatorName || 'Агент Поддержки',
+            timestamp: new Date()
+          };
+          
+          moderationRepository.insertAction(dbAction).catch(err => {
+            console.error('[setComplaintActionsLog] Error saving to DB:', err);
+          });
+        });
+      }
+      return next;
+    });
+  };
 
   const [selectedActionLog, setSelectedActionLog] = useState<LoggedComplaintAction | null>(null);
   const [reviewingComplaintLog, setReviewingComplaintLog] = useState<LoggedComplaintAction | null>(null);
@@ -896,28 +1012,46 @@ export default function App() {
   const [isAddingExemplar, setIsAddingExemplar] = useState(false);
   const [exemplarSearchQuery, setExemplarSearchQuery] = useState('');
   const [ruleSearchQuery, setRuleSearchQuery] = useState('');
-  const [pageComplaints, setPageComplaints] = useState<Complaint[]>([
-    {
-      id: 'cmpl-page-1',
-      userId: '1001',
-      userName: 'Алексей Романов',
-      userAvatar: 'https://i.pravatar.cc/150?u=1001',
-      type: 'Жалоба на страницу',
-      content: 'Подозрительная активность, массовая рассылка спама в ЛС участникам группы.',
-      rating: 'Высокий риск',
-      timestamp: new Date()
-    },
-    {
-      id: 'cmpl-page-2',
-      userId: '1002',
-      userName: 'Дмитрий Волков',
-      userAvatar: 'https://i.pravatar.cc/150?u=1002',
-      type: 'Жалоба на заголовок',
-      content: 'Использование оскорбительных слов в статусе и на стене профиля.',
-      rating: 'Средний риск',
-      timestamp: new Date()
-    }
-  ]);
+  const [pageComplaints, _setPageComplaintsOriginal] = useState<Complaint[]>([]);
+  const setPageComplaints = (updateValue: any) => {
+    _setPageComplaintsOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const nextIds = new Set(next.map(i => i.id));
+
+        // 1. Newly added profile/page complaints
+        const added = next.filter(c => !prevIds.has(c.id));
+        added.forEach(comp => {
+          reportRepository.insert({ ...comp, dept: 'Модерация страниц' }).catch(err => {
+            console.error('[Interception] Error inserting page complaint:', err);
+          });
+        });
+
+        // 2. Soft-deleted complaints
+        const deletedIds = prev.filter(c => !nextIds.has(c.id)).map(c => c.id);
+        deletedIds.forEach(id => {
+          reportRepository.softDelete(id).catch(err => {
+            console.error('[Interception] Error soft-deleting page complaint:', err);
+          });
+        });
+
+        // 3. Updated complaints
+        const nextMap = new Map(next.map(c => [c.id, c]));
+        prev.forEach(oldComp => {
+          const newComp = nextMap.get(oldComp.id);
+          if (newComp) {
+            if (oldComp.moderatedBy !== newComp.moderatedBy || oldComp.reason !== newComp.reason) {
+              reportRepository.update(newComp.id, { ...newComp, dept: 'Модерация страниц' }).catch(err => {
+                console.error('[Interception] Error updating page complaint:', err);
+              });
+            }
+          }
+        });
+      }
+      return next;
+    });
+  };
   
   const [tickets, _setTicketsOriginal] = useState<Ticket[]>([]);
   const setTickets = (updateValue: any) => {
@@ -1046,7 +1180,30 @@ export default function App() {
   // New State
   const [users, setUsers] = useState<AppUser[]>([]);
   const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
-  const [moderatorHistory, setModeratorHistory] = useState<ModeratorAction[]>([]);
+  const [moderatorHistory, _setModeratorHistoryOriginal] = useState<ModeratorAction[]>([]);
+  const setModeratorHistory = (updateValue: any) => {
+    _setModeratorHistoryOriginal(prev => {
+      const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
+      if (isSupabaseConfigured && Array.isArray(next)) {
+        const prevIds = new Set(prev.map(i => i.id));
+        const newItems = next.filter(i => !prevIds.has(i.id));
+        newItems.forEach(item => {
+          moderationRepository.insertAction({
+            id: item.id || `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+            type: item.type || 'moderation',
+            action: item.action,
+            targetId: item.targetId || null,
+            targetName: item.targetName || null,
+            message: item.message || item.action,
+            operatorId: currentUser?.id || 'system',
+            operatorName: currentUser?.name || 'Система',
+            timestamp: item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp || Date.now())
+          }).catch(err => console.error("[setModeratorHistory] Error saving moderator history to Supabase:", err));
+        });
+      }
+      return next;
+    });
+  };
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -1460,13 +1617,16 @@ export default function App() {
       const dbLogs = await moderationRepository.getActions();
       if (dbLogs && dbLogs.length > 0) {
         _setProfileModerationLogsOriginal(dbLogs);
+        _setModeratorHistoryOriginal(dbLogs);
+        _setComplaintActionsLogOriginal(dbLogs.map(mapDbActionToLoggedComplaintAction));
       }
 
       // Load main report complaints
       const dbComplaints = await reportRepository.getAll();
       if (dbComplaints && dbComplaints.length > 0) {
-        _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam'));
+        _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
         _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+        _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
       }
     } catch (e) {
       console.error('[Boot] loadHistory failed:', e);
@@ -1607,6 +1767,9 @@ export default function App() {
       setPublicSettings(DEFAULT_PUBLIC_SETTINGS);
       lastHydratedUserIdRef.current = null;
     }
+    return () => {
+      RealtimeService.unsubscribe();
+    };
   }, [currentUser?.id, bootCompleted]);
 
   const isStaff = useMemo(() => {
@@ -1918,7 +2081,13 @@ export default function App() {
   const [messengerSearchQuery, setMessengerSearchQuery] = useState('');
   const [newMessageInput, setNewMessageInput] = useState('');
   const [reportingMessage, setReportingMessage] = useState<MessengerMessage | null>(null);
+  const [reportingProfile, setReportingProfile] = useState<any | null>(null);
+  const [reportingPost, setReportingPost] = useState<any | null>(null);
+  const [complaintError, setComplaintError] = useState<string | null>(null);
+  const [isSendingComplaint, setIsSendingComplaint] = useState(false);
   const [reportedMessageIds, setReportedMessageIds] = useState<string[]>([]);
+  const [activeMenuPost, setActiveMenuPost] = useState<any | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
 
   useEffect(() => {
     if (activeChatPartnerId && currentUser?.id) {
@@ -2809,7 +2978,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notificationScrollTarget, activeTab]);
 
-  const handleModerationAction = (id: string, action: 'delete' | 'ignore' | 'block' | 'block_delete' | 'forward', source: 'main' | 'spam' | 'page_moderation' = 'main') => {
+  const handleModerationAction = async (id: string, action: 'delete' | 'ignore' | 'block' | 'block_delete' | 'forward', source: 'main' | 'spam' | 'page_moderation' = 'main') => {
     let list: Complaint[];
     let setList: React.Dispatch<React.SetStateAction<Complaint[]>>;
     
@@ -2821,29 +2990,100 @@ export default function App() {
     if (!complaint) return;
 
     if (action === 'delete') {
-      // Delete ONLY the post matching complaint content from feed & profile
-      setFeedPosts(prev => prev.filter(p => p.text !== complaint.content));
-      setList(prev => prev.filter(c => c.id !== id));
-      addModeratorLog({
-        type: 'moderation',
-        action: 'Удаление публикации',
-        message: `Публикация «${complaint.content}» автора ${complaint.userName} удалена по жалобе`,
-        targetId: complaint.userId,
-        targetName: complaint.userName
-      });
-      logComplaintAction(complaint, 'delete', 'Удалить', source, 'Удаление публикации из ленты и профиля');
-      addNotification('Удалено', 'Данная публикация успешно удалена из ленты и профилей');
+      try {
+        if (isSupabaseConfigured && id) {
+          const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
+          
+          // 1. Update report status to resolved in DB
+          await reportRepository.update(id, {
+            status: "resolved",
+            resolved_at: new Date().toISOString(),
+            resolution: "deleted",
+            moderation_action_id: actionId
+          });
+
+          // 2. Insert logged resolve action to DB
+          await moderationRepository.insertAction({
+            id: actionId,
+            type: "complaint",
+            action: "resolve",
+            targetId: complaint.id,
+            targetName: complaint.userName,
+            result: "deleted"
+          });
+
+          // 3. Sync source of truth DB
+          const dbComplaints = await reportRepository.getAll();
+          _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+          _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+          _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+        } else {
+          // Standard offline fallback
+          setList(prev => prev.filter(c => c.id !== id));
+        }
+
+        // Delete ONLY the post matching complaint content from feed & profile
+        setFeedPosts(prev => prev.filter(p => p.text !== complaint.content));
+
+        addModeratorLog({
+          type: 'moderation',
+          action: 'Удаление публикации',
+          message: `Публикация «${complaint.content}» автора ${complaint.userName} удалена по жалобе`,
+          targetId: complaint.userId,
+          targetName: complaint.userName
+        });
+        logComplaintAction(complaint, 'delete', 'Удалить', source, 'Удаление публикации из ленты и профиля');
+        addNotification('Удалено', 'Данная публикация успешно удалена из ленты и профилей');
+      } catch (err: any) {
+        console.error('[handleModerationAction/delete] Error during delete resolve flow:', err);
+        addNotification('Ошибка', 'Не удалось удалить публикацию на сервере.');
+      }
     } else if (action === 'ignore') {
-      setList(prev => prev.filter(c => c.id !== id));
-      addModeratorLog({
-        type: 'moderation',
-        action: 'Игнорирование',
-        message: `Жалоба на ${complaint.userName} проигнорирована`,
-        targetId: complaint.userId,
-        targetName: complaint.userName
-      });
-      logComplaintAction(complaint, 'ignore', 'Игнорировать', source, 'Жалоба проигнорирована и отклонена');
-      addNotification('Действие успешно', `Жалоба на ${complaint.userName} проигнорирована`);
+      try {
+        if (isSupabaseConfigured && id) {
+          const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
+          
+          // 1. Update report status to resolved in DB
+          await reportRepository.update(id, {
+            status: "resolved",
+            resolved_at: new Date().toISOString(),
+            resolution: "ignored",
+            moderation_action_id: actionId
+          });
+
+          // 2. Insert logged resolve action to DB
+          await moderationRepository.insertAction({
+            id: actionId,
+            type: "complaint",
+            action: "resolve",
+            targetId: complaint.id,
+            targetName: complaint.userName,
+            result: "ignored"
+          });
+
+          // 3. Sync source of truth DB
+          const dbComplaints = await reportRepository.getAll();
+          _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+          _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+          _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+        } else {
+          // Standard offline fallback
+          setList(prev => prev.filter(c => c.id !== id));
+        }
+
+        addModeratorLog({
+          type: 'moderation',
+          action: 'Игнорирование',
+          message: `Жалоба на ${complaint.userName} проигнорирована`,
+          targetId: complaint.userId,
+          targetName: complaint.userName
+        });
+        logComplaintAction(complaint, 'ignore', 'Игнорировать', source, 'Жалоба проигнорирована и отклонена');
+        addNotification('Действие успешно', `Жалоба на ${complaint.userName} проигнорирована`);
+      } catch (err: any) {
+        console.error('[handleModerationAction/ignore] Error during ignore resolve flow:', err);
+        addNotification('Ошибка', 'Не удалось проигнорировать жалобу на сервере.');
+      }
     } else if (action === 'block') {
       setBlockingSource(source);
       setIsBlockAndDelete(false);
@@ -2990,12 +3230,18 @@ export default function App() {
     });
   };
 
-  const confirmProfileBlock = () => {
+  const confirmProfileBlock = async () => {
     const targetUser = selectedUserData || currentUser;
+    if (!targetUser) return;
+
+    const targetId = targetUser.id;
+    const targetName = targetUser.name || 'Anonymous';
+    const complaintId = blockingComplaint?.id || '';
+
     const targetUserPosts = feedPosts.filter(p => p.authorName === targetUser?.name);
     const activeViolations: string[] = [];
     if (selectedViolations['name']) activeViolations.push(`Имя профиля: «${targetUser?.name || ''}»`);
-    if (selectedViolations['status']) activeViolations.push(`Статус профиля: «${targetUser?.status || ''}»`);
+    if (selectedViolations['status']) activeViolations.push(`Статус profile: «${targetUser?.status || ''}»`);
     targetUserPosts.forEach((post, idx) => {
       if (selectedViolations[post.id]) {
         activeViolations.push(`Публикация #${idx + 1}: «${post.text}»`);
@@ -3003,7 +3249,6 @@ export default function App() {
     });
 
     const blockData = {
-      duration: blockDuration,
       reason: blockReason,
       comment: replyText,
       timestamp: new Date(),
@@ -3018,51 +3263,87 @@ export default function App() {
         other: false
       }
     };
-    if (selectedUserData) {
-      const updatedUser = { 
-        ...selectedUserData, 
-        isBlocked: true,
-        blockReason: blockReason,
-        moderatorComment: replyText,
-        profileBlockInfo: blockData
-      };
-      setUsers(prev => prev.map(u => u.id === selectedUserData.id ? updatedUser : u));
-      setSelectedUserData(updatedUser);
-      if (currentUser?.id === selectedUserData.id) {
-        setCurrentUser(prev => prev ? { ...prev, ...updatedUser } : null);
-        setIsProfileBlocked(true);
-        setProfileBlockInfo(blockData);
-      }
-      addModeratorLog({
-        type: 'moderation',
-        action: 'Блокировка',
-        message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`,
-        targetId: selectedUserData.id,
-        targetName: selectedUserData.name
-      });
-    } else {
-      setIsProfileBlocked(true);
-      setProfileBlockInfo(blockData);
-      if (currentUser) {
-        const updatedUser = {
-          ...currentUser,
+
+    try {
+      if (isSupabaseConfigured) {
+        // 1. Direct DB block set on profile
+        await profileRepository.setBlocked(targetId, true);
+
+        // 2. Direct insert Action to DB moderationRepository
+        await moderationRepository.insertAction({
+          type: "profile",
+          action: "block",
+          targetId: targetId,
+          targetName: targetName,
+          complaintId: complaintId,
+          result: "blocked",
+          message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`
+        });
+
+        // 3. Retrieve single refreshed profile from server
+        const refreshed = await profileRepository.getProfile(targetId);
+
+        // 4. Update the state with refreshed profile as database source of truth
+        if (refreshed) {
+          const appUser = profileToAppUser(refreshed);
+          setUsers(prev => prev.map(u => u.id === targetId ? appUser : u));
+
+          if (selectedUserData && selectedUserData.id === targetId) {
+            setSelectedUserData(appUser);
+          }
+          if (currentUser?.id === targetId) {
+            setCurrentUser(appUser);
+            setIsProfileBlocked(true);
+            setProfileBlockInfo(blockData);
+          }
+        }
+      } else {
+        // Fallback for offline mode, standard optimistic local save
+        const updatedUser = { 
+          ...targetUser, 
           isBlocked: true,
           blockReason: blockReason,
           moderatorComment: replyText,
           profileBlockInfo: blockData
         };
-        setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
-        setCurrentUser(updatedUser);
+        setUsers(prev => prev.map(u => u.id === targetId ? updatedUser : u));
+        if (selectedUserData && selectedUserData.id === targetId) {
+          setSelectedUserData(updatedUser);
+        }
+        if (currentUser?.id === targetId) {
+          setCurrentUser(updatedUser);
+          setIsProfileBlocked(true);
+          setProfileBlockInfo(blockData);
+        }
       }
+
+      // Add moderator log (updates moderation actions database table and logs list)
+      addModeratorLog({
+        type: 'moderation',
+        action: 'Блокировка',
+        message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`,
+        targetId,
+        targetName
+      });
+
+      const logAction = `Заблокирован Оператором #${operatorId} на ${blockDuration} по причине: ${blockReason}${replyText ? `\nКомментарий: ${replyText}` : ''}`;
+      setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
+      setIsProfileBlockModalOpen(false);
+      addNotification('Блокировка', `Пользователь с ID ${targetId} заблокирован`);
+
+    } catch (err: any) {
+      console.error('[confirmProfileBlock] DB write block error:', err);
+      addNotification('Ошибка', 'Не удалось полностью заблокировать пользователя на сервере.');
     }
-    const logAction = `Заблокирован Оператором #${operatorId} на ${blockDuration} по причине: ${blockReason}${replyText ? `\nКомментарий: ${replyText}` : ''}`;
-    setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
-    setIsProfileBlockModalOpen(false);
-    addNotification('Блокировка', `Пользователь с ID ${selectedUserData?.id || currentUser?.id} заблокирован`);
   };
 
   const handleProfileUnblock = () => {
     if (selectedUserData) {
+      if (isSupabaseConfigured) {
+        profileRepository.setBlocked(selectedUserData.id, false).catch(err => {
+          console.error('[handleProfileUnblock] DB write unblock error:', err);
+        });
+      }
       const updatedUser = { ...selectedUserData, isBlocked: false, profileBlockInfo: undefined };
       setUsers(prev => prev.map(u => u.id === selectedUserData.id ? updatedUser : u));
       setSelectedUserData(updatedUser);
@@ -3080,6 +3361,11 @@ export default function App() {
     } else {
       setIsProfileBlocked(false);
       if (currentUser) {
+        if (isSupabaseConfigured) {
+          profileRepository.setBlocked(currentUser.id, false).catch(err => {
+            console.error('[handleProfileUnblock] DB write unblock error:', err);
+          });
+        }
         const updatedUser = { ...currentUser, isBlocked: false, profileBlockInfo: undefined };
         setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
         setCurrentUser(updatedUser);
@@ -3143,7 +3429,7 @@ export default function App() {
     }
   };
 
-  const confirmBlock = () => {
+  const confirmBlock = async () => {
     if (blockingComplaint) {
       const targetUserName = blockingComplaint.userName;
       const targetUserId = blockingComplaint.userId;
@@ -3164,88 +3450,147 @@ export default function App() {
         }
       };
 
-      // Update users list
-      setUsers(prev => {
-        const exists = prev.some(u => u.id === targetUserId || u.name === targetUserName);
-        if (exists) {
-          return prev.map(u => (u.id === targetUserId || u.name === targetUserName) ? { 
-            ...u, 
-            isBlocked: true, 
-            blockReason: blockReason, 
-            moderatorComment: replyText,
-            profileBlockInfo: blockData
-          } : u);
+      try {
+        if (isSupabaseConfigured) {
+          const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
+
+          // 1. Direct DB block set on profile
+          if (targetUserId) {
+            await profileRepository.setBlocked(targetUserId, true);
+          }
+
+          // 2. Direct Update status and resolution fields on complaint
+          if (blockingComplaint.id) {
+            await reportRepository.update(blockingComplaint.id, {
+              status: "resolved",
+              resolved_at: new Date().toISOString(),
+              resolution: "blocked",
+              moderation_action_id: actionId
+            });
+          }
+
+          // 3. Direct insert Action to DB moderationRepository
+          await moderationRepository.insertAction({
+            id: actionId,
+            type: "complaint",
+            action: "resolve",
+            targetId: blockingComplaint.id,
+            targetName: blockingComplaint.userName,
+            result: "blocked"
+          });
+
+          // 4. Retrieve single refreshed profile from server
+          if (targetUserId) {
+            const refreshed = await profileRepository.getProfile(targetUserId);
+            if (refreshed) {
+              const appUser = profileToAppUser(refreshed);
+              setUsers(prev => prev.map(u => u.id === targetUserId ? appUser : u));
+
+              if (selectedUserData && selectedUserData.id === targetUserId) {
+                setSelectedUserData(appUser);
+              }
+              if (currentUser?.id === targetUserId) {
+                setCurrentUser(appUser);
+                setIsProfileBlocked(true);
+                setProfileBlockInfo(blockData);
+              }
+            }
+          }
+
+          // 5. Sync source of truth DB for complaints list
+          const dbComplaints = await reportRepository.getAll();
+          _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+          _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+          _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+
         } else {
-          const newUser: AppUser = {
-            id: targetUserId || `u-${Date.now()}`,
-            name: targetUserName,
-            avatar: blockingComplaint.userAvatar || `https://i.pravatar.cc/150?u=${targetUserId}`,
-            trustLevel: parseFloat(blockingComplaint.rating || '0.7'),
-            isVerified: false,
-            isBlocked: true,
-            regDate: 'сегодня',
-            blockReason: blockReason,
-            moderatorComment: replyText,
-            profileBlockInfo: blockData
-          };
-          return [...prev, newUser];
+          // Fallback optimistic updates for offline mode
+          setUsers(prev => {
+            const exists = prev.some(u => u.id === targetUserId || u.name === targetUserName);
+            if (exists) {
+              return prev.map(u => (u.id === targetUserId || u.name === targetUserName) ? { 
+                ...u, 
+                isBlocked: true, 
+                blockReason: blockReason, 
+                moderatorComment: replyText,
+                profileBlockInfo: blockData
+              } : u);
+            } else {
+              const newUser: AppUser = {
+                id: targetUserId || `u-${Date.now()}`,
+                name: targetUserName,
+                avatar: blockingComplaint.userAvatar || `https://i.pravatar.cc/150?u=${targetUserId}`,
+                trustLevel: parseFloat(blockingComplaint.rating || '0.7'),
+                isVerified: false,
+                isBlocked: true,
+                regDate: 'сегодня',
+                blockReason: blockReason,
+                moderatorComment: replyText,
+                profileBlockInfo: blockData
+              };
+              return [...prev, newUser];
+            }
+          });
+
+          if (selectedUserData && (selectedUserData.id === targetUserId || selectedUserData.name === targetUserName)) {
+            setSelectedUserData(prev => prev ? {
+              ...prev,
+              isBlocked: true,
+              blockReason: blockReason,
+              moderatorComment: replyText,
+              profileBlockInfo: blockData
+            } : null);
+          }
+
+          if (currentUser && (currentUser.id === targetUserId || currentUser.name === targetUserName)) {
+            setIsProfileBlocked(true);
+            setProfileBlockInfo(blockData);
+            setCurrentUser(prev => prev ? {
+              ...prev,
+              isBlocked: true,
+              blockReason: blockReason,
+              moderatorComment: replyText,
+              profileBlockInfo: blockData
+            } : null);
+          }
+
+          if (blockingSource === 'spam') {
+            setSpamComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+          } else if (blockingSource === 'page_moderation') {
+            setPageComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+          } else {
+            setComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
+          }
         }
-      });
 
-      // Update selectedUserData if we are viewing this user
-      if (selectedUserData && (selectedUserData.id === targetUserId || selectedUserData.name === targetUserName)) {
-        setSelectedUserData(prev => prev ? {
-          ...prev,
-          isBlocked: true,
-          blockReason: blockReason,
-          moderatorComment: replyText,
-          profileBlockInfo: blockData
-        } : null);
-      }
+        // Apply visual deletes for posts if needed
+        if (isBlockAndDelete) {
+          setFeedPosts(prev => prev.filter(p => p.text !== blockingComplaint.content));
+        }
 
-      // If current user is the target
-      if (currentUser && (currentUser.id === targetUserId || currentUser.name === targetUserName)) {
-        setIsProfileBlocked(true);
-        setProfileBlockInfo(blockData);
-        setCurrentUser(prev => prev ? {
-          ...prev,
-          isBlocked: true,
-          blockReason: blockReason,
-          moderatorComment: replyText,
-          profileBlockInfo: blockData
-        } : null);
-      }
+        setProcessedCount(prev => prev + 1);
+        setModeratorHistory(prev => [{ 
+          id: Math.random().toString(), 
+          complaintId: blockingComplaint.id, 
+          action: isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка', 
+          message: `Пользователь ${targetUserName} заблокирован по причине: ${blockReason}`, 
+          timestamp: new Date() 
+        }, ...prev]);
+        
+        {
+          const blockActionType = isBlockAndDelete ? 'block_delete' : 'block';
+          const blockActionName = isBlockAndDelete ? 'Заблокировать и удалить' : 'Заблокировать';
+          logComplaintAction(blockingComplaint, blockActionType, blockActionName, blockingSource as any, `Причина: ${blockReason}. Срок: ${blockDuration}. Комментарий: ${replyText}`);
+        }
+        
+        addNotification('Действие успешно', `Пользователь ${targetUserName} заблокирован`);
+        setBlockingComplaint(null);
+        setReplyText('');
 
-      if (isBlockAndDelete) {
-        setFeedPosts(prev => prev.filter(p => p.text !== blockingComplaint.content));
+      } catch (err: any) {
+        console.error('[confirmBlock] Error during block resolve flow:', err);
+        addNotification('Ошибка', 'Не удалось полностью заблокировать пользователя и закрыть жалобу.');
       }
-
-      if (blockingSource === 'spam') {
-        setSpamComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-      } else if (blockingSource === 'page_moderation') {
-        setPageComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-      } else {
-        setComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-      }
-
-      setProcessedCount(prev => prev + 1);
-      setModeratorHistory(prev => [{ 
-        id: Math.random().toString(), 
-        complaintId: blockingComplaint.id, 
-        action: isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка', 
-        message: `Пользователь ${targetUserName} заблокирован по причине: ${blockReason}`, 
-        timestamp: new Date() 
-      }, ...prev]);
-      
-      {
-        const blockActionType = isBlockAndDelete ? 'block_delete' : 'block';
-        const blockActionName = isBlockAndDelete ? 'Заблокировать и удалить' : 'Заблокировать';
-        logComplaintAction(blockingComplaint, blockActionType, blockActionName, blockingSource as any, `Причина: ${blockReason}. Срок: ${blockDuration}. Комментарий: ${replyText}`);
-      }
-      
-      addNotification('Действие успешно', `Пользователь ${targetUserName} заблокирован`);
-      setBlockingComplaint(null);
-      setReplyText('');
     }
   };
 
@@ -10320,14 +10665,14 @@ export default function App() {
     return result;
   }, [feedPosts, feedMode, enableFeedModes, feedFormatFilter, currentUser, mySubscriptions, myFriends, mySubscribedDiscussions, users]);
 
-  const handlePublishPost = (
+  const handlePublishPost = async (
     thought: string,
     context?: string,
     media?: string,
     visualPriority?: 'text' | 'media' | 'discussion',
     postFormat?: 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION',
     title?: string
-  ): boolean => {
+  ): Promise<boolean> => {
     if (!currentUser) {
       setIsRegistered(false);
       return false;
@@ -10391,13 +10736,38 @@ export default function App() {
       return false;
     }
 
-    // 2. Automoderator Rules check
-    const automodMatch = automodRules.find(r => r.isActive && r.keywords.some(kw => inputText.toLowerCase().includes(kw.toLowerCase())));
+    // 2. Automoderator Rules check (via Server-side check API)
+    let automodMatch = null;
+    try {
+      const response = await fetch('/api/check-spam', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: inputText,
+          userId: currentUser.id,
+          userName: currentUser.name
+        })
+      });
+      const data = await response.json();
+      if (data && data.match) {
+        automodMatch = data.match;
+      }
+    } catch (e) {
+      console.error('[handlePublishPost] Server-side spam check failed:', e);
+    }
+
     if (automodMatch) {
-      setAutomodRules(prev => prev.map(r => r.id === automodMatch.id ? { ...r, matchCount: r.matchCount + 1 } : r));
+      setAutomodRules(prev => prev.map(r => r.id === automodMatch.id ? { ...r, matchCount: (r.matchCount || 0) + 1 } : r));
       addNotification('Автомодератор 🤖', `Пост заблокирован по правилу: "${automodMatch.name}"`);
 
       if (automodMatch.action === 'delete_ban') {
+        if (isSupabaseConfigured) {
+          profileRepository.setBlocked(currentUser.id, true).catch(err => {
+            console.error('[handlePublishPost] DB block write failed:', err);
+          });
+        }
         setUsers(prev => prev.map(usr => usr.id === currentUser.id ? {
           ...usr,
           isBlocked: true,
@@ -10422,12 +10792,13 @@ export default function App() {
           }
         } : null);
 
-        const logEntry = {
-          id: `log-automod-block-${Date.now()}`,
-          action: `Пользователь ${currentUser.name} заблокирован по правилу «${automodMatch.name}» за публикацию: «${inputText}»`,
-          timestamp: new Date()
-        };
-        setProfileModerationLogs(prev => [logEntry, ...prev]);
+        addModeratorLog({
+          type: 'moderation',
+          action: `Блокировка (Авто)`,
+          message: `Пользователь ${currentUser.name} заблокирован по правилу «${automodMatch.name}» за публикацию: «${inputText}»`,
+          targetId: currentUser.id,
+          targetName: currentUser.name
+        });
       } else if (automodMatch.action === 'flag_spam') {
         const newComplaint = {
           id: `spam-comp-${Date.now()}`,
@@ -10437,17 +10808,18 @@ export default function App() {
           type: 'content',
           content: `[Автомодератор] Нарушение правил спама: «${inputText}»`,
           details: `Обнаружено совпадение с правилом спама: ${automodMatch.name}`,
-          timestamp: new Date().toISOString(),
-          dept: 'Спам'
+          timestamp: new Date(),
+          dept: 'Spam' as any
         };
         setSpamComplaints(prev => [newComplaint, ...prev]);
 
-        const logEntry = {
-          id: `log-automod-spam-${Date.now()}`,
-          action: `Текст «${inputText}» отклонён и отправлен в спам-очередь по правилу «${automodMatch.name}»`,
-          timestamp: new Date()
-        };
-        setProfileModerationLogs(prev => [logEntry, ...prev]);
+        addModeratorLog({
+          type: 'moderation' as any,
+          action: `Спам-фильтр`,
+          message: `Текст «${inputText}» отклонён и отправлен в спам-очередь по правилу «${automodMatch.name}»`,
+          targetId: currentUser.id,
+          targetName: currentUser.name
+        });
       } else if (automodMatch.action === 'flag_pro') {
         const newComplaint = {
           id: `pro-comp-${Date.now()}`,
@@ -10457,17 +10829,18 @@ export default function App() {
           type: 'content',
           content: `[Автомодератор] Нарушение правил ПРО: «${inputText}»`,
           details: `Обнаружена токсичность по правилу: ${automodMatch.name}`,
-          timestamp: new Date().toISOString(),
-          dept: 'Модерация'
+          timestamp: new Date(),
+          dept: 'Модерация' as any
         };
         setComplaints(prev => [newComplaint, ...prev]);
 
-        const logEntry = {
-          id: `log-automod-pro-${Date.now()}`,
-          action: `Текст «${inputText}» перенаправлен в ПРО по правилу «${automodMatch.name}»`,
-          timestamp: new Date()
-        };
-        setProfileModerationLogs(prev => [logEntry, ...prev]);
+        addModeratorLog({
+          type: 'moderation',
+          action: `ПРО-фильтр`,
+          message: `Текст «${inputText}» перенаправлен в ПРО по правилу «${automodMatch.name}»`,
+          targetId: currentUser.id,
+          targetName: currentUser.name
+        });
       }
       return false;
     }
@@ -10739,116 +11112,23 @@ export default function App() {
           {/* Actions Trigger */}
           <div className="relative flex items-center shrink-0">
             <button 
-              onClick={(e) => { e.stopPropagation(); setOpenUserMenuId(openUserMenuId === post.id ? null : post.id); }}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                if (activeMenuPost && activeMenuPost.id === post.id) {
+                  setActiveMenuPost(null);
+                } else {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setMenuPosition({
+                    top: rect.bottom + window.scrollY,
+                    right: window.innerWidth - rect.right - window.scrollX,
+                  });
+                  setActiveMenuPost(post);
+                }
+              }}
               className="p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650 rounded transition-colors"
             >
               <MoreHorizontal size={14} />
             </button>
-            <AnimatePresence>
-              {openUserMenuId === post.id && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpenUserMenuId(null); }} />
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                    className="absolute right-0 mt-1 w-48 bg-white border border-zinc-200 rounded shadow-lg z-50 py-1"
-                  >
-                    <button onClick={(e) => {
-                      e.stopPropagation();
-                      const newComplaint: Complaint = {
-                        id: `c-feed-${Date.now()}`,
-                        userId: `u-feed-${post.id}`,
-                        userName: post.authorName,
-                        userAvatar: post.authorAvatar,
-                        type: 'Жалоба из ленты',
-                        content: post.text || 'Жалоба на изображение в посте',
-                        rating: '0.75',
-                        image: post.image,
-                        moderatedBy: post.moderatedBy
-                      };
-                      setComplaints(prev => [newComplaint, ...prev]);
-                      setOpenUserMenuId(null);
-                      addNotification('Жалоба отправлена', 'Ваша жалоба передана в отдел Модерации');
-
-                      if (currentUser) {
-                        const outgoingItem: ComplaintHistoryItem = {
-                          id: `ch-out-${Date.now()}`,
-                          type: 'outgoing',
-                          content: post.text || 'Жалоба на изображение в посте',
-                          decision: 'В очереди на рассмотрение',
-                          moderator: 'Система',
-                          timestamp: new Date().toLocaleString(),
-                          status: 'Обрабатывается'
-                        };
-                        setUsers(prev => prev.map(u => u.id === currentUser.id ? { 
-                          ...u, 
-                          complaintHistory: [outgoingItem, ...(u.complaintHistory || [])] 
-                        } : u));
-                        setCurrentUser(prev => prev ? { 
-                          ...prev, 
-                          complaintHistory: [outgoingItem, ...(prev.complaintHistory || [])] 
-                        } : null);
-                      }
-                    }} className="w-full text-left px-3 py-2 text-[12.5px] text-red-650 hover:bg-red-50 flex items-center gap-2 border-none bg-transparent cursor-pointer">
-                      <ShieldAlert size={14} /> Пожаловаться
-                    </button>
-                    
-                    {isEmployee && (
-                      <>
-                        <div className="border-t border-zinc-100 my-1 font-sans" />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenUserMenuId(null);
-                            const analyzed = TopicScoreService.analyzePost('', post.text || '', allTopics);
-                            setFeedPosts(prev => prev.map(p => p.id === post.id ? {
-                              ...p,
-                              topicScores: analyzed,
-                              topicClassificationSource: 'AUTO' as const,
-                              topicHistory: [
-                                {
-                                  timestamp: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-                                  action: 'Автоматический пересчет',
-                                  source: 'AUTO' as const,
-                                  moderator: currentUser?.name
-                                },
-                                ...(p.topicHistory || [])
-                              ]
-                            } : p));
-                            addNotification('Модерация', 'Тематики успешно пересчитаны.');
-                          }}
-                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
-                        >
-                          <span>Пересчитать тематики</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenUserMenuId(null);
-                            setTopicScoreEditPost(post);
-                          }}
-                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
-                        >
-                          <span>Настроить тематики</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenUserMenuId(null);
-                            setTopicScoreExplainPost(post);
-                            setTopicScoreExplainUserVal(currentUser);
-                          }}
-                          className="w-full text-left px-3 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans"
-                        >
-                          <span>Почему это показано?</span>
-                        </button>
-                      </>
-                    )}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
           </div>
         </div>
 
@@ -12609,6 +12889,118 @@ export default function App() {
       setReportingMessage(null);
     };
 
+    const handleMessageReportSubmit = async (reason: 'Угроза' | 'Домогательство' | 'Спам' | 'Оскорбление' | 'Мошенничество' | 'Доксинг') => {
+      if (!reportingMessage || !currentUser) return;
+      
+      setIsSendingComplaint(true);
+      setComplaintError(null);
+
+      try {
+        const id = `c-msg-${Date.now()}`;
+        const newComplaint: Complaint = {
+          id: id,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userAvatar: currentUser.avatar,
+          type: 'message',
+          content: reportingMessage.text || 'Жалоба на личное сообщение',
+          targetId: reportingMessage.senderId,
+          targetName: reportingMessage.senderName,
+          status: 'pending',
+          reason: reason,
+          dept: 'Модерация сообщений',
+          rating: '0.88',
+          timestamp: new Date()
+        };
+
+        if (isSupabaseConfigured) {
+          await reportRepository.insert(newComplaint);
+        }
+
+        // Only on DB Success, update local state
+        setComplaints(prev => [newComplaint, ...prev]);
+        setReportedMessageIds(prev => [...prev, reportingMessage.id]);
+        
+        // Match legacy dialogComplaint push
+        const prevMsgs = chatMessages
+          .filter(m => m.timestamp <= reportingMessage.timestamp && m.id !== reportingMessage.id)
+          .slice(-3)
+          .map(m => ({
+            id: m.id,
+            senderName: m.senderName,
+            senderAvatar: m.senderAvatar || 'dog2.jpeg',
+            text: m.text,
+            timestamp: m.timestamp
+          }));
+
+        const newDialogComp: DialogComplaint = {
+          id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          offenderId: reportingMessage.senderId,
+          offenderName: reportingMessage.senderName,
+          offenderAvatar: reportingMessage.senderAvatar || 'dog2.jpeg',
+          offenderTrust: 0.35,
+          offenderRisk: 0.45,
+          violationType: reason,
+          source: 'Жалобы пользователя',
+          reporterId: currentUser.id,
+          reporterName: currentUser.name,
+          reporterAvatar: currentUser.avatar,
+          participants: {
+            userA: { name: currentUser.name, avatar: currentUser.avatar, isOffender: currentUser.id === reportingMessage.senderId },
+            userB: { name: reportingMessage.senderName, avatar: reportingMessage.senderAvatar || 'dog2.jpeg', isOffender: reportingMessage.senderId !== currentUser.id }
+          },
+          previewMessages: [
+            {
+              id: reportingMessage.id,
+              senderName: reportingMessage.senderName,
+              senderAvatar: reportingMessage.senderAvatar || 'dog2.jpeg',
+              text: reportingMessage.text,
+              timestamp: reportingMessage.timestamp,
+              isViolation: true
+            }
+          ],
+          contextBeforeMessages: prevMsgs,
+          contextAfterMessages: [],
+          fullDialogueMessages: [
+            ...prevMsgs,
+            {
+              id: reportingMessage.id,
+              senderName: reportingMessage.senderName,
+              senderAvatar: reportingMessage.senderAvatar || 'dog2.jpeg',
+              text: reportingMessage.text,
+              timestamp: reportingMessage.timestamp,
+              isViolation: true
+            }
+          ],
+          aiAnalysis: {
+            threat: reason === 'Угроза' ? 85 : 5,
+            toxicity: reason === 'Оскорбление' ? 90 : 25,
+            insult: reason === 'Оскорбление' ? 95 : 10,
+            spam: reason === 'Спам' ? 95 : 0,
+            scam: reason === 'Мошенничество' ? 95 : 5,
+            riskLevel: reason === 'Угроза' || reason === 'Мошенничество' ? 'HIGH' : 'MEDIUM'
+          },
+          violationHistory: {
+            violationsCount: 1,
+            warningsCount: 1,
+            blocksCount: 0,
+            lastViolationDate: 'Ранее',
+            lastViolationReason: 'Предупреждение'
+          },
+          hasCounterComplaint: false
+        };
+
+        setDialogComplaints(prev => [newDialogComp, ...prev]);
+
+        addNotification('Жалоба отправлена', `Жалоба на сообщение («${reason}») успешно передана модераторам.`);
+        setReportingMessage(null);
+      } catch (err: any) {
+        setComplaintError(err?.message || 'Ошибка сохранения жалобы в базу данных. Пожалуйста, попробуйте еще раз.');
+      } finally {
+        setIsSendingComplaint(false);
+      }
+    };
+
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
         <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm flex flex-col md:flex-row min-h-[600px] h-[calc(100vh-250px)] max-h-[750px]">
@@ -12900,7 +13292,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Report/Complaint Modal */}
+        {/* Report/Complaint Modal for Message */}
         {reportingMessage && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
             <motion.div 
@@ -12915,8 +13307,9 @@ export default function App() {
                   Пожаловаться на сообщение
                 </h3>
                 <button 
-                  onClick={() => setReportingMessage(null)}
-                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer"
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingMessage(null); setComplaintError(null); }}
+                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
                 >
                   <X size={18} />
                 </button>
@@ -12934,6 +13327,19 @@ export default function App() {
                   </div>
                 </div>
 
+                {complaintError && (
+                  <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
+                    {complaintError}
+                  </div>
+                )}
+
+                {isSendingComplaint && (
+                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
+                    Сохранение жалобы в БД...
+                  </div>
+                )}
+
                 <div>
                   <label className="text-[12px] font-semibold text-vk-text block mb-2">
                     Выберите причину жалобы:
@@ -12942,8 +13348,9 @@ export default function App() {
                     {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
                       <button
                         key={reason}
-                        onClick={() => handleReportSubmit(reason)}
-                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group"
+                        disabled={isSendingComplaint}
+                        onClick={() => handleMessageReportSubmit(reason)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <span>{reason}</span>
                         <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
@@ -12956,8 +13363,172 @@ export default function App() {
               {/* Modal Footer */}
               <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
                 <button
-                  onClick={() => setReportingMessage(null)}
-                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer"
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingMessage(null); setComplaintError(null); }}
+                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Отмена
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Report/Complaint Modal for Profile */}
+        {reportingProfile && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
+                  <Flag size={16} className="text-[#e64646]" />
+                  Пожаловаться на профиль
+                </h3>
+                <button 
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingProfile(null); setComplaintError(null); }}
+                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-5 space-y-4">
+                <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left flex items-center gap-2.5">
+                  <img src={reportingProfile.avatar} className="w-8 h-8 rounded-full object-cover" />
+                  <div>
+                    <div className="text-[12.5px] font-semibold text-vk-text">{reportingProfile.name}</div>
+                    <div className="text-[10px] text-vk-text-secondary">Отдел: Модерация страниц</div>
+                  </div>
+                </div>
+
+                {complaintError && (
+                  <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
+                    {complaintError}
+                  </div>
+                )}
+
+                {isSendingComplaint && (
+                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
+                    Сохранение жалобы в БД...
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[12px] font-semibold text-vk-text block mb-2">
+                    Выберите причину жалобы:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
+                      <button
+                        key={reason}
+                        disabled={isSendingComplaint}
+                        onClick={() => handleProfileReportSubmit(reason)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span>{reason}</span>
+                        <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
+                <button
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingProfile(null); setComplaintError(null); }}
+                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Отмена
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Report/Complaint Modal for Post */}
+        {reportingPost && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
+                <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
+                  <Flag size={16} className="text-[#e64646]" />
+                  Пожаловаться на публикацию
+                </h3>
+                <button 
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingPost(null); setComplaintError(null); }}
+                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-5 space-y-4">
+                <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left">
+                  <div className="text-[11px] text-vk-text-secondary font-semibold uppercase tracking-wider mb-1">
+                    Автор публикации: {reportingPost.authorName}
+                  </div>
+                  {reportingPost.text && (
+                    <div className="text-[12px] text-vk-text italic line-clamp-2 break-words">
+                      «{reportingPost.text}»
+                    </div>
+                  )}
+                </div>
+
+                {complaintError && (
+                  <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
+                    {complaintError}
+                  </div>
+                )}
+
+                {isSendingComplaint && (
+                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
+                    Сохранение жалобы в БД...
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[12px] font-semibold text-vk-text block mb-2">
+                    Выберите причину жалобы:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
+                      <button
+                        key={reason}
+                        disabled={isSendingComplaint}
+                        onClick={() => handlePostReportSubmit(reason)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span>{reason}</span>
+                        <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
+                <button
+                  disabled={isSendingComplaint}
+                  onClick={() => { setReportingPost(null); setComplaintError(null); }}
+                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
                 >
                   Отмена
                 </button>
@@ -18194,6 +18765,91 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {activeMenuPost && menuPosition && createPortal(
+        <>
+          {/* Click outside backdrop catcher */}
+          <div 
+            className="fixed inset-0 z-[9998] bg-transparent" 
+            onClick={(e) => { e.stopPropagation(); setActiveMenuPost(null); }} 
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            style={{
+              position: 'absolute',
+              top: `${menuPosition.top + 4}px`,
+              right: `${menuPosition.right}px`,
+            }}
+            className="w-52 bg-white border border-zinc-200 rounded-[4px] shadow-xl z-[9999] py-1.5 text-left font-sans"
+          >
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleComplainAboutPost(activeMenuPost);
+                setActiveMenuPost(null);
+              }} 
+              className="w-full text-left px-4 py-2 text-[12.5px] text-red-650 hover:bg-red-50 flex items-center gap-2 border-none bg-transparent cursor-pointer font-sans font-semibold hover:text-[#e64646]"
+            >
+              <ShieldAlert size={14} className="text-[#e64646]" /> Пожаловаться
+            </button>
+            
+            {(isAdminMode || (currentUser && (currentUser.isEmployee || isWorker(currentUser)))) && (
+              <>
+                <div className="border-t border-zinc-100 my-1 font-sans" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const post = activeMenuPost;
+                    const analyzed = TopicScoreService.analyzePost('', post.text || '', allTopics);
+                    setFeedPosts(prev => prev.map(p => p.id === post.id ? {
+                      ...p,
+                      topicScores: analyzed,
+                      topicClassificationSource: 'AUTO' as const,
+                      topicHistory: [
+                        {
+                          timestamp: new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                          action: 'Автоматический пересчет',
+                          source: 'AUTO' as const,
+                          moderator: currentUser?.name
+                        },
+                        ...(p.topicHistory || [])
+                      ]
+                    } : p));
+                    addNotification('Модерация', 'Тематики успешно пересчитаны.');
+                    setActiveMenuPost(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans font-medium"
+                >
+                  <span>Пересчитать тематики</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTopicScoreEditPost(activeMenuPost);
+                    setActiveMenuPost(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans font-medium"
+                >
+                  <span>Настроить тематики</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTopicScoreExplainPost(activeMenuPost);
+                    setTopicScoreExplainUserVal(currentUser);
+                    setActiveMenuPost(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-[12.5px] text-[#2a5885] hover:bg-slate-50 flex items-center justify-start gap-2 border-none bg-transparent cursor-pointer font-sans font-medium"
+                >
+                  <span>Почему это показано?</span>
+                </button>
+              </>
+            )}
+          </motion.div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

@@ -266,8 +266,43 @@ CREATE TABLE IF NOT EXISTS messenger_messages (
 
 ALTER TABLE messenger_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Enable all access on messenger_messages" ON messenger_messages;
-CREATE POLICY "Enable all access on messenger_messages" ON messenger_messages
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "messenger_insert_policy" ON messenger_messages;
+DROP POLICY IF EXISTS "messenger_select_policy" ON messenger_messages;
+DROP POLICY IF EXISTS "messenger_delete_policy" ON messenger_messages;
+
+CREATE POLICY "messenger_insert_policy" ON messenger_messages
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    sender_id = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+      AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+CREATE POLICY "messenger_select_policy" ON messenger_messages
+  FOR SELECT TO authenticated
+  USING (
+    sender_id = auth.uid()::text
+    OR receiver_id = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+      AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+CREATE POLICY "messenger_delete_policy" ON messenger_messages
+  FOR DELETE TO authenticated
+  USING (
+    sender_id = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+      AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
 
 -- 12. Table complaints
 CREATE TABLE IF NOT EXISTS complaints (
@@ -281,6 +316,9 @@ CREATE TABLE IF NOT EXISTS complaints (
   image TEXT,
   reason TEXT,
   dept TEXT,
+  target_id TEXT,
+  target_name TEXT,
+  status TEXT DEFAULT 'pending',
   moderated_by TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   deleted_at TIMESTAMPTZ DEFAULT NULL

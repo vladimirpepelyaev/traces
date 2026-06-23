@@ -36,6 +36,9 @@ export function profileToAppUser(profile: any): AppUser {
   // Rule: isEmployee = true for super_admin, moderator, support
   const isEmployee = isSuperAdmin || isModerator || isSupport;
   
+  const isVerified = isSuperAdmin || isModerator || role === 'verified' || role === 'verified_user' || role === 'service' || role === 'service_profile';
+  const isServiceProfile = role === 'service' || role === 'service_profile' || !!profile.public_settings?.is_service_profile;
+
   // Rule: roles list with specific booleans
   const rolesArray: any = [role];
   rolesArray.moderation = isSuperAdmin || isModerator;
@@ -52,7 +55,7 @@ export function profileToAppUser(profile: any): AppUser {
     login: profile.username || '',
     avatar: profile.avatar_url || '',
     trustLevel: 1.0,
-    isVerified: isSuperAdmin || isModerator,
+    isVerified: isVerified,
     isBlocked: !!profile.blocked,
     regDate: profile.created_at ? new Date(profile.created_at).toLocaleDateString() : new Date().toLocaleDateString(),
     role: role,
@@ -62,6 +65,9 @@ export function profileToAppUser(profile: any): AppUser {
     onboardingCompleted: !!profile.onboarding_completed,
     status: profile.public_settings?.bio || profile.status || '',
     publicSettings: profile.public_settings || null,
+    isServiceProfile: isServiceProfile,
+    showServiceMessageButton: isServiceProfile ? (profile.public_settings?.show_service_message_button !== false) : false,
+    serviceSupportCategory: profile.public_settings?.service_support_category || 'Поддержка',
     friendsCount: 0,
     followersCount: 0,
     photosCount: 0,

@@ -117,10 +117,14 @@ export class ProfileRepositoryProvider {
   async saveProfile(userId: string, updates: any): Promise<void> {
     if (!isSupabaseConfigured) return;
     await ResilienceService.retry(async () => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .update(updates)
-        .eq('id', userId);
+        .eq('id', userId)
+        .select();
+
+      console.log('[DB]', 'profiles', { id: userId, ...updates }, data, error);
+
       if (error) throw error;
     });
   }
@@ -367,11 +371,26 @@ export class MessageRepositoryProvider {
 
   async insert(message: any): Promise<void> {
     if (!isSupabaseConfigured) return;
+    
+    let realSenderId = message.senderId;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+        const isStaff = profile && ['support', 'moderator', 'super_admin', 'staff', 'moderation'].includes(profile.role);
+        if (!isStaff) {
+          realSenderId = user.id;
+        }
+      }
+    } catch (e) {
+      console.warn('[MessageRepository] Failed to resolve auth context on message insert:', e);
+    }
+
     const { error } = await supabase
       .from('messenger_messages')
       .insert({
         id: message.id,
-        sender_id: message.senderId,
+        sender_id: realSenderId,
         sender_name: message.senderName,
         sender_avatar: message.senderAvatar,
         receiver_id: message.receiverId,
@@ -536,22 +555,35 @@ export class ModerationRepositoryProvider {
     }
   }
 
-  async insertAction(action: ModeratorAction): Promise<void> {
+  async insertAction(action: ModeratorAction | any): Promise<void> {
     if (!isSupabaseConfigured) return;
+    const itemAction = action.action || 'block';
+    const targetId = action.targetId || '';
+    const targetName = action.targetName || '';
+    const result = action.result || '';
+    const complaintId = action.complaintId || '';
+    
+    // Formulate a clean description of the action being executed
+    const message = action.message || `Действие: ${itemAction} по отношению к ${targetName} (${targetId}). ${result ? `Результат: ${result}.` : ''} ${complaintId ? `Связано с жалобой #${complaintId}` : ''}`;
+    
+    const payload = {
+      id: action.id || `act-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+      type: action.type || 'moderation',
+      action: itemAction,
+      target_id: targetId || null,
+      target_name: targetName || null,
+      message: message,
+      operator_id: action.operatorId || 'system',
+      operator_name: action.operatorName || 'Система',
+      created_at: action.timestamp ? (action.timestamp instanceof Date ? action.timestamp.toISOString() : new Date(action.timestamp).toISOString()) : new Date().toISOString()
+    };
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('moderation_actions')
-        .insert({
-          id: action.id,
-          type: action.type,
-          action: action.action,
-          target_id: action.targetId || null,
-          target_name: action.targetName || null,
-          message: action.message,
-          operator_id: action.operatorId,
-          operator_name: action.operatorName,
-          created_at: action.timestamp ? action.timestamp.toISOString() : new Date().toISOString()
-        });
+        .insert(payload)
+        .select();
+
+      console.log('[DB]', 'moderation_actions', payload, data, error);
 
       if (error) {
         console.error('[ModerationRepository] Error saving logged action:', error);
@@ -559,6 +591,7 @@ export class ModerationRepositoryProvider {
       }
     } catch (e) {
       console.error('[ModerationRepository] insertAction failed:', e);
+      throw e;
     }
   }
 }
@@ -573,6 +606,7 @@ export class ReportRepositoryProvider {
       .from('complaints')
       .select('*')
       .is('deleted_at', null)
+      .eq('status', 'pending')
       .order('created_at', { ascending: false });
     if (error) {
       console.error('[ReportRepository] Error fetching complaints:', error);
@@ -581,15 +615,22 @@ export class ReportRepositoryProvider {
     return (data || []).map(c => this.mapDbToComplaint(c));
   }
 
-  async insert(complaint: Complaint): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    const { error } = await supabase
+  async insert(complaint: Complaint): Promise<Complaint> {
+    if (!isSupabaseConfigured) return complaint;
+    const payload = this.mapComplaintToDb(complaint);
+    const { data, error } = await supabase
       .from('complaints')
-      .insert(this.mapComplaintToDb(complaint));
+      .insert(payload)
+      .select()
+      .single();
+
+    console.log('[DB]', 'complaints', payload, data, error);
+
     if (error) {
       console.error('[ReportRepository] Error insert complaint:', error);
       throw error;
     }
+    return this.mapDbToComplaint(data);
   }
 
   async update(complaintId: string, updates: Partial<Complaint>): Promise<void> {
@@ -597,11 +638,24 @@ export class ReportRepositoryProvider {
     const dbUpdates: any = {};
     if (updates.moderatedBy !== undefined) dbUpdates.moderated_by = updates.moderatedBy;
     if (updates.reason !== undefined) dbUpdates.reason = updates.reason;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
 
-    const { error } = await supabase
+    // Added support for tracking / resolution fields in update
+    if (updates.target_type !== undefined) dbUpdates.target_type = updates.target_type;
+    if (updates.target_status !== undefined) dbUpdates.target_status = updates.target_status;
+    if (updates.resolution !== undefined) dbUpdates.resolution = updates.resolution;
+    if (updates.resolution_comment !== undefined) dbUpdates.resolution_comment = updates.resolution_comment;
+    if (updates.resolved_at !== undefined) dbUpdates.resolved_at = updates.resolved_at;
+    if (updates.moderation_action_id !== undefined) dbUpdates.moderation_action_id = updates.moderation_action_id;
+
+    const { data, error } = await supabase
       .from('complaints')
       .update(dbUpdates)
-      .eq('id', complaintId);
+      .eq('id', complaintId)
+      .select();
+
+    console.log('[DB]', 'complaints', { complaintId, ...dbUpdates }, data, error);
+
     if (error) {
       console.error('[ReportRepository] Error update complaint:', error);
       throw error;
@@ -610,10 +664,14 @@ export class ReportRepositoryProvider {
 
   async softDelete(complaintId: string): Promise<void> {
     if (!isSupabaseConfigured) return;
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('complaints')
       .update({ deleted_at: new Date().toISOString() })
-      .eq('id', complaintId);
+      .eq('id', complaintId)
+      .select();
+
+    console.log('[DB]', 'complaints', { complaintId, deleted_at: 'now()' }, data, error);
+
     if (error) {
       console.error('[ReportRepository] Error softDelete complaint:', error);
       throw error;
@@ -633,7 +691,18 @@ export class ReportRepositoryProvider {
       reason: db.reason,
       dept: db.dept,
       timestamp: db.created_at ? new Date(db.created_at) : undefined,
-      moderatedBy: db.moderated_by
+      moderatedBy: db.moderated_by,
+      targetId: db.target_id || undefined,
+      targetName: db.target_name || undefined,
+      status: db.status || 'pending',
+      // Added fields mapping
+      target_type: db.target_type || undefined,
+      target_status: db.target_status || undefined,
+      resolution: db.resolution || undefined,
+      resolution_comment: db.resolution_comment || undefined,
+      resolved_at: db.resolved_at || undefined,
+      moderation_action_id: db.moderation_action_id || undefined,
+      created_at: db.created_at || undefined
     };
   }
 
@@ -644,13 +713,23 @@ export class ReportRepositoryProvider {
       user_name: c.userName,
       user_avatar: c.userAvatar,
       type: c.type,
-      content: c.content,
-      rating: c.rating,
+      content: c.content || '',
+      rating: c.rating || '0.5',
       image: c.image || null,
       reason: c.reason || null,
       dept: c.dept || null,
       moderated_by: c.moderatedBy || null,
-      created_at: c.timestamp ? c.timestamp.toISOString() : new Date().toISOString()
+      target_id: c.targetId || null,
+      target_name: c.targetName || null,
+      status: c.status || 'pending',
+      created_at: c.created_at || (c.timestamp ? c.timestamp.toISOString() : new Date().toISOString()),
+      // Added fields mapping
+      target_type: c.target_type || null,
+      target_status: c.target_status || null,
+      resolution: c.resolution || null,
+      resolution_comment: c.resolution_comment || null,
+      resolved_at: c.resolved_at || null,
+      moderation_action_id: c.moderation_action_id || null
     };
   }
 }

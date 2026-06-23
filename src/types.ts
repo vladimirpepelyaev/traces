@@ -23,6 +23,16 @@ export interface Complaint {
   dept?: string;
   timestamp?: Date;
   moderatedBy?: string;
+  targetId?: string;
+  targetName?: string;
+  status?: string;
+  target_type?: string;
+  target_status?: string;
+  resolution?: string;
+  resolution_comment?: string;
+  resolved_at?: string;
+  moderation_action_id?: string;
+  created_at?: string;
 }
 
 export interface Ticket {
@@ -168,14 +178,16 @@ export interface VerificationRequest {
 
 export interface ModeratorAction {
   id: string;
-  type: 'moderation' | 'support' | 'verification' | 'system' | 'recovery' | 'wiki' | 'security';
+  type: string;
   action: string;
   targetId?: string;
   targetName?: string;
   message: string;
   operatorId: string;
   operatorName: string;
-  timestamp: Date;
+  timestamp: Date | string;
+  complaintId?: string;
+  result?: string;
 }
 
 export interface ToastNotification {

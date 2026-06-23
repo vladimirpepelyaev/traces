@@ -63,7 +63,7 @@ export function profileToAppUser(profile: any): AppUser {
     roles: rolesArray,
     isEmployee: isEmployee,
     onboardingCompleted: !!profile.onboarding_completed,
-    status: profile.public_settings?.bio || profile.status || '',
+    status: profile.status || '',
     publicSettings: profile.public_settings || null,
     isServiceProfile: isServiceProfile,
     showServiceMessageButton: isServiceProfile ? (profile.public_settings?.show_service_message_button !== false) : false,
@@ -150,6 +150,7 @@ class AuthServiceImpl implements AuthService {
       role: 'user',
       onboarding_completed: false,
       blocked: false,
+      status: status || '',
       created_at: data.user.created_at
     });
 
@@ -164,6 +165,7 @@ class AuthServiceImpl implements AuthService {
       role: 'user',
       onboarding_completed: false,
       blocked: false,
+      status: status || '',
       created_at: data.user.created_at
     }, []);
   }

@@ -10268,16 +10268,11 @@ export default function App() {
             })}
           </div>
 
-          {/* Response Composer */}
-          <div className="pt-4 border-t border-[#e7e8ec]">
-            {isAgentView && (
-              <div className="mb-3 space-y-1.5 bg-[#fafbfc] p-3 border border-vk-separator rounded-[4px]">
-                <div className="text-[11px] font-semibold text-[#55677d] uppercase tracking-wider flex items-center gap-1">
-                  <Zap size={12} className="text-[#ff9e00]" /> Быстрые шаблоны ответов:
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { label: 'Смена пароля и 2FA', text: 'Здравствуйте! Для обеспечения безопасности вашего аккаунта мы временно ограничили активность. Пожалуйста, смените пароль и обязательно подключите двухфакторную аутентификацию (2FA) для предотвращения взлома.' },
+          {isAgentView && (
+            <div className="p-4 bg-[#f0f2f5] border-t border-[#e7e8ec] shrink-0 space-y-2 select-none">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { label: 'Рекомендации по защите', text: 'Уважаемый пользователь! Чтобы обезопасить вашу учетную запись от несанкционированного доступа, настоятельно рекомендуем настроить двухфакторную верификацию (2FA) для предотвращения взлома.' },
                     { label: 'Требования к галочке', text: 'Здравствуйте! Проверили вашу заявку. Чтобы получить верификацию, в профиле должно быть указано настоящее имя по документам, установлена чёткая личная фотография и отсутствовать флуд. Подайте заявку повторно после исправлений.' },
                     { label: 'Ошибка платежа голосов', text: 'Приветствуем! Информация о списании передана нашему финансовому шлюзу. Обычно средства поступают моментально, но из-за задержек со стороны вашего банка-эмитент транзакция может обрабатываться до 24 часов.' },
                     { label: 'Блокировка за спам-фильтр', text: 'Уважаемый пользователь! Ваша страница попала под фильтр за рассылку рекламных ссылок и подозрительные накрутки лайков. Снятие блокировки произойдёт автоматически после успешной смены пароля на новый.' },
@@ -10454,11 +10449,9 @@ export default function App() {
             )}
             </div>
           </div>
-
         </div>
-      </div>
-    );
-  };
+      );
+    };
 
   const renderVerification = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
@@ -10846,19 +10839,10 @@ export default function App() {
     }
 
     const analyzedTopics = TopicScoreService.analyzePost('', inputText, allTopics);
-    const maxPostIdNum = feedPosts.reduce((max, p) => {
-      const match = p.id.match(/^post_(\d+)$/);
-      if (match) {
-        const val = parseInt(match[1], 10);
-        return val > max ? val : max;
-      }
-      return max;
-    }, 0);
     const newPost: FeedPost = {
-      id: `post_${maxPostIdNum + 1}`,
+      id: crypto.randomUUID(),
       authorName: currentUser.name,
       authorAvatar: currentUser.avatar || '',
-      title: title,
       text: inputText,
       image: media,
       likes: 0,
@@ -10906,24 +10890,11 @@ export default function App() {
     const textStr = post.text.trim();
     const hasHtml = /<[a-z][\s\S]*>/i.test(textStr);
 
-    // Stored explicit title takes precedence
-    const titleText = post.title || '';
-    const bodyText = textStr;
-
     // Premium styling for modern body text (Craft/Apple style)
     const textClass = !isFeed ? 'text-[14px] text-zinc-750 font-normal leading-relaxed' :
       enableFeedModes && feedMode === 'studying'
         ? 'text-[15px] font-sans text-zinc-800 bg-teal-50/5 p-3 rounded border border-teal-100/30 font-normal leading-relaxed text-justify'
         : 'text-[14px] text-zinc-700 font-normal leading-relaxed';
-
-    // If explicit title is not stored, we fall back to extracting the first line as before
-    const lines = textStr.split('\n');
-    const firstLine = lines[0] || '';
-    const remainder = lines.slice(1).join('\n').trim();
-    const hasExtractedTitle = !titleText && firstLine.length > 0 && firstLine.length < 130 && lines.length > 1;
-    
-    const finalTitle = titleText || (hasExtractedTitle ? firstLine : '');
-    const finalBodyText = titleText ? bodyText : (hasExtractedTitle ? remainder : textStr);
 
     const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
     const formatBadgeEl = (
@@ -10934,25 +10905,17 @@ export default function App() {
 
     return (
       <div className="px-4 pt-3.5 pb-2.5 space-y-2.5 select-text">
-        {/* 1. Title (Enlarged, Incorporating Format Badge) */}
-        {finalTitle ? (
-          <h3 className="text-[19px] md:text-[21px] font-black text-zinc-900 leading-snug tracking-tight text-left select-text">
-            {formatBadgeEl}
-            <span className="align-middle">{finalTitle}</span>
-          </h3>
-        ) : null}
-
         {/* 2. Text */}
         <div className="text-left select-text leading-relaxed">
           {hasHtml ? (
             <div 
               className={`rich-text-content leading-relaxed transition-all prose prose-slate max-w-none text-left select-text ${textClass}`}
-              dangerouslySetInnerHTML={{ __html: finalBodyText }}
+              dangerouslySetInnerHTML={{ __html: textStr }}
             />
           ) : (
             <p className={`whitespace-pre-line leading-relaxed transition-all select-text ${textClass}`}>
-              {!finalTitle && formatBadgeEl}
-              <span className="align-middle">{finalBodyText}</span>
+              {formatBadgeEl}
+              <span className="align-middle select-text">{textStr}</span>
             </p>
           )}
         </div>
@@ -10989,21 +10952,10 @@ export default function App() {
     const textStr = post.text.trim();
     const hasHtml = /<[a-z][\s\S]*>/i.test(textStr);
 
-    const titleText = post.title || '';
-    const bodyText = textStr;
-
     const textClass = !isFeed ? 'text-[14.5px] text-zinc-850 font-normal leading-relaxed' :
       enableFeedModes && feedMode === 'studying'
         ? 'text-[15.5px] font-sans text-zinc-850 bg-teal-50/5 p-3 rounded border border-teal-100/30 font-normal leading-relaxed text-justify'
         : 'text-[14.5px] text-[#2c2d30] font-normal leading-relaxed';
-
-    const lines = textStr.split('\n');
-    const firstLine = lines[0] || '';
-    const remainder = lines.slice(1).join('\n').trim();
-    const hasExtractedTitle = !titleText && firstLine.length > 0 && firstLine.length < 130 && lines.length > 1;
-
-    const finalTitle = titleText || (hasExtractedTitle ? firstLine : '');
-    const finalBodyText = titleText ? bodyText : (hasExtractedTitle ? remainder : textStr);
 
     const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
     const formatBadgeEl = (
@@ -11132,25 +11084,18 @@ export default function App() {
           </div>
         </div>
 
-        {/* Row 2: Unified content presentation layout (Format Badge + Title and text flow) */}
+        {/* Row 2: Unified content presentation layout (Format Badge + Text flow) */}
         <div className="text-left select-text font-sans flex flex-col gap-2">
-          {finalTitle ? (
-            <h3 className="text-[17px] md:text-[18px] font-extrabold text-zinc-900 leading-snug tracking-tight select-text">
-              {formatBadgeEl}
-              <span className="align-middle select-text">{finalTitle}</span>
-            </h3>
-          ) : null}
-
           <div className="text-left select-text leading-relaxed">
             {hasHtml ? (
               <div 
                 className={`rich-text-content leading-relaxed transition-all prose prose-slate max-w-none text-left select-text ${textClass}`}
-                dangerouslySetInnerHTML={{ __html: finalBodyText }}
+                dangerouslySetInnerHTML={{ __html: textStr }}
               />
             ) : (
               <p className={`whitespace-pre-line leading-relaxed transition-all select-text ${textClass}`}>
-                {!finalTitle && formatBadgeEl}
-                <span className="align-middle select-text">{finalBodyText}</span>
+                {formatBadgeEl}
+                <span className="align-middle select-text">{textStr}</span>
               </p>
             )}
           </div>
@@ -16431,9 +16376,7 @@ export default function App() {
         const profileDescription =
           renderedUser?.isBlocked
             ? undefined
-            : renderedUser?.status && renderedUser.status !== 'был в сети недавно'
-              ? renderedUser.status
-              : 'Делится наблюдениями и участвует в обсуждениях на платформе';
+            : (renderedUser?.status || '');
 
         return (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -16861,7 +16804,7 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-[1240px] mx-auto mt-6 px-4 md:px-8 flex gap-8">
+      <main className="max-w-[1240px] mx-auto mt-6 px-4 md:px-8 flex gap-8 pb-20 md:pb-6">
         {(isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked)) && (
           <aside className="w-[220px] shrink-0 sticky top-20 h-fit hidden md:block select-none font-sans">
             <nav className="flex flex-col gap-1.5">
@@ -18738,7 +18681,48 @@ export default function App() {
         />
       )}
 
-      <div className="fixed bottom-6 left-6 z-[200] flex flex-col gap-2">
+      {/* Mobile Bottom Navigation Bar */}
+      {isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked) && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-200/80 h-16 flex items-center justify-around z-[100] md:hidden px-2 pb-safe shadow-lg">
+          {[
+            { id: 'feed', icon: LayoutGrid, label: 'Лента' },
+            { id: 'discussed-now', icon: Flame, label: 'Обсуждают' },
+            { id: 'notifications', icon: Bell, label: 'Уведомления', badge: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
+            { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', badge: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
+            { id: 'profile', icon: User, label: 'Профиль' }
+          ].map((item) => {
+            const isActive = activeTab === item.id;
+            const IconComp = item.icon;
+            
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === 'profile') {
+                    setSelectedUserData(null);
+                  }
+                  setActiveTab(item.id);
+                }}
+                className={`flex flex-col items-center justify-center gap-1 w-16 relative py-1 focus:outline-none cursor-pointer transition-all ${
+                  isActive ? 'text-[#4F7DF3]' : 'text-zinc-400 hover:text-zinc-650'
+                }`}
+              >
+                <div className="relative">
+                  <IconComp size={20} className={isActive ? 'stroke-[2.25px]' : 'stroke-[1.75px]'} />
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-2 bg-[#FF3B30] text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white antialiased">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9px] font-bold leading-none tracking-tight">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="fixed bottom-10 left-6 z-[200] flex flex-col gap-2 md:bottom-6">
         <AnimatePresence>
           {notifications.map(n => (
             <motion.div 

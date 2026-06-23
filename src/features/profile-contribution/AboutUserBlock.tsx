@@ -109,8 +109,24 @@ export const AboutUserBlock: React.FC<AboutUserBlockProps> = ({
       {/* Separator */}
       <div className="h-px bg-zinc-100" />
 
-      {/* Compact Narrative Metrics Cards in modern style */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+      {/* Instagram-style Stats Row for Mobile */}
+      <div className="grid grid-cols-3 gap-2 py-3.5 border-y border-zinc-100 md:hidden text-center select-none bg-zinc-50/40 rounded-xl px-1">
+        <div className="flex flex-col items-center justify-center">
+          <span className="text-[17px] font-black text-zinc-950 leading-tight">{sources.posts.length}</span>
+          <span className="text-[9.5px] text-zinc-500 font-bold uppercase tracking-wider mt-1">Публикации</span>
+        </div>
+        <div className="flex flex-col items-center justify-center border-x border-zinc-200/50">
+          <span className="text-[17px] font-black text-zinc-950 leading-tight">{sources.subscriberCount}</span>
+          <span className="text-[9.5px] text-zinc-500 font-bold uppercase tracking-wider mt-1">Подписчики</span>
+        </div>
+        <div className="flex flex-col items-center justify-center">
+          <span className="text-[17px] font-black text-zinc-950 leading-tight">{utilityCount}</span>
+          <span className="text-[9.5px] text-zinc-500 font-bold uppercase tracking-wider mt-1">Полезность</span>
+        </div>
+      </div>
+
+      {/* Compact Narrative Metrics Cards in modern style for Desktop */}
+      <div className="hidden md:grid grid-cols-3 gap-3 pt-1">
         {/* 1. Utility Card */}
         <div className="rounded-xl p-3 bg-[#F7F8FA]/60 border border-zinc-200/50 hover:border-zinc-300 transition-colors select-none text-left flex flex-col justify-between min-h-[82px]">
           <div className="text-[11px] text-[#6B7280] font-medium leading-tight">

@@ -244,3 +244,8 @@ export interface DialogComplaint {
   counterComplaintText?: string;
   selected?: boolean;
 }
+
+export function getDisplayName(profile?: { display_name?: string; username?: string }) {
+  if (!profile) return 'Пользователь';
+  return profile.display_name?.trim() || profile.username || 'Пользователь';
+}

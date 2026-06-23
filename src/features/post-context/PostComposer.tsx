@@ -49,6 +49,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   const [postFormat, setPostFormat] = useState<PostFormat>(postToEdit?.postFormat || 'OPINION');
   const [media, setMedia] = useState(postToEdit?.image || '');
   const [visualPriority, setVisualPriority] = useState<'text' | 'media' | 'discussion'>(postToEdit?.visualPriority || 'text');
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // contentEditable ref and initialization
   const editorRef = useRef<HTMLDivElement>(null);
@@ -141,7 +142,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
   // Autosave logic (Debounce 3 seconds on text/title change)
   const triggerAutosave = () => {
-    if (isEditMode) return; // Do not autosave raw edits to general draft
+    if (isEditMode || isPublishing) return; // Do not autosave raw edits or during publish
 
     setAutosaveStatus('saving');
     if (autosaveTimerRef.current) {
@@ -461,29 +462,54 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       setIsOpen(false);
       if (onCancelEdit) onCancelEdit();
     } else {
-      const success = onPublish(
+      if (isPublishing) return;
+      setIsPublishing(true);
+      
+      // Stop any pending autosaves
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+
+      onPublish(
         currentHtmlContent,
         undefined, // context omitted to keep minimalist CMS layout
         media.trim() || undefined,
         visualPriority,
         postFormat,
         title.trim()
-      );
-      if (success) {
-        setTitle('');
-        setMedia('');
-        if (editorRef.current) editorRef.current.innerHTML = '';
-        if (isSupabaseConfigured && currentUser?.id) {
-          supabase
-            .from('profiles')
-            .update({ drafts: [] })
-            .eq('id', currentUser.id)
-            .then(({ error }) => {
-              if (error) console.error('Error clearing draft on Supabase:', error);
-            });
+      ).then((success) => {
+        if (success) {
+          setTitle('');
+          setMedia('');
+          if (editorRef.current) editorRef.current.innerHTML = '';
+          if (isSupabaseConfigured && currentUser?.id) {
+            supabase
+              .from('profiles')
+              .update({ drafts: {} })
+              .eq('id', currentUser.id)
+              .then(
+                ({ error }) => {
+                  if (error) console.error('Error clearing draft on Supabase:', error);
+                  setIsPublishing(false);
+                  setIsOpen(false);
+                },
+                (err) => {
+                  console.error('Clearing draft failed:', err);
+                  setIsPublishing(false);
+                  setIsOpen(false);
+                }
+              );
+          } else {
+            setIsPublishing(false);
+            setIsOpen(false);
+          }
+        } else {
+          setIsPublishing(false);
         }
-        setIsOpen(false);
-      }
+      }).catch((err) => {
+        console.error('Publish error:', err);
+        setIsPublishing(false);
+      });
     }
   };
 
@@ -555,14 +581,14 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleAction}
-              disabled={disabled || (!title.trim() && !editorRef.current?.innerHTML.trim())}
+              disabled={disabled || isPublishing || (!title.trim() && !editorRef.current?.innerHTML.trim())}
               className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                !disabled && (title.trim() || editorRef.current?.innerHTML.trim())
+                !disabled && !isPublishing && (title.trim() || editorRef.current?.innerHTML.trim())
                   ? 'bg-[#4F7DF3] text-white hover:bg-[#3465DF]'
                   : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
               }`}
             >
-              {isEditMode ? 'Сохранить изменения' : 'Опубликовать'}
+              {isPublishing ? 'Публикация...' : (isEditMode ? 'Сохранить изменения' : 'Опубликовать')}
             </button>
           </div>
         </header>
@@ -593,25 +619,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             })}
           </div>
 
-          {/* Large Display Title Field */}
-          <div className="space-y-2">
-            <textarea
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                handleContentChange();
-              }}
-              placeholder="Введите заголовок публикации"
-              rows={1}
-              className="w-full text-2xl md:text-3xl font-extrabold text-[#111827] tracking-tight bg-transparent border-0 focus:outline-none placeholder:text-zinc-300 resize-none font-sans leading-tight overflow-hidden outline-none"
-              onInput={(e) => {
-                // Auto-expand texture height
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = 'auto';
-                target.style.height = `${target.scrollHeight}px`;
-              }}
-            />
-          </div>
+
 
           {/* Immersive Text Body Div */}
           <div className="relative">

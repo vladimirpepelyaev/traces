@@ -12,6 +12,7 @@ export interface UserProfile {
   onboarding_completed: boolean;
   blocked: boolean;
   public_settings?: any;
+  status?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -73,6 +74,7 @@ export class UserRepository {
         onboarding_completed: !!data.onboarding_completed,
         blocked: !!data.blocked,
         public_settings: data.public_settings,
+        status: data.status || '',
         created_at: data.created_at,
         updated_at: data.updated_at
       };

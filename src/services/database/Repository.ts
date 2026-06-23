@@ -181,6 +181,7 @@ export class PostRepositoryProvider {
     try {
       await ensureProfileExists();
       const dbPost = this.mapPostToDb(post);
+      delete dbPost.id; // delete payload.id
       const { data, error } = await supabase
         .from('posts')
         .insert(dbPost)

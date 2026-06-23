@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService } from '../services/auth/AuthService';
 import { userRepository, UserProfile, UserProgress } from '../services/user/UserRepository';
 import { AppUser } from '../types';
@@ -33,6 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [bootCompleted, setBootCompleted] = useState(false);
+  const restorePromiseRef = useRef<Promise<void> | null>(null);
 
   const loadProfile = async (userId: string) => {
     return await userRepository.getProfile(userId);
@@ -53,63 +54,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const restoreSession = async () => {
-    try {
-      const u = await authService.getCurrentUser();
-      if (u) {
-        try {
-          await ensureProfileExists();
-        } catch (profileExistErr) {
-          console.error('ensureProfileExists failed during restoreSession:', profileExistErr);
-        }
+    if (restorePromiseRef.current) {
+      return restorePromiseRef.current;
+    }
+    const promise = (async () => {
+      try {
+        const u = await authService.getCurrentUser();
+        if (u) {
+          try {
+            await ensureProfileExists();
+          } catch (profileExistErr) {
+            console.error('ensureProfileExists failed during restoreSession:', profileExistErr);
+          }
 
-        let profile: any = null;
-        try {
-          profile = await loadProfile(u.id);
-        } catch (profileLoadErr) {
-          console.error('loadProfile failed during restoreSession:', profileLoadErr);
-        }
+          let profile: any = null;
+          try {
+            profile = await loadProfile(u.id);
+          } catch (profileLoadErr) {
+            console.error('loadProfile failed during restoreSession:', profileLoadErr);
+          }
 
-        let progress: any = null;
-        try {
-          progress = await loadProgress(u.id);
-        } catch (progressLoadErr) {
-          console.error('loadProgress failed during restoreSession:', progressLoadErr);
-        }
+          let progress: any = null;
+          try {
+            progress = await loadProgress(u.id);
+          } catch (progressLoadErr) {
+            console.error('loadProgress failed during restoreSession:', progressLoadErr);
+          }
 
-        const hydrated = hydrateStore(profile, progress);
+          const hydrated = hydrateStore(profile, progress);
 
-        const finalRole = profile?.role || u.role || 'user';
-        const consolidatedUser = {
-          ...u,
-          role: finalRole,
-          roles: [finalRole],
-          onboardingCompleted: hydrated?.onboardingCompleted ?? false,
-          isBlocked: hydrated ? hydrated.isBlocked : false,
-          interests: hydrated ? hydrated.interests : [],
-          currentStep: hydrated?.currentStep ?? 'step_1'
-        };
+          const finalRole = profile?.role || u.role || 'user';
+          const consolidatedUser = {
+            ...u,
+            role: finalRole,
+            roles: [finalRole],
+            onboardingCompleted: hydrated?.onboardingCompleted ?? false,
+            isBlocked: hydrated ? hydrated.isBlocked : false,
+            interests: hydrated ? hydrated.interests : [],
+            currentStep: hydrated?.currentStep ?? 'step_1'
+          };
 
-        if (consolidatedUser.isBlocked) {
-          console.warn("User is blocked. Rejecting loaded session.");
+          if (consolidatedUser.isBlocked) {
+            console.warn("User is blocked. Rejecting loaded session.");
+            setUser(null);
+            setRoles([]);
+            return;
+          }
+
+          setUser(consolidatedUser);
+          setRoles([finalRole]);
+        } else {
           setUser(null);
           setRoles([]);
-          return;
         }
-
-        setUser(consolidatedUser);
-        setRoles([finalRole]);
-      } else {
+      } catch (err) {
+        console.error('Error recovering active Supabase session:', err);
         setUser(null);
         setRoles([]);
+      } finally {
+        setLoading(false);
+        setBootCompleted(true);
       }
-    } catch (err) {
-      console.error('Error recovering active Supabase session:', err);
-      setUser(null);
-      setRoles([]);
-    } finally {
-      setLoading(false);
-      setBootCompleted(true);
-    }
+    })();
+    restorePromiseRef.current = promise;
+    return promise;
   };
 
   useEffect(() => {

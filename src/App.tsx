@@ -14702,111 +14702,7 @@ export default function App() {
     'internal-mail': 'Внутренняя почта (админ)',
   };
 
-  const renderEntryPointsForTab = (tabId: string) => {
-    const validTabs = Object.keys(tabNamesMap);
-    if (!validTabs.includes(tabId)) return null;
 
-    const currentDisplayUser = selectedUserData || currentUser;
-
-    const matchedPoints = placedEntryPoints.filter(ep => {
-      if (dismissedAlerts.includes(ep.id)) {
-        return false;
-      }
-      const isTabMatch = ep.targetTab === tabId || ep.targetTab === 'all' || !ep.targetTab;
-      if (!isTabMatch) return false;
-
-      if (ep.targetUserId) {
-        if (tabId !== 'profile') {
-          return false;
-        }
-        if (currentDisplayUser?.id !== ep.targetUserId) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    if (matchedPoints.length === 0) return null;
-
-    return (
-      <div className="space-y-3 mb-4">
-        {matchedPoints.map((ep) => {
-          let styleClass = '';
-          if (ep.styleType === 'blue') styleClass = 'bg-[#5181b8] text-white hover:bg-[#5b88bd]';
-          else if (ep.styleType === 'green') styleClass = 'bg-[#4bb34b] text-white hover:bg-[#52c152]';
-          else if (ep.styleType === 'red') styleClass = 'bg-[#e64646] text-white hover:bg-[#eb5a5a]';
-          else if (ep.styleType === 'amber') styleClass = 'bg-[#ff8c00] text-white hover:bg-[#ffa033]';
-          else if (ep.styleType === 'gray') styleClass = 'bg-[#e5ebf1] text-[#55677d] hover:bg-[#dfe6ed] border border-[#c5cfdb]';
-          else styleClass = 'bg-white text-[#2a5885] border border-[#c5cfdb] hover:bg-slate-50';
-
-          const buttonEl = ep.hasButton !== false ? (
-            <button
-              type="button"
-              onClick={() => {
-                setUserSupportFields({
-                  subject: `Вопрос по теме: ${ep.name || ep.title}`,
-                  details: `Здравствуйте! Пишу вам через точку быстрого доступа «${ep.name || ep.title}» с вкладки «${tabNamesMap[tabId] || tabId}».`,
-                  category: ep.categoryName || 'Финансы'
-                });
-                setSupportTab('new');
-                setActiveTab('support');
-                addNotification('Быстрое обращение', `Открыта форма обращения по теме "${ep.name || ep.title}"`);
-              }}
-              className={`px-3 py-1.5 rounded-[2px] text-[11.5px] font-bold transition-all cursor-pointer hover:translate-y-[-1px] active:translate-y-[0px] ${styleClass}`}
-            >
-              {ep.name || 'Обратиться'}
-            </button>
-          ) : null;
-
-          return (
-            <div 
-              key={ep.id} 
-              className="bg-[#faf6e5] border border-[#ebdcb3] rounded-[2px] p-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.05)] relative overflow-hidden"
-              style={{ fontFamily: '-apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}
-            >
-              {ep.canDismiss && (
-                <button 
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDismissedAlerts(prev => [...prev, ep.id]);
-                  }}
-                  className="absolute top-2.5 right-2.5 text-[#a88238] hover:text-[#c46816] transition-colors cursor-pointer bg-transparent border-none p-0.5"
-                  title="Скрыть"
-                >
-                  <X size={15} strokeWidth={2.5} />
-                </button>
-              )}
-              {/* VK style header */}
-              {ep.title && ep.title.trim() !== '' && (
-                <div className="flex items-center justify-between pb-1.5 mb-2.5 border-b border-[#ebdcb3] text-[12.5px] font-bold text-[#2a5885]">
-                  <div className="flex items-center gap-1.5">
-                    <LifeBuoy size={14} className="text-[#a88238]" />
-                    <span>{ep.title}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Description above button */}
-              {ep.description && (
-                <p className="text-[12px] text-[#333333] leading-relaxed mb-3 font-medium">
-                  {ep.description}
-                </p>
-              )}
-
-              {/* Dynamic Action Button under description */}
-              {buttonEl && (
-                <div className="pt-0.5">
-                  {buttonEl}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   const renderContent = () => {
     // 404 validation check
@@ -15323,7 +15219,7 @@ export default function App() {
               {supportTab === 'categories' && (
                 <div className="space-y-6 text-left" style={{ fontFamily: 'Tahoma, Arial, sans-serif' }}>
                   {/* Конструктор точек входа в поддержку */}
-                  <div className="bg-white border border-[#dae1e8] rounded-[2px] p-5 space-y-4">
+                  {false && <div className="bg-white border border-[#dae1e8] rounded-[2px] p-5 space-y-4">
                     <div className="border-b border-[#dae1e8] pb-3">
                       <h3 className="text-[14px] font-bold text-[#45688e] flex items-center gap-1.5">
                         <MapPin size={16} className="text-[#6585af]" />
@@ -15641,7 +15537,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </div>}
 
                   {/* Category manager Card */}
                   <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-5 space-y-4">
@@ -16301,18 +16197,6 @@ export default function App() {
       }
     }
     })();
-
-    if (Object.keys(tabNamesMap).includes(normalizedTab)) {
-      const entryPointsEl = renderEntryPointsForTab(normalizedTab);
-      if (entryPointsEl) {
-        return (
-          <div className="space-y-4">
-            {entryPointsEl}
-            {mainTabContent}
-          </div>
-        );
-      }
-    }
 
     return mainTabContent;
   };

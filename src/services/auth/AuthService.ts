@@ -51,7 +51,7 @@ export function profileToAppUser(profile: any): AppUser {
 
   const appUser: AppUser = {
     id: profile.id,
-    name: profile.display_name || profile.username || 'user',
+    name: profile.display_name || profile.username || 'Пользователь',
     login: profile.username || '',
     avatar: profile.avatar_url || '',
     trustLevel: 1.0,

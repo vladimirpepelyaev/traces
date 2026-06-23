@@ -445,7 +445,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   // Primary Publish / Update Trigger
   const handleAction = () => {
     const currentHtmlContent = editorRef.current?.innerHTML || '';
-    if (!title.trim() && !currentHtmlContent.trim()) return;
+    if (!currentHtmlContent.trim()) return;
 
     if (isEditMode) {
       // Structure the legacy representation as well for full backward compatibility
@@ -534,7 +534,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             alt="avatar" 
           />
           <div className="text-[13.5px] text-[#6B7280] font-medium group-hover:text-[#111827] transition-colors select-none">
-            Начните писать качественную публикацию или новую мысль...
+            Какой след оставите сегодня?
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -581,9 +581,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleAction}
-              disabled={disabled || isPublishing || (!title.trim() && !editorRef.current?.innerHTML.trim())}
+              disabled={disabled || isPublishing || (!editorRef.current?.innerHTML.trim())}
               className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                !disabled && !isPublishing && (title.trim() || editorRef.current?.innerHTML.trim())
+                !disabled && !isPublishing && editorRef.current?.innerHTML.trim()
                   ? 'bg-[#4F7DF3] text-white hover:bg-[#3465DF]'
                   : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
               }`}
@@ -626,7 +626,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             {/* Custom functional placeholder overlay */}
             {editorRef.current && !editorRef.current.innerText.trim() && (
               <div className="absolute top-0 left-0 text-zinc-300 text-base md:text-lg pointer-events-none select-none font-sans">
-                Начните писать мысли...
+                Какой след оставите сегодня?
               </div>
             )}
             

@@ -16,10 +16,10 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
   onToggleEnabled
 }) => {
   const options: { id: FeedMode; label: string }[] = [
-    { id: 'all', label: 'Все следы' },
-    { id: 'discussing', label: 'Что обсуждают' },
-    { id: 'studying', label: 'Что изучают' },
-    { id: 'recommending', label: 'Что рекомендуют' },
+    { id: 'all', label: 'Следы' },
+    { id: 'discussing', label: 'Обсуждают' },
+    { id: 'studying', label: 'Изучают' },
+    { id: 'recommending', label: 'Рекомендуют' },
   ];
 
   return (

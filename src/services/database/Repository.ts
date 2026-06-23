@@ -136,6 +136,38 @@ export class ProfileRepositoryProvider {
   async setBlocked(userId: string, blocked: boolean): Promise<void> {
     await this.saveProfile(userId, { blocked });
   }
+
+  async uploadAvatar(userId: string, file: File | Blob): Promise<string> {
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+    
+    const timestamp = Date.now();
+    const fileName = `${userId}/${timestamp}.webp`;
+    
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .upload(fileName, file, {
+        contentType: 'image/webp',
+        cacheControl: '3600',
+        upsert: true
+      });
+      
+    if (error) {
+      console.error('[ProfileRepository] uploadAvatar error:', error);
+      throw error;
+    }
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(fileName);
+      
+    await this.saveProfile(userId, {
+      avatar_url: publicUrl,
+      avatar_storage_path: fileName,
+      avatar_updated_at: new Date().toISOString()
+    });
+    
+    return publicUrl;
+  }
 }
 
 // ==========================================
@@ -169,7 +201,49 @@ export class PostRepositoryProvider {
         handleSupabaseError(error, 'PostRepository.getAll');
         return [];
       }
-      return (data || []).map(p => this.mapDbToPost(p));
+
+      // Fetch all reactions to map ratings and user states in O(N) rather than triggering N SQL queries
+      let reactions: any[] = [];
+      try {
+        const { data: rxData, error: rxErr } = await supabase
+          .from('reactions')
+          .select('*');
+        if (!rxErr && rxData) {
+          reactions = rxData;
+        }
+      } catch (e) {
+        console.error('[PostRepository] Error fetching all reactions:', e);
+      }
+
+      let currentUserId = '';
+      try {
+        const { data: sessionData } = await supabase.auth.getUser();
+        currentUserId = sessionData?.user?.id || '';
+      } catch (authErr) {
+        // Ignored if unauthenticated
+      }
+
+      return (data || []).map(p => {
+        const post = this.mapDbToPost(p);
+        const postRx = reactions.filter((r: any) => r.post_id === post.id);
+
+        const likesCount = postRx.filter((r: any) => r.type === 'like').length;
+        const downvotesCount = postRx.filter((r: any) => r.type === 'downvote').length;
+
+        // Final calculated rating
+        post.likes = likesCount;
+        (post as any).dislikes = downvotesCount;
+
+        if (currentUserId) {
+          post.isLiked = postRx.some((r: any) => r.user_id === currentUserId && r.type === 'like');
+          post.isDownvoted = postRx.some((r: any) => r.user_id === currentUserId && r.type === 'downvote');
+        } else {
+          post.isLiked = false;
+          post.isDownvoted = false;
+        }
+
+        return post;
+      });
     } catch (e) {
       console.error('[PostRepository] getAll failed:', e);
       return [];
@@ -204,7 +278,6 @@ export class PostRepositoryProvider {
     if (!isSupabaseConfigured) return;
     try {
       const dbUpdates: any = {};
-      if (updates.likes !== undefined) dbUpdates.likes = updates.likes;
       if (updates.isApproved !== undefined) dbUpdates.is_approved = updates.isApproved;
       if (updates.moderatedBy !== undefined) dbUpdates.moderated_by = updates.moderatedBy;
       if (updates.boostedUsers !== undefined) dbUpdates.boosted_users = updates.boostedUsers;
@@ -1173,21 +1246,86 @@ export class SearchRepositoryProvider {
 // 17. REACTION REPOSITORY
 // ==========================================
 export class ReactionRepositoryProvider {
-  async saveReaction(postId: string, userId: string, type: 'like' | 'downvote'): Promise<void> {
+  async getForPost(postId: string): Promise<any[]> {
+    if (!isSupabaseConfigured) return [];
+    const { data, error } = await supabase
+      .from('reactions')
+      .select('*')
+      .eq('post_id', postId);
+    if (error) {
+      console.error('[ReactionRepository] getForPost failed:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  async getAllReactions(): Promise<any[]> {
+    if (!isSupabaseConfigured) return [];
+    const { data, error } = await supabase
+      .from('reactions')
+      .select('*');
+    if (error) {
+      console.error('[ReactionRepository] getAllReactions failed:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  async toggle(postId: string, userId: string, type: 'like' | 'downvote'): Promise<void> {
     if (!isSupabaseConfigured) return;
     await ensureProfileExists();
+    
+    const id = `${userId}-${postId}`;
+    const { data: existing, error: getError } = await supabase
+      .from('reactions')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existing) {
+      if (existing.type === type) {
+        await this.remove(postId, userId);
+      } else {
+        const { error } = await supabase
+          .from('reactions')
+          .upsert({
+            id,
+            post_id: postId,
+            user_id: userId,
+            type: type,
+            created_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+        if (error) {
+          console.error('[ReactionRepository] toggle update failed:', error);
+          throw error;
+        }
+      }
+    } else {
+      const { error } = await supabase
+        .from('reactions')
+        .upsert({
+          id,
+          post_id: postId,
+          user_id: userId,
+          type: type,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+      if (error) {
+        console.error('[ReactionRepository] toggle insert failed:', error);
+        throw error;
+      }
+    }
+  }
+
+  async remove(postId: string, userId: string): Promise<void> {
+    if (!isSupabaseConfigured) return;
+    const id = `${userId}-${postId}`;
     const { error } = await supabase
       .from('reactions')
-      .upsert({
-        id: `${userId}-${postId}`,
-        post_id: postId,
-        user_id: userId,
-        type: type,
-        created_at: new Date().toISOString()
-      }, { onConflict: 'id' });
-
+      .delete()
+      .eq('id', id);
     if (error) {
-      console.error('[ReactionRepository] saveReaction failed:', error);
+      console.error('[ReactionRepository] remove failed:', error);
       throw error;
     }
   }

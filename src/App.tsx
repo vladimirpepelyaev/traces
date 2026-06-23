@@ -106,6 +106,7 @@ import {
   AlertCircle,
   Trophy,
   BarChart3,
+  List,
   Settings2,
   ArrowUpRight,
   Hammer,
@@ -223,44 +224,41 @@ const UserAvatar = ({
   className?: string, 
   forceGrayscale?: boolean 
 }) => {
-  if (avatarUrl === '' || user?.avatar === '') {
+  const finalUrl = avatarUrl || user?.avatar || user?.avatar_url || user?.avatarUrl;
+
+  if (!finalUrl) {
     return (
       <div 
-        className={`bg-[#e1e5eb] text-[#818c99] flex items-center justify-center shrink-0 border border-[#dce1e6] ${className}`}
+        className={`bg-zinc-100 text-zinc-400 flex items-center justify-center shrink-0 border border-zinc-200/60 rounded-full ${className}`}
         style={{ borderRadius: '50%' }}
       >
-        <span className="opacity-80">👤</span>
+        <span className="text-[14px]">👤</span>
       </div>
     );
   }
 
-  const isEmployee = isWorker(user);
-
-  if (isEmployee) {
-    return <SupportAgentAvatar className={className} src={avatarUrl || user?.avatar} />;
-  }
-
-  const seed = useMemo(() => {
-    const key = user?.id || user?.name || avatarUrl || "default";
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = key.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return Math.abs(hash) % 5000;
-  }, [user, avatarUrl]);
-
   return (
     <div 
-      className={`bg-vk-separator/20 flex items-center justify-center overflow-hidden relative rounded-full shrink-0 ${className} ${forceGrayscale ? 'grayscale contrast-[0.8]' : ''}`}
+      className={`bg-zinc-50 flex items-center justify-center overflow-hidden relative rounded-full shrink-0 border border-zinc-200/50 ${className} ${forceGrayscale ? 'grayscale contrast-[0.8]' : ''}`}
       style={{ borderRadius: '50%' }}
     >
       <img 
-        src={avatarUrl || (user?.avatar) || `https://picsum.photos/seed/${seed}/400/400`} 
+        src={finalUrl} 
         alt="avatar" 
-        className="w-full h-full object-cover rounded-full"
         referrerPolicy="no-referrer"
+        className="w-full h-full object-cover rounded-full"
         onError={(e) => {
-          (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${seed}/400/400`;
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+          const parent = e.currentTarget.parentElement;
+          if (parent) {
+            // Check if backup is already added
+            if (!parent.querySelector('.avatar-error-fallback')) {
+              const fallbackDiv = document.createElement('div');
+              fallbackDiv.className = "avatar-error-fallback w-full h-full flex items-center justify-center text-zinc-400 text-[14px]";
+              fallbackDiv.innerHTML = "👤";
+              parent.appendChild(fallbackDiv);
+            }
+          }
         }}
       />
     </div>
@@ -1107,7 +1105,7 @@ export default function App() {
     'profile', 'feed', 'discussed-now', 'notifications', 'support', 'moderation', 'spam', 'page_moderation', 
     'verification', 'requests', 'users', 'management', 'statistics', 
     'announcements', 'wiki', 'security', 'action-logs', 'monitoring', 
-    'quality-control', 'personnel', 'appeals', 'academy', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout'
+    'quality-control', 'personnel', 'appeals', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout'
   ]);
   const [grantedAccess, setGrantedAccess] = useState<string[]>([]);
 
@@ -1290,12 +1288,11 @@ export default function App() {
         prev.forEach(oldPost => {
           const newPost = nextMap.get(oldPost.id);
           if (newPost) {
-            const likesChanged = oldPost.likes !== newPost.likes;
             const appChanged = oldPost.isApproved !== newPost.isApproved;
             const modChanged = oldPost.moderatedBy !== newPost.moderatedBy;
             const commentsCountChanged = (oldPost.comments?.length || 0) !== (newPost.comments?.length || 0);
 
-            if (likesChanged || appChanged || modChanged || commentsCountChanged) {
+            if (appChanged || modChanged || commentsCountChanged) {
               postRepository.update(newPost.id, newPost).catch(err => {
                 console.error('[Interception] Error updating post:', err);
               });
@@ -1333,6 +1330,7 @@ export default function App() {
   const [enableFeedModes, setEnableFeedModes] = useState<boolean>(true);
   const [feedFormatFilter, setFeedFormatFilter] = useState<'ALL' | 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION'>('ALL');
   const [profileFormatFilter, setProfileFormatFilter] = useState<'ALL' | 'QUESTION' | 'OPINION' | 'ANALYSIS' | 'RESEARCH' | 'SOLUTION'>('ALL');
+  const [profileViewMode, setProfileViewMode] = useState<'grid' | 'list'>('grid');
   const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
   const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
   const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
@@ -2211,7 +2209,7 @@ export default function App() {
       'spam', 'verification', 'tasks', 'internal-mail', 'support', 'appeals', 
       'requests', 'users', 'management', 'statistics', 'announcements', 'wiki', 
       'security', 'action-logs', 'monitoring', 'translations', 'quality-control', 
-      'personnel', 'page_moderation', 'discussed-now', 'notifications', 'academy'
+      'personnel', 'page_moderation', 'discussed-now', 'notifications'
     ].includes(tabId) || tabId.startsWith('support-category-')) {
       return `/admin/${tabId}`;
     }
@@ -2558,7 +2556,6 @@ export default function App() {
     { id: 'notifications', icon: Bell, label: 'Уведомления', count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
     { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
     { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.filter(t => t.status === 'new').length },
-    { id: 'academy', icon: GraduationCap, label: 'Академия модерации' },
     { id: 'appeals', icon: Icon16Block, label: 'Апелляции', count: appeals.filter(a => a.status === 'pending').length, adminOnly: true },
     { id: 'spam', icon: Icon16Block, label: 'Модерация', count: spamComplaints.length, adminOnly: true },
     { id: 'verification', icon: BadgeCheck, label: 'Верификации', count: verificationRequests.length, adminOnly: true },
@@ -4361,6 +4358,17 @@ export default function App() {
 
     const handleSaveEdit = () => {
       const newFullName = `${editFirstName} ${editLastName}`.trim();
+      
+      // Patch database profiles table
+      profileRepository.saveProfile(user.id, {
+        display_name: newFullName,
+        status: editStatus
+      }).then(() => {
+        console.log('[handleSaveEdit] Database profile updated successfully');
+      }).catch(err => {
+        console.error('[handleSaveEdit] Database profile update failed:', err);
+      });
+
       setUsers(prev => prev.map(u => {
         if (u.id === user.id) {
           const nameHistory = u.nameHistory || [];
@@ -6390,7 +6398,8 @@ export default function App() {
     );
   };
 
-  const renderAcademy = () => {
+  const renderAcademy = () => null;
+  const _UNUSED_ACADEMY_LEGACY = () => {
     const ACADEMY_TESTS = [
       {
         id: 'gdpr',
@@ -10658,6 +10667,79 @@ export default function App() {
     return result;
   }, [feedPosts, feedMode, enableFeedModes, feedFormatFilter, currentUser, mySubscriptions, myFriends, mySubscribedDiscussions, users]);
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUser) return;
+
+    // Validate type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      addNotification('Ошибка', 'Разрешены только форматы JPG, JPEG, PNG и WEBP');
+      return;
+    }
+
+    // Compression function if larger than 5MB
+    const processFile = async (rawFile: File): Promise<Blob | File> => {
+      const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+      if (rawFile.size <= MAX_SIZE) {
+        return rawFile;
+      }
+      
+      addNotification('Сжатие 🔄', 'Изображение слишком большое (>5МБ). Сжимаем и конвертируем...');
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(rawFile);
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Max dimension scaling
+          const MAX_DIM = 1200;
+          if (width > MAX_DIM || height > MAX_DIM) {
+            if (width > height) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            } else {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              resolve(rawFile);
+            }
+          }, 'image/webp', 0.85);
+        };
+        img.onerror = () => resolve(rawFile);
+      });
+    };
+
+    try {
+      addNotification('Загрузка ⬆️', 'Идет загрузка аватара в облако...');
+      const uploadable = await processFile(file);
+      const publicUrl = await profileRepository.uploadAvatar(currentUser.id, uploadable);
+
+      // Update state in UI instantly
+      const updatedUser = { ...currentUser, avatar: publicUrl, avatar_url: publicUrl };
+      setCurrentUser(updatedUser);
+      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+      
+      addNotification('Успех ✨', 'Аватар успешно изменен!');
+    } catch (err: any) {
+      console.error('[Avatar] Upload failed:', err);
+      addNotification('Ошибка загрузки', err.message || 'Проверьте соединение и настройки хранилища.');
+    }
+  };
+
   const handlePublishPost = async (
     thought: string,
     context?: string,
@@ -11147,45 +11229,34 @@ export default function App() {
         {/* Priority 5: Compact Actions / Voting Footer Section (▲ and ▼ only, with dynamic iOS styling) */}
         <div className="px-4 py-2 bg-zinc-50/50 border-t border-zinc-100 flex items-center justify-between gap-4 font-sans select-none">
           <div className="flex-1 flex items-center gap-2">
-            {!(post.isLiked || post.isDownvoted) ? (
-              <>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, isLiked: true, likes: (p.likes || 0) + 1 } : p));
-                    addNotification('Сигнал ▲ принят', 'Спасибо за ваш вклад в оценку качества следа!');
-                  }}
-                  className="flex-1 py-1.5 px-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:bg-emerald-50 hover:border-emerald-250 hover:text-emerald-600 transition-all font-bold flex items-center justify-center cursor-pointer text-[14px] text-zinc-400"
-                  title="▲ Положительный сигнал качества следа"
-                >
-                  ▲
-                </button>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFeedPosts(prev => prev.map(p => p.id === post.id ? { ...p, isDownvoted: true } : p));
-                    addNotification('Сигнал ▼ принят', 'Спасибо! Обратная связь передана алгоритму для улучшения качества.');
-                  }}
-                  className="flex-1 py-1.5 px-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:bg-amber-50 hover:border-amber-250 hover:text-amber-600 transition-all font-bold flex items-center justify-center cursor-pointer text-[14px] text-zinc-400"
-                  title="▼ Сигнал алгоритму о неудачной тематике или соответствии"
-                >
-                  ▼
-                </button>
-              </>
-            ) : (
-              <>
-                <div 
-                  className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 ${post.isLiked ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' : 'bg-zinc-50/60 border-zinc-200 text-zinc-400 opacity-60'}`}
-                >
-                  <span className="text-emerald-500">▲</span> {post.likes || 0}
-                </div>
-                <div 
-                  className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 ${post.isDownvoted ? 'bg-amber-50 border-amber-300 text-amber-700 font-bold' : 'bg-zinc-50/60 border-zinc-200 text-zinc-400 opacity-60'}`}
-                >
-                  <span className="text-amber-500">▼</span> {Math.floor((post.likes || 10) * 0.12) + (post.isDownvoted ? 1 : 0)}
-                </div>
-              </>
-            )}
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleReaction(post.id, 'like');
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                post.isLiked 
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
+                  : 'bg-zinc-50 border-zinc-200 text-zinc-400 hover:bg-emerald-50 hover:border-emerald-250 hover:text-emerald-600'
+              }`}
+              title="▲ Положительный сигнал качества следа"
+            >
+              <span className={post.isLiked ? 'text-emerald-500' : 'text-zinc-400'}>▲</span> {post.likes || 0}
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleReaction(post.id, 'downvote');
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-lg border text-[13px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                post.isDownvoted 
+                  ? 'bg-amber-50 border-amber-300 text-amber-700 font-bold' 
+                  : 'bg-zinc-50 border-zinc-200 text-zinc-400 hover:bg-amber-50 hover:border-amber-250 hover:text-amber-600'
+              }`}
+              title="▼ Сигнал алгоритму о неудачной тематике или соответствии"
+            >
+              <span className={post.isDownvoted ? 'text-amber-500' : 'text-zinc-400'}>▼</span> {(post as any).dislikes || 0}
+            </button>
           </div>
 
           <button
@@ -11407,11 +11478,11 @@ export default function App() {
         <div>
           <h1 className="text-[15px] font-bold text-zinc-900">
             {enableFeedModes ? (
-              feedMode === 'all' ? 'Все материалы ленты' :
-              feedMode === 'discussing' ? 'Активно обсуждают' :
-              feedMode === 'studying' ? 'Глубоко изучают' :
-              'Рекомендуют сообществом'
-            ) : 'Лента публикаций'}
+              feedMode === 'all' ? 'Следы' :
+              feedMode === 'discussing' ? 'Обсуждают' :
+              feedMode === 'studying' ? 'Изучают' :
+              'Рекомендуют'
+            ) : 'Лента'}
           </h1>
         </div>
       </div>
@@ -11829,6 +11900,61 @@ export default function App() {
         return { ...p, comments: updatedComments };
       });
     });
+  };
+
+  const handleToggleReaction = async (postId: string, reactionType: 'like' | 'downvote') => {
+    if (!currentUser?.id) {
+      addNotification('Авторизация', 'Пожалуйста, войдите в аккаунт, чтобы оставить реакцию.');
+      return;
+    }
+
+    try {
+      await reactionRepository.toggle(postId, currentUser.id, reactionType);
+      
+      _setFeedPostsOriginal((prev: FeedPost[]) => prev.map(p => {
+        if (p.id !== postId) return p;
+        let nextIsLiked = p.isLiked;
+        let nextIsDownvoted = p.isDownvoted;
+        let nextLikes = p.likes || 0;
+        let nextDislikes = (p as any).dislikes || 0;
+        
+        if (reactionType === 'like') {
+          if (nextIsLiked) {
+            nextIsLiked = false;
+            nextLikes = Math.max(0, nextLikes - 1);
+          } else {
+            if (nextIsDownvoted) {
+              nextIsDownvoted = false;
+              nextDislikes = Math.max(0, nextDislikes - 1);
+            }
+            nextIsLiked = true;
+            nextLikes++;
+          }
+        } else {
+          if (nextIsDownvoted) {
+            nextIsDownvoted = false;
+            nextDislikes = Math.max(0, nextDislikes - 1);
+          } else {
+            if (nextIsLiked) {
+              nextIsLiked = false;
+              nextLikes = Math.max(0, nextLikes - 1);
+            }
+            nextIsDownvoted = true;
+            nextDislikes++;
+          }
+        }
+        return { ...p, isLiked: nextIsLiked, isDownvoted: nextIsDownvoted, likes: nextLikes, dislikes: nextDislikes };
+      }));
+
+      if (reactionType === 'like') {
+        addNotification('Сигнал ▲ обновлен', 'Спасибо! Ваша реакция сохранена.');
+      } else {
+        addNotification('Сигнал ▼ обновлен', 'Спасибо! Обратная связь зафиксирована в системе.');
+      }
+    } catch (err) {
+      console.error('[handleToggleReaction] Error toggling reaction:', err);
+      addNotification('Ошибка', 'Не удалось сохранить реакцию. Попробуйте еще раз.');
+    }
   };
 
   const handlePostAttentionSignal = (postId: string) => {
@@ -16260,8 +16386,6 @@ export default function App() {
             onMarkAllRead={handleMarkAllNotificationsRead}
           />
         );
-      case 'academy':
-        return renderAcademy();
       case 'appeals':
         return renderAppeals();
       case 'requests':
@@ -16390,8 +16514,20 @@ export default function App() {
             {/* User Main Profile Info Card */}
             <div className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all">
               {!isProfileBlockedHidden && (
-                <div className="w-[104px] h-[104px] shrink-0 overflow-hidden rounded-full border border-zinc-200/60 flex items-center justify-center bg-zinc-50 shadow-inner self-start">
+                <div className="relative group w-[104px] h-[104px] shrink-0 overflow-hidden rounded-full border border-zinc-200/60 flex items-center justify-center bg-zinc-50 shadow-inner self-start">
                   <UserAvatar user={renderedUser} avatarUrl={renderedUser?.avatar} className="w-full h-full" forceGrayscale={renderedUser?.isDeleted} />
+                  {isOwnProfile && !isViewingServiceProfile && (
+                    <label className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer rounded-full text-[10px] text-white font-semibold select-none">
+                      <Camera size={16} className="mb-1 text-zinc-100" />
+                      <span>Сменить</span>
+                      <input 
+                        type="file" 
+                        accept="image/png, image/jpeg, image/jpg, image/webp" 
+                        className="hidden" 
+                        onChange={handleAvatarChange} 
+                      />
+                    </label>
+                  )}
                 </div>
               )}
               <div className="grow min-w-0">
@@ -16583,16 +16719,77 @@ export default function App() {
                     return (
                       <div className="space-y-4 w-full">
                         {/* Profile Format Filter - Compact Dropdown */}
-                        <div className="flex justify-start items-center py-1 select-none">
+                        <div className="flex justify-between items-center gap-4 py-1 select-none">
                           <PostFormatFilter selectedFormat={profileFormatFilter} onChange={setProfileFormatFilter} />
+                          
+                          {/* Profile view switcher (Instagram-style Square Grid vs Feed List) */}
+                          <div className="flex items-center gap-1 p-0.5 bg-zinc-100 rounded-lg shrink-0">
+                            <button
+                              onClick={() => setProfileViewMode('grid')}
+                              className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'grid' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
+                              title="Плитка"
+                            >
+                              <LayoutGrid size={15} />
+                            </button>
+                            <button
+                              onClick={() => setProfileViewMode('list')}
+                              className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'list' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
+                              title="Список"
+                            >
+                              <List size={15} />
+                            </button>
+                          </div>
                         </div>
 
-                        {filteredAuthorPosts.length > 0 ? (
-                          filteredAuthorPosts.map(post => renderUnifiedPostCard(post, false))
+                        {profileViewMode === 'grid' ? (
+                          filteredAuthorPosts.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-1.5 md:gap-3">
+                              {filteredAuthorPosts.map(post => (
+                                <div 
+                                  key={post.id} 
+                                  onClick={() => {
+                                    navigate('/post/' + post.id);
+                                  }}
+                                  className="aspect-square relative group bg-neutral-50 border border-zinc-200/40 rounded-xl overflow-hidden cursor-pointer hover:opacity-95 transition-all flex flex-col justify-between p-3 select-none shadow-xs"
+                                >
+                                  {post.image ? (
+                                    <img src={post.image} alt="thumbnail" className="absolute inset-0 w-full h-full object-cover rounded-xl" />
+                                  ) : (
+                                    <div className="text-[10px] sm:text-[11px] text-zinc-700 leading-normal line-clamp-5 select-none text-left font-sans text-ellipsis overflow-hidden break-words">
+                                      <div dangerouslySetInnerHTML={{ __html: post.text?.slice(0, 160) || '' }} />
+                                    </div>
+                                  )}
+                                  
+                                  <div className="absolute top-1.5 right-1.5 p-1 bg-white/80 backdrop-blur-md rounded-md text-zinc-600 shadow-xs border border-zinc-200/10">
+                                    {post.postFormat === 'RESEARCH' ? <BookOpen size={10} className="text-purple-600" /> : post.postFormat === 'ANALYSIS' ? <BarChart3 size={10} className="text-teal-600" /> : <MessageSquare size={10} className="text-zinc-600" />}
+                                  </div>
+
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3 text-white text-xs font-bold rounded-xl">
+                                    <div className="flex items-center gap-1">
+                                      <ThumbsUp size={12} className="fill-white" />
+                                      <span>{post.likes || 0}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <MessageSquare size={12} className="fill-white" />
+                                      <span>{post.comments?.length || 0}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
+                              Нет публикаций в выбранном формате
+                            </div>
+                          )
                         ) : (
-                          <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
-                            Нет публикаций в выбранном формате
-                          </div>
+                          filteredAuthorPosts.length > 0 ? (
+                            filteredAuthorPosts.map(post => renderUnifiedPostCard(post, false))
+                          ) : (
+                            <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
+                              Нет публикаций в выбранном формате
+                            </div>
+                          )
                         )}
                       </div>
                     );
@@ -16926,6 +17123,46 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Persistent Mobile Bottom Navigation Bar */}
+      {isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked) && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 md:hidden flex justify-around items-center py-2 px-3 pb-[calc(8px+env(safe-area-inset-bottom))] shadow-[0_-2px_12px_rgba(0,0,0,0.04)] select-none">
+          {[
+            { id: 'feed', icon: LayoutGrid, label: 'Лента', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
+            { id: 'discussed-now', icon: Flame, label: 'Обсуждают', action: () => { setFeedMode('discussing'); setActiveTab('feed'); navigate('/feed'); } },
+            { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', action: () => { setActiveTab('internal-mail'); navigate('/internal-mail'); }, count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
+            { id: 'notifications', icon: Bell, label: 'Уведомления', action: () => { setActiveTab('notifications'); navigate('/notifications'); }, count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
+            { id: 'profile', icon: User, label: 'Профиль', action: () => { setSelectedUserData(null); setActiveTab('profile'); navigate('/profile'); } }
+          ].map((item) => {
+            let isActive = activeTab === item.id;
+            if (item.id === 'discussed-now') {
+              isActive = activeTab === 'feed' && feedMode === 'discussing';
+            } else if (item.id === 'feed') {
+              isActive = activeTab === 'feed' && feedMode !== 'discussing';
+            }
+            
+            return (
+              <button
+                key={item.id}
+                onClick={item.action}
+                className={`flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-center relative transition-all duration-150 cursor-pointer ${
+                  isActive ? 'text-[#4F7DF3] scale-105' : 'text-zinc-400 hover:text-zinc-800'
+                }`}
+              >
+                <div className="relative p-1">
+                  <item.icon size={21} className={isActive ? 'stroke-[2.25px]' : 'stroke-[1.8px]'} />
+                  {item.count !== undefined && item.count > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] bg-rose-500 rounded-full text-white text-[8.5px] font-bold flex items-center justify-center px-1 font-mono leading-none shadow-[0_1px_3px_rgba(244,63,94,0.3)] border border-white">
+                      {item.count}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9.5px] font-medium leading-none tracking-tight">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Modals & Overlays - сохранены из оригинала */}
       <AnimatePresence>

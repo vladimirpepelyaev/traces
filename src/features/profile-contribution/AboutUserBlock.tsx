@@ -83,7 +83,7 @@ export const AboutUserBlock: React.FC<AboutUserBlockProps> = ({
 
   const description =
     profileDescription?.trim() ||
-    (isBlocked ? 'Профиль ограничен модерацией платформы' : 'Участник сообщества Следы');
+    (isBlocked ? 'Профиль ограничен модерацией платформы' : 'Без статуса');
 
   return (
     <div className="space-y-4">

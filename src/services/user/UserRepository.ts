@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured, handleSupabaseError, ensureProfileExists, isUuid, getCurrentUserId } from '../../lib/supabase';
 import { AppUser } from '../../types';
 import { authService } from '../auth/AuthService';
+import { ResilienceService } from '../database/Repository';
 
 export interface UserProfile {
   id: string;
@@ -51,29 +52,31 @@ export class UserRepository {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    return ResilienceService.deduplicate(`get-profile-${userId}`, async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-    if (error || !data) {
-      console.error('Error fetching user profile:', error);
-      return null;
-    }
+      if (error || !data) {
+        console.error('Error fetching user profile:', error);
+        return null;
+      }
 
-    return {
-      id: data.id,
-      username: data.username,
-      display_name: data.display_name,
-      avatar_url: data.avatar_url,
-      role: data.role || 'user',
-      onboarding_completed: !!data.onboarding_completed,
-      blocked: !!data.blocked,
-      public_settings: data.public_settings,
-      created_at: data.created_at,
-      updated_at: data.updated_at
-    };
+      return {
+        id: data.id,
+        username: data.username,
+        display_name: data.display_name,
+        avatar_url: data.avatar_url,
+        role: data.role || 'user',
+        onboarding_completed: !!data.onboarding_completed,
+        blocked: !!data.blocked,
+        public_settings: data.public_settings,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      };
+    });
   }
 
   /**
@@ -110,39 +113,41 @@ export class UserRepository {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from('user_progress')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+    return ResilienceService.deduplicate(`get-progress-${userId}`, async () => {
+      const { data, error } = await supabase
+        .from('user_progress')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (error) {
-      handleSupabaseError(error, 'getProgress');
-      return null;
-    }
-
-    if (!data) {
-      return null;
-    }
-
-    let completed_steps: string[] = [];
-    if (typeof data.completed_steps === 'string') {
-      try {
-        completed_steps = JSON.parse(data.completed_steps);
-      } catch {
-        completed_steps = [];
+      if (error) {
+        handleSupabaseError(error, 'getProgress');
+        return null;
       }
-    } else if (Array.isArray(data.completed_steps)) {
-      completed_steps = data.completed_steps;
-    }
 
-    return {
-      user_id: data.user_id,
-      course_id: data.course_id || 'main_course',
-      current_step: data.current_step,
-      completed_steps,
-      updated_at: data.updated_at
-    };
+      if (!data) {
+        return null;
+      }
+
+      let completed_steps: string[] = [];
+      if (typeof data.completed_steps === 'string') {
+        try {
+          completed_steps = JSON.parse(data.completed_steps);
+        } catch {
+          completed_steps = [];
+        }
+      } else if (Array.isArray(data.completed_steps)) {
+        completed_steps = data.completed_steps;
+      }
+
+      return {
+        user_id: data.user_id,
+        course_id: data.course_id || 'main_course',
+        current_step: data.current_step,
+        completed_steps,
+        updated_at: data.updated_at
+      };
+    });
   }
 
   /**

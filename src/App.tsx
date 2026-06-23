@@ -332,7 +332,7 @@ const SUPPORT_DESCRIPTIONS = [
 ];
 
 export default function App() {
-  const { user: authUser, loading: authLoading, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles, completeOnboarding } = useAuth();
+  const { user: authUser, loading: authLoading, bootCompleted, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles, completeOnboarding } = useAuth();
 
   // activeTab state is now dynamically derived from React Router path below.
   const [supportTab, setSupportTab] = useState('my-questions');
@@ -1071,11 +1071,12 @@ export default function App() {
   const [openedTicket, setOpenedTicket] = useState<Ticket | null>(null);
   const [activeSupportTickets, setActiveSupportTickets] = useState<Ticket[]>([]);
   
+  const isProcessingRealtimeUpdateRef = useRef<boolean>(false);
   const [feedPosts, _setFeedPostsOriginal] = useState<FeedPost[]>([]);
   const setFeedPosts = (updateValue: any) => {
     _setFeedPostsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
-      if (isSupabaseConfigured && Array.isArray(next)) {
+      if (isSupabaseConfigured && Array.isArray(next) && !isProcessingRealtimeUpdateRef.current) {
         const prevIds = new Set(prev.map(i => i.id));
         const nextIds = new Set(next.map(i => i.id));
 
@@ -1150,6 +1151,7 @@ export default function App() {
   const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
   const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
   const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
+  const profileUpdateDebounceTimeoutRef = useRef<any>(null);
   const updateSettingsAndStore = async (newSettings: PublicProfileSettings, overrideDisplayName?: string, overrideStatus?: string) => {
     setPublicSettings(newSettings);
     if (currentUser) {
@@ -1161,15 +1163,24 @@ export default function App() {
       };
       setCurrentUser(updatedU);
       setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedU : u));
-      try {
-        await profileRepository.saveProfile(currentUser.id, {
-          public_settings: newSettings,
-          display_name: overrideDisplayName !== undefined ? overrideDisplayName : (newSettings.displayName || currentUser.name)
-        });
-        console.log('[Persistence] Profile successfully saved to Supabase:', newSettings);
-      } catch (err) {
-        console.error('[Persistence] Error saving profile to Supabase:', err);
+
+      // Clear any pending remote save
+      if (profileUpdateDebounceTimeoutRef.current) {
+        clearTimeout(profileUpdateDebounceTimeoutRef.current);
       }
+
+      // Debounce database push by 500ms
+      profileUpdateDebounceTimeoutRef.current = setTimeout(async () => {
+        try {
+          await profileRepository.saveProfile(currentUser.id, {
+            public_settings: newSettings,
+            display_name: overrideDisplayName !== undefined ? overrideDisplayName : (newSettings.displayName || currentUser.name)
+          });
+          console.log('[Persistence] Profile successfully saved to Supabase (debounced):', newSettings);
+        } catch (err) {
+          console.error('[Persistence] Error saving profile to Supabase:', err);
+        }
+      }, 500);
     }
   };
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState<boolean>(false);
@@ -1296,11 +1307,21 @@ export default function App() {
     }
   };
 
+  const lastFeedLoadTimeRef = useRef<number>(0);
+  const cachedFeedPostsRef = useRef<any>(null);
+
   const loadFeed = async () => {
+    const now = Date.now();
+    if (now - lastFeedLoadTimeRef.current < 1000 && cachedFeedPostsRef.current) {
+      console.log('[Boot] loadFeed() - throttled (less than 1000ms), using cache');
+      return;
+    }
+    lastFeedLoadTimeRef.current = now;
     console.log('[Boot] loadFeed() - loading feed posts');
     try {
       const posts = await postRepository.getAll();
       if (posts && posts.length > 0) {
+        cachedFeedPostsRef.current = posts;
         _setFeedPostsOriginal(prev => {
           const incomingIds = new Set(posts.map(p => p.id));
           const localOnly = prev.filter(p => !incomingIds.has(p.id));
@@ -1547,6 +1568,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!bootCompleted) {
+      console.log('[Boot] Waiting for bootCompleted to be true before hydrating store.');
+      return;
+    }
     if (currentUser) {
       setPublicSettings(currentUser.publicSettings || DEFAULT_PUBLIC_SETTINGS);
       hydrateFromSupabase(currentUser.id, permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser));
@@ -1554,7 +1579,7 @@ export default function App() {
       setPublicSettings(DEFAULT_PUBLIC_SETTINGS);
       lastHydratedUserIdRef.current = null;
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, bootCompleted]);
 
   const isStaff = useMemo(() => {
     return permissionService.canModerate(currentUser) || permissionService.isAdmin(currentUser);
@@ -2144,11 +2169,21 @@ export default function App() {
 
   // Setup Realtime Service subscriptions for Posts and Alerts
   useEffect(() => {
+    if (!bootCompleted) return;
+
     RealtimeService.subscribePosts((newPost: any) => {
-      setFeedPosts(prev => {
-        if (prev.some(p => p.id === newPost.id)) return prev;
-        return [newPost, ...prev];
-      });
+      try {
+        isProcessingRealtimeUpdateRef.current = true;
+        setFeedPosts(prev => {
+          if (prev.some(p => p.id === newPost.id)) {
+            // Merge realtime alterations instead of overwriting local comments or metadata
+            return prev.map(p => p.id === newPost.id ? { ...p, ...newPost, comments: newPost.comments || p.comments } : p);
+          }
+          return [newPost, ...prev];
+        });
+      } finally {
+        isProcessingRealtimeUpdateRef.current = false;
+      }
       addNotification('Новый пост', `${newPost.authorName} написал: "${newPost.text.slice(0, 40)}${newPost.text.length > 40 ? '...' : ''}"`);
     });
 
@@ -2163,7 +2198,7 @@ export default function App() {
     return () => {
       RealtimeService.unsubscribe();
     };
-  }, []);
+  }, [bootCompleted]);
 
   useEffect(() => {
     if (activeTab.startsWith('support-category-')) {
@@ -16254,12 +16289,12 @@ export default function App() {
     return mainTabContent;
   };
 
-  if (authLoading) {
+  if (authLoading || !bootCompleted) {
     return (
       <div className="min-h-screen bg-[#f0f2f5] flex flex-col items-center justify-center font-sans select-none">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-[#5181b8] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase">Следы — Авторизация...</span>
+          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase">Следы — Загрузка данных...</span>
         </div>
       </div>
     );

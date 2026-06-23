@@ -8,6 +8,7 @@ interface AuthContextType {
   user: AppUser | null;
   roles: string[];
   loading: boolean;
+  bootCompleted: boolean;
   signUp: (login: string, password?: string, name?: string, status?: string) => Promise<AppUser>;
   signIn: (login: string, password?: string) => Promise<AppUser>;
   signOut: () => Promise<void>;
@@ -31,6 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AppUser | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bootCompleted, setBootCompleted] = useState(false);
 
   const loadProfile = async (userId: string) => {
     return await userRepository.getProfile(userId);
@@ -106,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRoles([]);
     } finally {
       setLoading(false);
+      setBootCompleted(true);
     }
   };
 
@@ -273,46 +276,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const lastSavedStepRef = React.useRef<string | null>(null);
+  const lastSavedCompletedStepsRef = React.useRef<string[]>([]);
+  const onboardingSavedRef = React.useRef<boolean>(false);
+
   const completeOnboarding = async (interests?: string[]) => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser || !authUser.id) {
-        throw new Error('Not authenticated');
-      }
-      if (!isUuid(authUser.id)) {
-        throw new Error('Invalid UUID');
-      }
-      await ensureProfileExists();
-      // 1. сохранить progress
-      await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep: 'completed', completedSteps: interests || [] });
-      
-      // 2. обновить profile: onboarding_completed=true
-      await userRepository.completeOnboarding(authUser.id);
-      
-      // 3. После update сделать: await refetchProfile() (handled via refreshUser)
-      await refreshUser();
-    } catch (err) {
-      console.error('Error completing onboarding:', err);
-      throw err;
+    if (onboardingSavedRef.current) {
+      console.log('[AuthContext] Onboarding already saved. Skipping duplicate.');
+      return;
     }
+    onboardingSavedRef.current = true;
+
+    // 1. Instantly register in UI locally
+    setUser(prev => prev ? { 
+      ...prev, 
+      onboardingCompleted: true, 
+      interests: interests || prev.interests || [] 
+    } : null);
+
+    // 2. Quietly update DB in the background
+    (async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (!authUser || !authUser.id) return;
+        await ensureProfileExists();
+
+        lastSavedStepRef.current = 'completed';
+        lastSavedCompletedStepsRef.current = [...(interests || [])];
+
+        await userRepository.saveProgress(authUser.id, { 
+          courseId: 'main_course', 
+          currentStep: 'completed', 
+          completedSteps: interests || [] 
+        });
+        await userRepository.completeOnboarding(authUser.id);
+        console.log('[AuthContext] Onboarding successfully synced with DB in background.');
+      } catch (err) {
+        console.error('[AuthContext] Background onboarding sync failed:', err);
+      }
+    })();
   };
 
   const saveProgress = async (currentStep: string | null, completedSteps: string[]) => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser || !authUser.id) {
-        throw new Error('Not authenticated');
-      }
-      if (!isUuid(authUser.id)) {
-        throw new Error('Invalid UUID');
-      }
-      await ensureProfileExists();
-      await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep, completedSteps });
-      setUser(prev => prev ? { ...prev, interests: completedSteps, currentStep: currentStep || undefined } : null);
-    } catch (err) {
-      console.error('Error saving progress:', err);
-      throw err;
+    const isSameStep = lastSavedStepRef.current === currentStep;
+    const isSameCompleted = lastSavedCompletedStepsRef.current.length === completedSteps.length &&
+      completedSteps.every((v, i) => lastSavedCompletedStepsRef.current[i] === v);
+
+    if (isSameStep && isSameCompleted) {
+      console.log('[AuthContext] saveProgress - Suppressed duplicate progress update.');
+      return;
     }
+
+    // 1. Instantly patch UI locally
+    setUser(prev => prev ? { ...prev, interests: completedSteps, currentStep: currentStep || undefined } : null);
+
+    // 2. Save in background
+    (async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (!authUser || !authUser.id) return;
+        if (!isUuid(authUser.id)) return;
+        await ensureProfileExists();
+
+        lastSavedStepRef.current = currentStep;
+        lastSavedCompletedStepsRef.current = [...completedSteps];
+
+        await userRepository.saveProgress(authUser.id, { courseId: 'main_course', currentStep, completedSteps });
+        console.log('[AuthContext] Progress successfully saved in background:', currentStep);
+      } catch (err) {
+        console.error('[AuthContext] Error saving progress in background:', err);
+      }
+    })();
   };
 
   const saveRecord = async (type: string, payload: any) => {
@@ -362,6 +396,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user, 
       roles, 
       loading, 
+      bootCompleted,
       signUp, 
       signIn, 
       signOut, 

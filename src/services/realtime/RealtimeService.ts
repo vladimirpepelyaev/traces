@@ -10,6 +10,8 @@ class RealtimeServiceProvider {
   private alertCallbacks: RealtimeCallback[] = [];
   private ticketCallbacks: RealtimeCallback[] = [];
   private notificationCallbacks: RealtimeCallback[] = [];
+  private messengerCallbacks: RealtimeCallback[] = [];
+  private reactionCallbacks: RealtimeCallback[] = [];
 
   constructor() {
     try {
@@ -73,11 +75,18 @@ class RealtimeServiceProvider {
       this.postCallbacks.push(onChanges);
     }
 
+    const channelName = 'public:posts';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
         console.log('[RealtimeService] Subscribing to postgres_changes for table "posts"');
         
-        const channel = this.safeCreateChannel('public:posts');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -88,7 +97,9 @@ class RealtimeServiceProvider {
               try {
                 if (payload.new) {
                   console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
-                  onChanges(payload.new);
+                  this.postCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing post callback:', cbErr);
@@ -119,9 +130,16 @@ class RealtimeServiceProvider {
       this.alertCallbacks.push(onInsert);
     }
 
+    const channelName = 'public:alerts';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
-        const channel = this.safeCreateChannel('public:alerts');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -131,7 +149,9 @@ class RealtimeServiceProvider {
             (payload) => {
               try {
                 if (payload.new) {
-                  onInsert(payload.new);
+                  this.alertCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing alerts callback:', cbErr);
@@ -162,9 +182,16 @@ class RealtimeServiceProvider {
       this.ticketCallbacks.push(onChanges);
     }
 
+    const channelName = 'public:support_tickets';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
-        const channel = this.safeCreateChannel('public:support_tickets');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -174,7 +201,9 @@ class RealtimeServiceProvider {
             (payload) => {
               try {
                 if (payload.new) {
-                  onChanges(payload.new);
+                  this.ticketCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing tickets callback:', cbErr);
@@ -205,9 +234,16 @@ class RealtimeServiceProvider {
       this.notificationCallbacks.push(onInsert);
     }
 
+    const channelName = 'public:notifications';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
-        const channel = this.safeCreateChannel('public:notifications');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -217,7 +253,9 @@ class RealtimeServiceProvider {
             (payload) => {
               try {
                 if (payload.new) {
-                  onInsert(payload.new);
+                  this.notificationCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing notifications callback:', cbErr);
@@ -244,9 +282,20 @@ class RealtimeServiceProvider {
    * Subscribes to messenger messages.
    */
   subscribeMessengerMessages(onInsert: (message: any) => void): RealtimeChannel | null {
+    if (!this.messengerCallbacks.includes(onInsert)) {
+      this.messengerCallbacks.push(onInsert);
+    }
+
+    const channelName = 'public:messenger_messages';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
-        const channel = this.safeCreateChannel('public:messenger_messages');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -256,7 +305,9 @@ class RealtimeServiceProvider {
             (payload) => {
               try {
                 if (payload.new) {
-                  onInsert(payload.new);
+                  this.messengerCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing messenger callback:', cbErr);
@@ -282,9 +333,20 @@ class RealtimeServiceProvider {
    * Subscribes to reactions changes (likes, dislikes).
    */
   subscribeReactions(onChanges: (reaction: any) => void): RealtimeChannel | null {
+    if (!this.reactionCallbacks.includes(onChanges)) {
+      this.reactionCallbacks.push(onChanges);
+    }
+
+    const channelName = 'public:reactions';
+    const existing = this.channels.find(ch => ch.topic === channelName || ch.topic === `realtime:${channelName}`);
+    if (existing) {
+      console.log(`[RealtimeService] Reusing existing channel for ${channelName}`);
+      return existing;
+    }
+
     if (isSupabaseConfigured) {
       try {
-        const channel = this.safeCreateChannel('public:reactions');
+        const channel = this.safeCreateChannel(channelName);
         if (!channel) return null;
 
         channel
@@ -294,7 +356,9 @@ class RealtimeServiceProvider {
             (payload) => {
               try {
                 if (payload.new) {
-                  onChanges(payload.new);
+                  this.reactionCallbacks.forEach(cb => {
+                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                  });
                 }
               } catch (cbErr) {
                 console.error('[RealtimeService] Error executing reactions callback:', cbErr);
@@ -357,13 +421,17 @@ class RealtimeServiceProvider {
    */
   unsubscribe() {
     this.channels.forEach(channel => {
-      supabase.removeChannel(channel);
+      try {
+        supabase.removeChannel(channel);
+      } catch (_) {}
     });
     this.channels = [];
     this.postCallbacks = [];
     this.alertCallbacks = [];
     this.ticketCallbacks = [];
     this.notificationCallbacks = [];
+    this.messengerCallbacks = [];
+    this.reactionCallbacks = [];
   }
 }
 

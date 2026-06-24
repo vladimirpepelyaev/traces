@@ -1117,13 +1117,13 @@ export class AlertRepositoryProvider {
     try {
       const { error } = await supabase
         .from('alerts')
-        .insert({
+        .upsert({
           id: alert.id,
           title: alert.title,
           text: alert.text,
           tag: alert.tag || 'Инфо',
           created_at: alert.timestamp || new Date().toISOString()
-        });
+        }, { onConflict: 'id' });
 
       if (error) {
         console.error('[AlertRepository] Error saving alert:', error);
@@ -1131,6 +1131,23 @@ export class AlertRepositoryProvider {
       }
     } catch (e) {
       console.error('[AlertRepository] insert failed:', e);
+    }
+  }
+
+  async delete(alertId: string): Promise<void> {
+    if (!isSupabaseConfigured) return;
+    try {
+      const { error } = await supabase
+        .from('alerts')
+        .delete()
+        .eq('id', alertId);
+
+      if (error) {
+        console.error('[AlertRepository] Error deleting alert:', error);
+        throw error;
+      }
+    } catch (e) {
+      console.error('[AlertRepository] delete failed:', e);
     }
   }
 }

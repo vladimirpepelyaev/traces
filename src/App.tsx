@@ -1630,20 +1630,111 @@ export default function App() {
     console.log('[Boot] loadAlerts() - loading active platform alerts');
     try {
       const dbAlerts = await alertRepository.getAll();
-      if (dbAlerts && dbAlerts.length > 0) {
-        const mappedAlerts = dbAlerts.map((a: any) => ({
+      const mappedAlerts = (dbAlerts || [])
+        .filter((a: any) => !a.id.startsWith('wiki-') && !a.id.startsWith('wiki_rules') && !a.id.startsWith('wiki_categories'))
+        .map((a: any) => ({
           id: a.id,
           tag: a.tag || 'Инфо',
           title: a.title,
           text: a.text,
           date: new Date(a.created_at).toLocaleDateString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
           author: 'Система',
-          isPinned: false
+          isPinned: a.tag === 'Важно'
         }));
-        setAnnouncements(mappedAlerts);
-      }
+      setAnnouncements(mappedAlerts);
     } catch (e) {
       console.error('[Boot] loadAlerts failed:', e);
+    }
+  };
+
+  const loadWiki = async () => {
+    console.log('[Boot] loadWiki() - loading corporate wiki data');
+    try {
+      const dbAlerts = await alertRepository.getAll();
+      
+      // 1. Load articles
+      const articles = (dbAlerts || [])
+        .filter((a: any) => a.id.startsWith('wiki-'))
+        .map((a: any) => {
+          let count = 15;
+          let title = a.title;
+          const countMatch = a.title.match(/\[count:(\d+)\]/);
+          if (countMatch) {
+            count = parseInt(countMatch[1]);
+            title = a.title.replace(/\[count:\d+\]/, '').trim();
+          }
+          return {
+            id: a.id,
+            title: title,
+            cat: a.tag || 'Модератор',
+            count: count,
+            content: a.text
+          };
+        });
+
+      // 2. Load rules
+      const rulesAlert = (dbAlerts || []).find((a: any) => a.id === 'wiki_rules');
+      if (rulesAlert) {
+        try {
+          const parsed = JSON.parse(rulesAlert.text);
+          if (Array.isArray(parsed)) {
+            setWikiRules(parsed);
+          }
+        } catch (e) {
+          console.error('Error parsing wiki rules:', e);
+        }
+      }
+
+      // 3. Load categories
+      const categoriesAlert = (dbAlerts || []).find((a: any) => a.id === 'wiki_categories');
+      if (categoriesAlert) {
+        try {
+          const parsed = JSON.parse(categoriesAlert.text);
+          if (Array.isArray(parsed)) {
+            setWikiCategories(parsed);
+          }
+        } catch (e) {
+          console.error('Error parsing wiki categories:', e);
+        }
+      }
+
+      // Seed if empty
+      if (articles.length === 0) {
+        console.log('[Boot] Wiki is empty, seeding default articles to DB');
+        const defaultArticles = [
+          { id: 'wiki-1', title: 'Основы модерации контента', cat: 'Модератор', count: 19, content: 'Базовые правила модерации контента включают в себя проверку на соответствие пользовательскому соглашению. Основные категории нарушений, подлежащих разбору: 1. Оскорбления личности и буллинг, 2. Несанкционированная реклама и спам, 3. Эротическое содержимое и NSFW, 4. Пропаганда ненависти.\n\nКаждый модератор обязан соблюдать строгий нейтралитет и непредвзятость при вынесении вердиктов.' },
+          { id: 'wiki-2', title: 'Работа с жалобами на спам', cat: 'Модератор', count: 24, content: 'Как отличить спам от обычных сообщений? Всегда обращайте внимание на частоту отправки, наличие подозрительных сокращенных ссылок, предложений о мгновенном легком заработке без вложений, а также признаков шаблонного текста.\n\nВ случае выявления массовой спам-атаки от ботнетов, незамедлительно используйте инструмент "Block & Delete" для полной зачистки материалов.' },
+          { id: 'wiki-3', title: 'Модерация нецензурных выражений', cat: 'Модератор', count: 18, content: 'Применение мата на площадке регулируется общим контекстом общения. Прямые личные оскорбления собеседников с использованием мата подлежат безусловным штрафным санкциям и временной блокировке. Эмоциональные выкрики или художественные цитаты без перехода на конкретные личности могут быть проигнорированы или удалены по факту жалобы.' },
+          { id: 'wiki-4', title: 'Борьба с флудом и оффтопом', cat: 'Модератор', count: 11, content: 'Флудом официально считается отправка трех и более одинаковых или схожих по смыслу сообщений подряд. Особый фокус внимания следует направлять на массовое выпрашивание оценок или взаимной подписки в обсуждениях. Такой контент скрывается от показа в ленте автоматически, а нарушителям выносится предупреждение.' },
+          { id: 'wiki-5', title: 'Протокол взаимодействия с Support', cat: 'Поддержка', count: 15, content: 'Регламент взаимодействия со службой технической поддержки определяет порядок эскалации сложных вопросов на старших администраторов. Все обращения пользователей, требующие вмешательства бэкенд-инженеров или исправления записей в базе данных, помечаются маркером "DEV_READY".' },
+          { id: 'wiki-6', title: 'Этика общения в тикетах у поддержки', cat: 'Поддержка', count: 22, content: 'Будьте предельно вежливы и профессиональны в любой ситуации, даже если пользователь идет на прямые провокации, грубит и хамит. Наша ключевая задача — успокоить человека и оперативно решить его затруднение. Придерживайтесь нейтральных словесных конструкций.' },
+          { id: 'wiki-7', title: 'Решение споров и сбоев по платежам', cat: 'Поддержка', count: 14, content: 'Алгоритм обработки тикетов по задержкам оплат:\n1. Запросите у обратившегося чек операции (желательно PDF-версию с деталями банка);\n2. Проверьте ID транзакции в нашей биллинговой системе;\n3. При статусе платежа "В обработке" попросите подождать до 1-2 часов;\n4. При системной ошибке - инициируйте процедуру ручной активации пакета.' },
+          { id: 'wiki-8', title: 'Восстановление взломанных профилей', cat: 'Поддержка', count: 32, content: 'Если пользователь утверждает, что потерял контроль над аккаунтом:\n1. Проанализируйте историю входов, IP-адресов и последние действия.\n2. Попросите пользователя прислать качественное фото на фоне открытого тикета.\n3. Сравните био-данные страницы. При совпадении критериев деактивируйте старое мыло и телефон, выдав ссылку на ввод нового пароля.' },
+          { id: 'wiki-9', title: 'Критерии верификации профилей', cat: 'Безопасность', count: 27, content: 'Базовые требования для прохождения верификации и выдачи галочки:\n1. Полностью заполненные поля профиля, включая имя, фамилию, дату рождения и город.\n2. Наличие качественного реального аватара человека.\n3. Абсолютное отсутствие блокировок и предупреждений за последние 90 дней.\n4. Документальное подтверждение медийности (ссылки на статьи в СМИ, крупные каналы).' },
+          { id: 'wiki-10', title: 'Анализ логов безопасности входа', cat: 'Безопасность', count: 9, content: 'Каждый раз при авторизации пользователя с нового диапазона IP-сетей, система проводит проверку его отпечатков браузера (User-Agent, куки, локаль). При сильном расхождении на аккаунт накладывается временный запрет сброса паролей на 24 часа для защиты от кражи сессии.' },
+          { id: 'wiki-11', title: 'Предотвращение фишинга и кражи сессий', cat: 'Безопасность', count: 16, content: 'Фишинг несёт критическую угрозу безопасности конфиденциальных данных. Модераторы должны незамедлительно вносить в черные списки подсети и редиректы, копирующие интерфейс Следы. Профили, распространяющие подобные ссылки, блокируются перманентно по идентификатору железа.' },
+          { id: 'wiki-12', title: 'Защита конфиденциальных данных (GDPR)', cat: 'Безопасность', count: 12, content: 'Сотрудники администрации обязаны строго соблюдать нормативы конфиденциальности. Разглашение персональных сведений (включая номера телефонов, пароли, адреса IP-авторизаций, банковские карты) посторонним лицам является грубым нарушением и карается увольнением из структуры поддержки.' },
+          { id: 'wiki-13', title: 'Разбор поданных апелляций на бан', cat: 'Регламент', count: 35, content: 'При изучении аргументации в заявках на разблокировку:\n1. Оцените общее количество и частоту прошлых нарушений.\n2. Проверьте архив удаленных постов, послуживших триггером бана.\n3. Если пользователь искренне раскаивается, сменил пароли при взломе и не допускал рецидивов - вечную блокировку допускается заменить временной или снять.' },
+          { id: 'wiki-14', title: 'Действия при аварии на серверах', cat: 'Регламент', count: 8, content: 'В случае выявления масштабных технических неисправностей (отказ СУБД, падение серверов доставки контента):\n1. Модераторам запрещено плодить панику.\n2. Закрепите сверху в ленте сообщение от тех. отдела об идущих работах.\n3. Закрытые тикеты задержите до стабилизации систем, все обращения переводите на регламентный режим ожидания.' },
+          { id: 'wiki-15', title: 'Инструкция по использованию админ-панели', cat: 'Инструкции', count: 41, content: 'Вспомогательный гид по возможностям веб-интерфейса:\n- Левый сайдбар группирует все оперативные queues.\n- В ленте активности зажатая при клике клавиша ALT мгновенно открывает профиль зафиксированного пользователя с возможностью экспресс-блокировки.\n- Фильтры поиска поддерживают детекцию стоп-слов, спам-шаблонов.' },
+          { id: 'wiki-16', title: 'Стандарты оценки качества персонала', cat: 'Инструкции', count: 11, content: 'Ключевые KPI эффективность сотрудников поддержки и модерации:\n- Показатель ART (Average Response Time) — среднее время ответа на тикет.\n- Доля успешных аудитов от отдела качества (минимум 90% корректных решений в выборке).\n- Количество повторных жалоб от пользователей, спровоцированных некорректными трактовками правил.' }
+        ];
+
+        for (const art of defaultArticles) {
+          await alertRepository.insert({
+            id: art.id,
+            title: `${art.title} [count:${art.count}]`,
+            text: art.content,
+            tag: art.cat,
+            timestamp: new Date().toISOString()
+          });
+        }
+        setWikiArticles(defaultArticles);
+      } else {
+        setWikiArticles(articles);
+      }
+    } catch (e) {
+      console.error('[Boot] loadWiki failed:', e);
     }
   };
 
@@ -1776,6 +1867,12 @@ export default function App() {
       await loadAlerts();
     } catch (e) {
       console.error('[Boot] loadAlerts failed:', e);
+    }
+
+    try {
+      await loadWiki();
+    } catch (e) {
+      console.error('[Boot] loadWiki failed:', e);
     }
 
     try {
@@ -8934,22 +9031,29 @@ export default function App() {
   };
 
   const renderAnnouncements = () => {
-    const handleAdd = () => {
+    const handleAdd = async () => {
       if (!newAnnouncementTitle.trim() || !newAnnouncementText.trim()) return;
+      const announcementId = Date.now().toString();
       const announcement = {
-        id: Date.now().toString(),
+        id: announcementId,
+        tag: newAnnouncementTag,
+        title: newAnnouncementTitle,
+        text: newAnnouncementText,
+        timestamp: new Date().toISOString()
+      };
+
+      await alertRepository.insert(announcement);
+      await loadAlerts();
+
+      RealtimeService.broadcastAlert({
+        id: announcementId,
         tag: newAnnouncementTag,
         title: newAnnouncementTitle,
         text: newAnnouncementText,
         date: new Date().toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
         author: currentUser?.name || 'Администратор',
         isPinned: newAnnouncementTag === 'Важно'
-      };
-      setAnnouncements(prev => {
-        if (prev.some(a => a.id === announcement.id)) return prev;
-        return [announcement, ...prev];
       });
-      RealtimeService.broadcastAlert(announcement);
       setIsAddingAnnouncement(false);
       setNewAnnouncementTitle('');
       setNewAnnouncementText('');
@@ -9068,9 +9172,11 @@ export default function App() {
                 {isAdminMode && (
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button 
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        setAnnouncements(prev => prev.filter(a => a.id !== item.id));
+                        await alertRepository.delete(item.id);
+                        await loadAlerts();
+                        addNotification('Объявление', 'Объявление удалено из базы данных');
                       }}
                       className="p-1.5 text-red-500 hover:bg-red-50 rounded-full transition-colors"
                     >
@@ -9095,14 +9201,12 @@ export default function App() {
     return (
       <Wiki 
         wikiArticles={wikiArticles}
-        setWikiArticles={setWikiArticles}
         wikiCategories={wikiCategories}
-        setWikiCategories={setWikiCategories}
         wikiRules={wikiRules}
-        setWikiRules={setWikiRules}
         isStaff={isStaff}
         addNotification={addNotification}
         addModeratorLog={addModeratorLog}
+        loadWiki={loadWiki}
       />
     );
   };

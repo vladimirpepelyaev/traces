@@ -4,29 +4,26 @@ import {
   ChevronLeft, FileText, Search, PenLine, Settings, BookOpen, ArrowUpRight, ShieldCheck, FileSearch 
 } from 'lucide-react';
 import { ToastNotification, ModeratorAction } from '../types';
+import { alertRepository } from '../services/database/Repository';
 
 interface WikiProps {
   wikiArticles: { id: string; title: string; cat: string; count: number; content: string }[];
-  setWikiArticles: React.Dispatch<React.SetStateAction<{ id: string; title: string; cat: string; count: number; content: string }[]>>;
   wikiCategories: string[];
-  setWikiCategories: React.Dispatch<React.SetStateAction<string[]>>;
   wikiRules: string[];
-  setWikiRules: React.Dispatch<React.SetStateAction<string[]>>;
   isStaff: boolean;
   addNotification: (title: string, message: string) => void;
   addModeratorLog: (log: Omit<ModeratorAction, 'id' | 'operatorId' | 'operatorName' | 'timestamp'>) => void;
+  loadWiki: () => Promise<void>;
 }
 
 export const Wiki: React.FC<WikiProps> = ({
   wikiArticles,
-  setWikiArticles,
   wikiCategories,
-  setWikiCategories,
   wikiRules,
-  setWikiRules,
   isStaff,
   addNotification,
   addModeratorLog,
+  loadWiki,
 }) => {
   const [wikiSubTab, setWikiSubTab] = useState<'articles' | 'manage'>('articles');
   const [activeWikiCat, setActiveWikiCat] = useState('Все');
@@ -51,38 +48,47 @@ export const Wiki: React.FC<WikiProps> = ({
 
   const categories = wikiCategories;
 
-  const handleCreateArticle = () => {
+  const handleCreateArticle = async () => {
     if (!newWikiArticle.title || !newWikiArticle.content) {
       addNotification('Ошибка', 'Заполните все поля статьи!');
       return;
     }
     const createdItem = {
       id: `wiki-${Date.now()}`,
-      title: newWikiArticle.title,
-      cat: newWikiArticle.cat,
-      count: newWikiArticle.pageCount || 1,
-      content: newWikiArticle.content
+      title: `${newWikiArticle.title} [count:${newWikiArticle.pageCount || 1}]`,
+      text: newWikiArticle.content,
+      tag: newWikiArticle.cat,
+      timestamp: new Date().toISOString()
     };
-    setWikiArticles(prev => [createdItem, ...prev]);
+    await alertRepository.insert(createdItem);
+    await loadWiki();
     setNewWikiArticle({ title: '', cat: 'Модератор', content: '', pageCount: 1 });
     setShowAddArticleForm(false);
     addNotification('Успех', 'Новая статья успешно добавлена в базу знаний');
     addModeratorLog({
       type: 'wiki',
       action: 'Создание статьи Wiki',
-      message: `Создана новая корпоративная статья: "${createdItem.title}" в разделе "${createdItem.cat}"`,
+      message: `Создана новая корпоративная статья: "${newWikiArticle.title}" в разделе "${newWikiArticle.cat}"`,
       targetId: createdItem.id,
-      targetName: createdItem.title
+      targetName: newWikiArticle.title
     });
   };
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     if (!newWikiCatName.trim()) return;
     if (wikiCategories.includes(newWikiCatName.trim())) {
       addNotification('Ошибка', 'Категория уже существует');
       return;
     }
-    setWikiCategories(prev => [...prev, newWikiCatName.trim()]);
+    const updatedCategories = [...wikiCategories, newWikiCatName.trim()];
+    await alertRepository.insert({
+      id: 'wiki_categories',
+      title: 'Wiki Categories Configuration',
+      text: JSON.stringify(updatedCategories),
+      tag: 'System',
+      timestamp: new Date().toISOString()
+    });
+    await loadWiki();
     addNotification('Добавлено', `Категория "${newWikiCatName.trim()}" успешно добавлена`);
     addModeratorLog({
       type: 'wiki',
@@ -93,9 +99,17 @@ export const Wiki: React.FC<WikiProps> = ({
     setNewWikiCatName('');
   };
 
-  const handleDeleteCategory = (catToDelete: string) => {
+  const handleDeleteCategory = async (catToDelete: string) => {
     if (catToDelete === 'Все') return;
-    setWikiCategories(prev => prev.filter(c => c !== catToDelete));
+    const updatedCategories = wikiCategories.filter(c => c !== catToDelete);
+    await alertRepository.insert({
+      id: 'wiki_categories',
+      title: 'Wiki Categories Configuration',
+      text: JSON.stringify(updatedCategories),
+      tag: 'System',
+      timestamp: new Date().toISOString()
+    });
+    await loadWiki();
     if (activeWikiCat === catToDelete) setActiveWikiCat('Все');
     addNotification('Удалено', `Категория "${catToDelete}" удалена`);
     addModeratorLog({
@@ -106,8 +120,9 @@ export const Wiki: React.FC<WikiProps> = ({
     });
   };
 
-  const handleDeleteArticle = (id: string, title: string) => {
-    setWikiArticles(prev => prev.filter(a => a.id !== id));
+  const handleDeleteArticle = async (id: string, title: string) => {
+    await alertRepository.delete(id);
+    await loadWiki();
     addNotification('Удалено', `Статья "${title}" успешно удалена`);
     addModeratorLog({
       type: 'wiki',
@@ -147,11 +162,19 @@ export const Wiki: React.FC<WikiProps> = ({
                 </h4>
                 {isStaff && (
                   <button 
-                    onClick={() => {
+                    onClick={async () => {
                       const newRule1 = prompt("Пункт 1 Регламента:", wikiRules[0]) || wikiRules[0];
                       const newRule2 = prompt("Пункт 2 Регламента:", wikiRules[1]) || wikiRules[1];
                       const newRule3 = prompt("Пункт 3 Регламента:", wikiRules[2]) || wikiRules[2];
-                      setWikiRules([newRule1, newRule2, newRule3]);
+                      const updatedRules = [newRule1, newRule2, newRule3];
+                      await alertRepository.insert({
+                        id: 'wiki_rules',
+                        title: 'Wiki Rules Configuration',
+                        text: JSON.stringify(updatedRules),
+                        tag: 'System',
+                        timestamp: new Date().toISOString()
+                      });
+                      await loadWiki();
                       addNotification('Успех', 'Регламент взаимодействия успешно сохранен');
                     }}
                     className="text-[11.5px] text-[#2a5885] font-semibold hover:underline cursor-pointer"

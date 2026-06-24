@@ -118,6 +118,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreSession();
   }, []);
 
+  useEffect(() => {
+    if (!user || !user.id) return;
+
+    console.log(`[AuthContext] Setting up profile subscription for user ID: ${user.id}`);
+
+    const channel = supabase
+      .channel(`public:profiles:id=eq.${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`
+        },
+        async (payload) => {
+          console.log('[AuthContext] Realtime profile update received:', payload);
+          const newProfile = payload.new;
+          if (newProfile) {
+            const blocked = !!newProfile.blocked;
+            const role = newProfile.role || 'user';
+            
+            console.log(`[AuthContext] Realtime block status: ${blocked}, role: ${role}`);
+
+            setUser(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                role: role,
+                roles: [role],
+                onboardingCompleted: !!newProfile.onboarding_completed,
+                isBlocked: blocked,
+                blocked_at: newProfile.blocked_at || null,
+                block_reason: newProfile.block_reason || null,
+                block_comment: newProfile.block_comment || null,
+                blocked_post_id: newProfile.blocked_post_id || null,
+                name: newProfile.display_name || newProfile.username || prev.name,
+                avatar: newProfile.avatar_url || prev.avatar,
+                status: newProfile.status || prev.status,
+                attention_balance: newProfile.attention_balance ?? prev.attention_balance
+              };
+            });
+            
+            setRoles([role]);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`[AuthContext] Profile subscription status for user ${user.id}: ${status}`);
+      });
+
+    return () => {
+      console.log(`[AuthContext] Cleaning up profile subscription for user ID: ${user.id}`);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
   const signUp = async (login: string, password?: string, name?: string, status?: string) => {
     try {
       setLoading(true);

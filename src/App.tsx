@@ -21,12 +21,7 @@ import {
   VerificationRequest, ModeratorAction, ToastNotification, DialogMessage, DialogComplaint 
 } from './types';
 import { Wiki } from './components/Wiki';
-import { Security } from './components/Security';
-import { Monitoring } from './components/Monitoring';
-import { ActionLogs } from './components/ActionLogs';
 import { Statistics } from './components/Statistics';
-import { Tasks } from './components/Tasks';
-import { Translations } from './components/Translations';
 import { Onboarding, getPostTopic } from './components/Onboarding';
 import { FeedModeSelector, FeedMode } from './features/feed-modes/FeedModeSelector';
 import { PostComposer } from './features/post-context/PostComposer';
@@ -526,7 +521,21 @@ export default function App() {
         _setPageComplaintsOriginal(allComplaints.filter(c => c.dept === 'Модерация страниц'));
       }
       
-      // 3. Show success toast and close only after successful DB insert
+      // 3. Log complaint details
+      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${inserted.userName} (ID: ${inserted.userId}) на профиль ${inserted.targetName} (ID: ${inserted.targetId}) по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
+      setModeratorHistory(prev => [...prev, {
+        id: `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+        type: 'moderation',
+        action: 'Жалоба на профиль',
+        message: logMessage,
+        targetId: inserted.targetId,
+        targetName: inserted.targetName,
+        operatorId: currentUser.id,
+        operatorName: currentUser.name || 'Anonymous',
+        timestamp: new Date()
+      }]);
+
+      // 4. Show success toast and close only after successful DB insert
       addNotification('Жалоба отправлена', `Жалоба на аккаунт ${reportingProfile.name} успешно передана модераторам профилей`);
       setReportingProfile(null);
     } catch (err: any) {
@@ -555,17 +564,37 @@ export default function App() {
       status: "pending",
       content: reportingPost.text || 'Жалоба на контент в посте',
       rating: 'Умеренный риск',
-      image: reportingPost.image
+      image: reportingPost.image,
+      created_at: new Date().toISOString()
     };
 
     try {
       // 1. Insert to DB and select back
       const inserted = await reportRepository.insert(complaint);
 
-      // 2. Add to local state
-      _setComplaintsOriginal(prev => [inserted, ...prev]);
+      // 2. Fetch all from DB and update state (Source of truth is DB only)
+      const allComplaints = await reportRepository.getAll();
+      if (allComplaints) {
+        _setComplaintsOriginal(allComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+        _setSpamComplaintsOriginal(allComplaints.filter(c => c.dept === 'Spam'));
+        _setPageComplaintsOriginal(allComplaints.filter(c => c.dept === 'Модерация страниц'));
+      }
 
-      // 3. Show success and close
+      // 3. Log complaint details
+      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${inserted.userName} (ID: ${inserted.userId}) на пост (ID: ${inserted.targetId}) автора ${inserted.targetName} по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
+      setModeratorHistory(prev => [...prev, {
+        id: `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+        type: 'moderation',
+        action: 'Жалоба на публикацию',
+        message: logMessage,
+        targetId: inserted.targetId,
+        targetName: inserted.targetName,
+        operatorId: currentUser.id,
+        operatorName: currentUser.name || 'Anonymous',
+        timestamp: new Date()
+      }]);
+
+      // 4. Show success and close
       addNotification('Жалоба отправлена', 'Ваша жалоба на публикацию передана в отдел Модерации');
       setReportingPost(null);
     } catch (err: any) {
@@ -1437,12 +1466,22 @@ export default function App() {
     prevAuthUserRef.current = authUser;
     setCurrentUser(authUser);
     setIsRegistered(!!authUser);
+    if (authUser) {
+      setUsers(prev => {
+        if (!prev.some(u => u.id === authUser.id)) return prev;
+        return prev.map(u => u.id === authUser.id ? { ...u, isBlocked: authUser.isBlocked } : u);
+      });
+    }
   }
 
   useEffect(() => {
     if (authUser) {
       setCurrentUser(authUser);
       setIsRegistered(true);
+      setUsers(prev => {
+        if (!prev.some(u => u.id === authUser.id)) return prev;
+        return prev.map(u => u.id === authUser.id ? { ...u, isBlocked: authUser.isBlocked } : u);
+      });
     } else {
       if (!authLoading) {
         setCurrentUser(null);
@@ -2711,13 +2750,7 @@ export default function App() {
     { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика', adminOnly: true },
     { id: 'announcements', icon: Icon16WorkOutline, label: 'Объявления', count: announcements.filter(a => a.isPinned).length, adminOnly: true },
     { id: 'wiki', icon: Icon16WorkOutline, label: 'База знаний', adminOnly: true },
-    { id: 'security', icon: Icon16WorkOutline, label: 'Безопасность', adminOnly: true },
-    { id: 'action-logs', icon: Icon16WorkOutline, label: 'Логи действий', adminOnly: true },
-    { id: 'monitoring', icon: Icon16WorkOutline, label: 'Мониторинг', adminOnly: true },
-    { id: 'translations', icon: Icon16WorkOutline, label: 'Переводы', adminOnly: true },
-    { id: 'quality-control', icon: Icon16WorkOutline, label: 'Отдел качества', adminOnly: true },
     { id: 'personnel', icon: Icon16WorkOutline, label: 'Сотрудники', count: staffCount, adminOnly: true },
-    { id: 'tasks', icon: Icon16WorkOutline, label: 'Задачи', adminOnly: true },
     { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
   ];
 
@@ -2763,7 +2796,7 @@ export default function App() {
           baseItems.push({
             id: `support-category-${cat.name}`,
             icon: LifeBuoy,
-            label: cat.name,
+            label: `Подразделение ${cat.name}`,
             isCategoryTab: true,
             onClick: () => {
               setSupportCategoryFilter(cat.name);
@@ -3915,100 +3948,140 @@ export default function App() {
     addNotification('Ответ отправлен', 'Тикет успешно закрыт');
   };
 
-  const handleVerificationAction = (id: string, action: 'approve' | 'deny' | 'deny-reason' | 'temp' | 'confirm-temp' | 'confirm-deny', extra?: string) => {
+  const handleVerificationAction = async (id: string, action: 'approve' | 'deny' | 'deny-reason' | 'temp' | 'confirm-temp' | 'confirm-deny', extra?: string) => {
     const req = verificationRequests.find(v => v.id === id);
     if (!req && !['confirm-temp', 'confirm-deny'].includes(action)) return;
 
-    const targetUser = users.find(u => u.id === req?.senderId || u.login === req?.senderLogin);
+    const reqId = ['confirm-temp', 'confirm-deny'].includes(action) ? activeVerificationId : id;
+    const currentReq = req || verificationRequests.find(v => v.id === reqId);
+    if (!currentReq) return;
 
-    if (action === 'approve') {
-      if (targetUser) {
-        setUsers(prev => prev.map(u => u.id === targetUser.id || u.login === targetUser.login ? { ...u, isVerified: true } : u));
-        
-        if (selectedUserData && (selectedUserData.id === targetUser.id || selectedUserData.login === targetUser.login)) {
-          setSelectedUserData({ ...selectedUserData, isVerified: true });
-        }
-        
-        if (currentUser && (currentUser.id === targetUser.id || currentUser.login === targetUser.login)) {
-          setCurrentUser(prev => prev ? { ...prev, isVerified: true } : null);
+    const targetUser = users.find(u => u.id === currentReq.senderId || u.login === currentReq.senderLogin);
+    const userId = targetUser?.id || currentReq.senderId;
+    const userName = targetUser?.name || currentReq.userName;
+
+    try {
+      if (action === 'approve') {
+        if (targetUser) {
+          // 1. Real database update
+          await userRepository.setRole(targetUser.id, 'verified_user');
+          
+          // 2. Instant local state updates
+          setUsers(prev => prev.map(u => u.id === targetUser.id || u.login === targetUser.login ? { ...u, isVerified: true, role: 'verified_user' } : u));
+          
+          if (selectedUserData && (selectedUserData.id === targetUser.id || selectedUserData.login === targetUser.login)) {
+            setSelectedUserData(prev => prev ? { ...prev, isVerified: true, role: 'verified_user' } : null);
+          }
+          
+          if (currentUser && (currentUser.id === targetUser.id || currentUser.login === targetUser.login)) {
+            setCurrentUser(prev => prev ? { ...prev, isVerified: true, role: 'verified_user' } : null);
+          }
         }
 
+        // 3. Log action to operator logs
         addModeratorLog({
           type: 'verification',
           action: 'Выдача галочки',
-          message: 'Заявка на верификацию одобрена (навсегда)',
-          targetId: targetUser.id,
-          targetName: targetUser.name
+          message: `Заявка на верификацию одобрена (навсегда) для пользователя ${userName} (ID: ${userId})`,
+          targetId: userId,
+          targetName: userName
         });
-        setVerificationRequests(prev => prev.filter(v => v.id !== id));
-        addNotification('Верификация', `Заявка ${req?.userName} одобрена (навсегда)`);
-      }
-    } else if (action === 'deny') {
-      if (targetUser) {
-        pushPlatformNotifications(buildVerificationDeniedNotification(targetUser.id));
+
+        // 4. Update queue state
+        setVerificationRequests(prev => prev.filter(v => v.id !== currentReq.id));
+        setProcessedCount(prev => prev + 1);
+        addNotification('Верификация', `Заявка ${userName} одобрена (навсегда)`);
+
+      } else if (action === 'deny') {
+        if (targetUser) {
+          pushPlatformNotifications(buildVerificationDeniedNotification(targetUser.id));
+        }
+
         addModeratorLog({
           type: 'verification',
           action: 'Отказ',
-          message: 'Заявка на верификацию отклонена без причины',
-          targetId: targetUser.id,
-          targetName: targetUser.name
+          message: `Заявка на верификацию отклонена без указания причины для пользователя ${userName} (ID: ${userId})`,
+          targetId: userId,
+          targetName: userName
         });
-      }
-      setVerificationRequests(prev => prev.filter(v => v.id !== id));
-      addNotification('Верификация', `Заявка ${req?.userName} отклонена`);
-    } else if (action === 'deny-reason') {
-      setActiveVerificationId(id);
-      setVerificationModalType('deny-reason');
-      setIsVerificationModalOpen(true);
-    } else if (action === 'temp') {
-      setActiveVerificationId(id);
-      setVerificationModalType('temp');
-      setIsVerificationModalOpen(true);
-    } else if (action === 'confirm-temp' || action === 'confirm-deny') {
-      const activeReq = verificationRequests.find(v => v.id === activeVerificationId);
-      const activeUser = users.find(u => u.id === activeReq?.senderId || u.login === activeReq?.senderLogin);
 
-      if (action === 'confirm-temp' && activeUser) {
-        setUsers(prev => prev.map(u => u.id === activeUser.id || u.login === activeUser.login ? { ...u, isVerified: true } : u));
-        
-        if (selectedUserData && (selectedUserData.id === activeUser.id || selectedUserData.login === activeUser.login)) {
-           setSelectedUserData({ ...selectedUserData, isVerified: true });
-        }
+        setVerificationRequests(prev => prev.filter(v => v.id !== currentReq.id));
+        setProcessedCount(prev => prev + 1);
+        addNotification('Верификация', `Заявка ${userName} отклонена`);
 
-        if (currentUser && (currentUser.id === activeUser.id || currentUser.login === activeUser.login)) {
-          setCurrentUser(prev => prev ? { ...prev, isVerified: true } : null);
+      } else if (action === 'deny-reason') {
+        setActiveVerificationId(id);
+        setVerificationModalType('deny-reason');
+        setIsVerificationModalOpen(true);
+
+      } else if (action === 'temp') {
+        setActiveVerificationId(id);
+        setVerificationModalType('temp');
+        setIsVerificationModalOpen(true);
+
+      } else if (action === 'confirm-temp') {
+        if (targetUser) {
+          // 1. Real database update
+          await userRepository.setRole(targetUser.id, 'verified_user');
+
+          // 2. Local state updates
+          setUsers(prev => prev.map(u => u.id === targetUser.id || u.login === targetUser.login ? { ...u, isVerified: true, role: 'verified_user' } : u));
+          
+          if (selectedUserData && (selectedUserData.id === targetUser.id || selectedUserData.login === targetUser.login)) {
+            setSelectedUserData(prev => prev ? { ...prev, isVerified: true, role: 'verified_user' } : null);
+          }
+
+          if (currentUser && (currentUser.id === targetUser.id || currentUser.login === targetUser.login)) {
+            setCurrentUser(prev => prev ? { ...prev, isVerified: true, role: 'verified_user' } : null);
+          }
+
+          pushPlatformNotifications(buildVerificationTempNotification(targetUser.id, extra || ''));
         }
 
         addModeratorLog({
           type: 'verification',
           action: 'Временная галочка',
-          message: `Выдана временная галочка (${extra})`,
-          targetId: activeUser.id,
-          targetName: activeUser.name
+          message: `Выдана временная галочка (${extra}) для пользователя ${userName} (ID: ${userId})`,
+          targetId: userId,
+          targetName: userName
         });
+
         const logEntry = {
           id: `log-v-temp-${Date.now()}`,
-          action: `Верификация выдана временно (${extra}) оператором ${operatorName} #${operatorId}`,
+          action: `Верификация выдана временно (${extra}) оператором ${operatorName} #${operatorId} для ${userName}`,
           timestamp: new Date()
         };
         setProfileModerationLogs(prev => [logEntry, ...prev]);
+
+        setVerificationRequests(prev => prev.filter(v => v.id !== currentReq.id));
+        setProcessedCount(prev => prev + 1);
+        setIsVerificationModalOpen(false);
         addNotification('Верификация', `Выдана временная галочка (${extra})`);
-        pushPlatformNotifications(buildVerificationTempNotification(activeUser.id, extra || ''));
-      } else if (action === 'confirm-deny' && activeUser) {
-        pushPlatformNotifications({
-          ...buildVerificationDeniedNotification(activeUser.id),
-          message: `Ваша заявка отклонена. Причина: ${extra}`,
-        });
+
+      } else if (action === 'confirm-deny') {
+        if (targetUser) {
+          pushPlatformNotifications({
+            ...buildVerificationDeniedNotification(targetUser.id),
+            message: `Ваша заявка отклонена. Причина: ${extra}`,
+          });
+        }
+
         addModeratorLog({
           type: 'verification',
           action: 'Отказ',
-          message: `Заявка на верификацию отклонена. Причина: ${extra}`,
-          targetId: activeUser.id,
-          targetName: activeUser.name
+          message: `Заявка на верификацию отклонена для пользователя ${userName} (ID: ${userId}). Причина: ${extra}`,
+          targetId: userId,
+          targetName: userName
         });
+
+        setVerificationRequests(prev => prev.filter(v => v.id !== currentReq.id));
+        setProcessedCount(prev => prev + 1);
+        setIsVerificationModalOpen(false);
+        addNotification('Верификация', `Заявка ${userName} отклонена с причиной: ${extra}`);
       }
-      setVerificationRequests(prev => prev.filter(v => v.id !== activeVerificationId));
-      setIsVerificationModalOpen(false);
+    } catch (err: any) {
+      console.error('[VerificationAction] Error:', err);
+      addNotification('Ошибка', `Не удалось выполнить действие верификации: ${err.message || 'ошибка базы данных'}`);
     }
   };
 
@@ -9443,16 +9516,6 @@ export default function App() {
     );
   };
 
-  const renderSecurity = () => {
-    return (
-      <Security 
-        operatorName={operatorName} 
-        addNotification={addNotification} 
-        addModeratorLog={addModeratorLog} 
-      />
-    );
-  };
-
   const old_renderSecurity = () => {
     const filteredLogs = securityLogs.filter(l => 
       l.user.toLowerCase().includes(securitySearchQuery.toLowerCase()) || 
@@ -9742,14 +9805,7 @@ export default function App() {
     );
   };
 
-  const renderActionLogs = () => {
-    return (
-      <ActionLogs 
-        moderatorHistory={moderatorHistory} 
-        undoAction={undoAction} 
-      />
-    );
-  };
+  const renderActionLogs = () => null;
 
   const old_renderActionLogs = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
@@ -9815,35 +9871,9 @@ export default function App() {
     </motion.div>
   );
 
-  const renderMonitoring = () => {
-    return (
-      <Monitoring 
-        monitoringStats={monitoringStats}
-        isShiftActive={isShiftActive}
-        setIsShiftActive={setIsShiftActive}
-        currentUser={currentUser}
-        staffShifts={staffShifts}
-        setStaffShifts={setStaffShifts}
-        addNotification={addNotification}
-        logModeratorAction={logModeratorAction}
-        isSimulating={isSimulating}
-        setIsSimulating={setIsSimulating}
-        simulationCounter={simulationCounter}
-        simulationSpeed={simulationSpeed}
-        setSimulationSpeed={setSimulationSpeed}
-      />
-    );
-  };
+  const renderMonitoring = () => null;
 
-  const renderTranslations = () => {
-    return (
-      <Translations
-        translations={translations}
-        setTranslations={setTranslations}
-        addNotification={addNotification}
-      />
-    );
-  };
+  const renderTranslations = () => null;
 
   const old_renderMonitoring = () => {
     const chartData = [
@@ -13972,12 +14002,6 @@ export default function App() {
     );
   };
 
-  const renderTasks = () => {
-    return (
-      <Tasks addNotification={addNotification} />
-    );
-  };
-
   const renderPersonnel = () => {
     const staffMembers = users.filter(u => u.roles && Object.values(u.roles).some(r => r === true));
     return (
@@ -15877,8 +15901,6 @@ export default function App() {
           );
       case 'verification':
         return renderVerification();
-      case 'tasks':
-        return renderTasks();
       case 'internal-mail':
         return renderInternalMail();
 
@@ -16761,16 +16783,6 @@ export default function App() {
         return renderAnnouncements();
       case 'wiki':
         return renderWiki();
-      case 'security':
-        return renderSecurity();
-      case 'action-logs':
-        return renderActionLogs();
-      case 'monitoring':
-        return renderMonitoring();
-      case 'translations':
-        return renderTranslations();
-      case 'quality-control':
-        return renderQualityControl();
       case 'personnel':
         return renderPersonnel();
       case 'page_moderation':
@@ -16956,19 +16968,21 @@ export default function App() {
                             <span>Получить доступ</span>
                           </button>
                         )
-                      ) : isViewingServiceProfile && shouldShowServiceMessageButton(currentDisplayUser) ? (
-                        <button 
-                          onClick={() => {
-                            if (currentDisplayUser) {
-                              setActiveChatPartnerId(currentDisplayUser.id);
-                              setActiveTab('internal-mail');
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-[#4F7DF3] hover:bg-[#3465DF] text-white border border-transparent rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <MessageSquare size={13} />
-                          <span>Написать сообщение</span>
-                        </button>
+                      ) : isViewingServiceProfile ? (
+                        shouldShowServiceMessageButton(currentDisplayUser) ? (
+                          <button 
+                            onClick={() => {
+                              if (currentDisplayUser) {
+                                setActiveChatPartnerId(currentDisplayUser.id);
+                                setActiveTab('internal-mail');
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-[#4F7DF3] hover:bg-[#3465DF] text-white border border-transparent rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare size={13} />
+                            <span>Написать сообщение</span>
+                          </button>
+                        ) : null
                       ) : (
                         <>
                           <button 
@@ -17028,9 +17042,19 @@ export default function App() {
                     <span>Пользователь заблокирован за нарушение правил платформы.</span>
                   </div>
                 ) : isViewingServiceProfile ? (
-                  <p className="text-[13px] text-[#6B7280] leading-relaxed">
-                    {SERVICE_PROFILE_DISCLAIMER}
-                  </p>
+                  <div className="bg-[#4F7DF3]/4 border border-[#4F7DF3]/15 rounded-2xl p-6 text-left select-none max-w-2xl font-sans mt-2">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-[#4F7DF3]/10 flex items-center justify-center shrink-0 text-[#4F7DF3]">
+                        <ShieldAlert size={20} className="stroke-[2.25px]" />
+                      </div>
+                      <div>
+                        <h4 className="text-[13.5px] font-bold text-zinc-900 tracking-tight">Служебный профиль платформы</h4>
+                        <p className="text-[12px] text-zinc-500 leading-relaxed mt-1 font-medium">
+                          Данный аккаунт является автоматизированным сервисным профилем и используется исключительно для обеспечения корректной работы технических служб, модерации контента и поддержки пользователей. Он не принадлежит физическому лицу и не ведёт личную переписку или публикации, отличные от регламентированных системных уведомлений.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <AboutUserBlock
                     profileDescription={profileDescription}

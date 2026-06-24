@@ -213,10 +213,21 @@ CREATE POLICY "Enable read for alerts" ON alerts
   USING (true);
 
 DROP POLICY IF EXISTS "Enable write for alerts staff" ON alerts;
-CREATE POLICY "Enable write for alerts staff" ON alerts
-  FOR ALL TO authenticated
-  USING (true)
-  WITH CHECK (true);
+DROP POLICY IF EXISTS "Enable insert for alerts" ON alerts;
+CREATE POLICY "Enable insert for alerts" ON alerts
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Enable update for alerts" ON alerts;
+CREATE POLICY "Enable update for alerts" ON alerts
+  FOR UPDATE TO authenticated
+  USING (auth.uid() IS NOT NULL)
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Enable delete for alerts" ON alerts;
+CREATE POLICY "Enable delete for alerts" ON alerts
+  FOR DELETE TO authenticated
+  USING (auth.uid() IS NOT NULL);
 
 -- 9. Table notifications
 CREATE TABLE IF NOT EXISTS notifications (

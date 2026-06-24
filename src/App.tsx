@@ -2285,6 +2285,21 @@ export default function App() {
   // --- React Router integration and Tab State derivation ---
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Handle automatic routing redirects based on authentication status and path
+  useEffect(() => {
+    if (bootCompleted && !authLoading) {
+      if (isRegistered && currentUser) {
+        if (location.pathname === '/' || location.pathname === '') {
+          navigate('/profile', { replace: true });
+        }
+      } else {
+        if (location.pathname !== '/' && location.pathname !== '') {
+          navigate('/', { replace: true });
+        }
+      }
+    }
+  }, [bootCompleted, authLoading, isRegistered, currentUser, location.pathname, navigate]);
   // Directly parse userId and postId from the pathname to avoid empty useParams() outside Routes
   const matchUserPath = location.pathname.match(/^\/(?:u|user)\/([^/]+)/);
   const userId = matchUserPath ? matchUserPath[1] : undefined;
@@ -2356,16 +2371,17 @@ export default function App() {
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
-    if (path === '/' || path === '' || path === '/profile' || path === '/messages' || path === '/user') return true;
-    if (path === '/feed') return true;
-    if (path.startsWith('/u/')) return true;
-    if (path.startsWith('/user/')) return true;
-    if (path.startsWith('/post/')) return true;
-    if (path === '/settings') return true;
-    if (path === '/admin') return true;
-    if (path.startsWith('/admin/')) return true;
+    const cleanPath = path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
+    if (cleanPath === '/' || cleanPath === '' || cleanPath === '/profile' || cleanPath === '/messages' || cleanPath === '/user') return true;
+    if (cleanPath === '/feed') return true;
+    if (cleanPath.startsWith('/u/')) return true;
+    if (cleanPath.startsWith('/user/')) return true;
+    if (cleanPath.startsWith('/post/')) return true;
+    if (cleanPath === '/settings') return true;
+    if (cleanPath === '/admin') return true;
+    if (cleanPath.startsWith('/admin/')) return true;
     
-    const tabName = path.substring(1);
+    const tabName = cleanPath.substring(1);
     if ([
       'discussed-now', 'notifications', 'academy', 'appeals', 'requests', 'users', 
       'management', 'statistics', 'announcements', 'wiki', 'security', 'action-logs', 
@@ -17205,7 +17221,9 @@ export default function App() {
     return mainTabContent;
   };
 
-  if (authLoading || !bootCompleted) {
+  const isStateOutOfSync = (bootCompleted && !authLoading) && (isRegistered !== !!authUser || currentUser?.id !== authUser?.id);
+
+  if (authLoading || !bootCompleted || isStateOutOfSync) {
     return (
       <div className="min-h-screen bg-[#f0f2f5] flex flex-col items-center justify-center font-sans select-none">
         <div className="flex flex-col items-center gap-4">

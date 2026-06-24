@@ -252,6 +252,67 @@ export class PostRepositoryProvider {
     }
   }
 
+  async getById(postId: string): Promise<FeedPost | null> {
+    if (!isSupabaseConfigured) return null;
+    try {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('id', postId)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[PostRepository] Error loading post by id:', error);
+        return null;
+      }
+      if (!data) return null;
+
+      const post = this.mapDbToPost(data);
+
+      // Fetch reactions for this specific post
+      let reactions: any[] = [];
+      try {
+        const { data: rxData } = await supabase
+          .from('reactions')
+          .select('*')
+          .eq('post_id', postId);
+        if (rxData) {
+          reactions = rxData;
+        }
+      } catch (e) {
+        console.error('[PostRepository] Error fetching reactions for post:', e);
+      }
+
+      let currentUserId = '';
+      try {
+        const { data: sessionData } = await supabase.auth.getUser();
+        currentUserId = sessionData?.user?.id || '';
+      } catch (authErr) {}
+
+      const likesCount = reactions.filter((r: any) => r.type === 'like').length;
+      const downvotesCount = reactions.filter((r: any) => r.type === 'downvote').length;
+      const attentionUsers = reactions.filter((r: any) => r.type === 'attention').map((r: any) => r.user_id);
+
+      post.likes = likesCount - downvotesCount;
+      (post as any).dislikes = downvotesCount;
+      post.boostedUsers = Array.from(new Set([...(post.boostedUsers || []), ...attentionUsers]));
+
+      if (currentUserId) {
+        post.isLiked = reactions.some((r: any) => r.user_id === currentUserId && r.type === 'like');
+        post.isDownvoted = reactions.some((r: any) => r.user_id === currentUserId && r.type === 'downvote');
+      } else {
+        post.isLiked = false;
+        post.isDownvoted = false;
+      }
+
+      return post;
+    } catch (e) {
+      console.error('[PostRepository] getById failed:', e);
+      return null;
+    }
+  }
+
   async insert(post: FeedPost): Promise<FeedPost> {
     if (!isSupabaseConfigured) return post;
     try {

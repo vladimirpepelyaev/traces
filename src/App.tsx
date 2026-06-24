@@ -2376,7 +2376,6 @@ export default function App() {
     setTickets([]);
     setVerificationRequests([]);
     setSubmittedRequests([]);
-    setAppeals([]);
   }, []);
 
   // Setup Realtime Service subscriptions for Posts and Alerts
@@ -2457,7 +2456,19 @@ export default function App() {
   
   const [blockReason, setBlockReason] = useState('Оскорбление');
   const [blockDuration, setBlockDuration] = useState('1 час');
-  const [appeals, setAppeals] = useState<any[]>([]);
+  const [appeals, setAppeals] = useState<any[]>(() => {
+    const saved = localStorage.getItem('user_appeals');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('user_appeals', JSON.stringify(appeals));
+  }, [appeals]);
   
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [verificationModalType, setVerificationModalType] = useState<'deny-reason' | 'temp'>('temp');
@@ -2703,6 +2714,74 @@ export default function App() {
   // Profile Moderation State
   const [isProfileBlocked, setIsProfileBlocked] = useState(false);
   const [profileBlockInfo, setProfileBlockInfo] = useState<any>({ duration: '', reason: '', comment: '', isWithUnban: false });
+  
+  const [blockedPost, setBlockedPost] = useState<FeedPost | null>(null);
+  const [blockedPostLoading, setBlockedPostLoading] = useState(false);
+  const [blockedPostDeleted, setBlockedPostDeleted] = useState(false);
+
+  useEffect(() => {
+    const loadBlockedPost = async () => {
+      if (!currentUser?.id) return;
+      if (!(currentUser?.isBlocked || isProfileBlocked)) {
+        setBlockedPost(null);
+        setBlockedPostDeleted(false);
+        return;
+      }
+
+      setBlockedPostLoading(true);
+      setBlockedPostDeleted(false);
+      setBlockedPost(null);
+
+      try {
+        let postId = null;
+
+        // 1. Try profiles.blocked_post_id
+        if (isSupabaseConfigured) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('blocked_post_id')
+            .eq('id', currentUser.id)
+            .maybeSingle();
+
+          if (profile) {
+            postId = profile.blocked_post_id;
+          }
+        }
+
+        // 2. Try complaints.target_id
+        if (!postId && isSupabaseConfigured) {
+          const { data: complaintsData } = await supabase
+            .from('complaints')
+            .select('target_id')
+            .eq('user_id', currentUser.id)
+            .eq('resolution', 'blocked')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (complaintsData && complaintsData.length > 0) {
+            postId = complaintsData[0].target_id;
+          }
+        }
+
+        // 3. Load the post
+        if (postId) {
+          const post = await postRepository.getById(postId);
+          if (post) {
+            setBlockedPost(post);
+          } else {
+            setBlockedPostDeleted(true);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading blocked post:', err);
+      } finally {
+        setBlockedPostLoading(false);
+      }
+    };
+
+    loadBlockedPost();
+  }, [currentUser?.id, currentUser?.isBlocked, isProfileBlocked]);
+
   const [selectedViolations, setSelectedViolations] = useState<{ [key: string]: boolean }>({});
   const [isProfileVerified, setIsProfileVerified] = useState(false);
   const [isProfileBlockModalOpen, setIsProfileBlockModalOpen] = useState(false);
@@ -12031,85 +12110,85 @@ export default function App() {
       return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    let usedToday = 0;
-
     try {
       if (isSupabaseConfigured) {
-        // 1. Get current limit usage for today
-        const { data: limitData, error: selectErr } = await supabase
-          .from('user_attention_limits')
-          .select('*')
+        // 1. Check if reaction of type 'attention' already exists for this post by this user
+        const { data: existingRx, error: checkRxErr } = await supabase
+          .from('reactions')
+          .select('id')
           .eq('user_id', currentUser.id)
-          .eq('date', today)
+          .eq('post_id', postId)
+          .eq('type', 'attention')
           .maybeSingle();
 
-        if (selectErr) {
-          console.error('[Attention] Error reading user_attention_limits:', selectErr);
+        if (checkRxErr) {
+          console.error('[Attention] Error checking reaction:', checkRxErr);
         }
 
-        usedToday = limitData ? (limitData.count || 0) : 0;
+        if (existingRx) {
+          addNotification('Уже отправлено', 'Вы уже отправляли сигнал «Заслуживает внимания» для этой публикации.');
+          return;
+        }
 
+        // 2. Check daily limits: not more than 3 attention reactions in the last 24h / calendar day
+        const startOfToday = new Date();
+        startOfToday.setHours(0,0,0,0);
+        const isoStart = startOfToday.toISOString();
+
+        const { data: todayAttentions, error: countErr } = await supabase
+          .from('reactions')
+          .select('id, created_at')
+          .eq('user_id', currentUser.id)
+          .eq('type', 'attention')
+          .gte('created_at', isoStart);
+
+        if (countErr) {
+          console.error('[Attention] Error counting today\'s reactions:', countErr);
+        }
+
+        const usedToday = todayAttentions ? todayAttentions.length : 0;
         if (usedToday >= 3) {
           addNotification('Лимит исчерпан', 'Вы можете отправлять сигнал не более 3 раз в день.');
           return;
         }
 
-        // Check if user already boosted this specific post to avoid duplicates
-        const targetPost = feedPosts.find(p => p.id === postId);
-        if (!targetPost) return;
-        
-        const currentAttention = targetPost.attentionScore || 0;
-        const newScore = currentAttention + 20;
-
-        // 2. Increment post attention_score
-        const { error: postUpdateErr } = await supabase
-          .from('posts')
-          .update({ attention_score: newScore })
-          .eq('id', postId);
-
-        if (postUpdateErr) {
-          console.error('[Attention] Error updating post attention_score:', postUpdateErr);
-        }
-
-        // 3. Upsert user limit count
-        const { error: limitUpsertErr } = await supabase
-          .from('user_attention_limits')
-          .upsert({
-            user_id: currentUser.id,
-            date: today,
-            count: usedToday + 1
-          }, { onConflict: 'user_id,date' });
-
-        if (limitUpsertErr) {
-          console.error('[Attention] Error upserting user_attention_limits:', limitUpsertErr);
-        }
-
-        // 4. Save event in attention_events
-        const { error: eventInsertErr } = await supabase
-          .from('attention_events')
-          .insert({
-            user_id: currentUser.id,
-            post_id: postId,
-            weight: 20
-          });
-
-        if (eventInsertErr) {
-          console.error('[Attention] Error inserting attention_events:', eventInsertErr);
-        }
-
-        // 5. Save event in reactions
-        const { error: reactionInsertErr } = await supabase
+        // 3. Upsert the reaction to avoid duplicates completely
+        const reactionId = `${currentUser.id}-${postId}-attention`;
+        const { error: rxInsertErr } = await supabase
           .from('reactions')
-          .insert({
-            id: `${currentUser.id}-${postId}-attention-${Date.now()}`,
-            post_id: postId,
+          .upsert({
+            id: reactionId,
             user_id: currentUser.id,
+            post_id: postId,
             type: 'attention'
+          }, {
+            onConflict: 'user_id,post_id,type'
           });
 
-        if (reactionInsertErr) {
-          console.error('[Attention] Error inserting reaction:', reactionInsertErr);
+        if (rxInsertErr) {
+          console.error('[Attention] Error upserting reaction:', rxInsertErr);
+          addNotification('Ошибка', 'Не удалось сохранить реакцию.');
+          return;
+        }
+
+        // 4. Update the post's attention_score and boosted_users
+        const targetPost = feedPosts.find(p => p.id === postId);
+        if (targetPost) {
+          const currentAttention = targetPost.attentionScore || 0;
+          const newAttentionScore = currentAttention + 20;
+          const newBoostedUsers = Array.from(new Set([...(targetPost.boostedUsers || []), currentUser.id]));
+
+          const { error: postUpdateErr } = await supabase
+             .from('posts')
+             .update({
+               attention_score: newAttentionScore,
+               boosted_users: newBoostedUsers
+             })
+             .eq('id', postId);
+
+          if (postUpdateErr) {
+            console.error('[Attention] Error patching post:', postUpdateErr);
+          }
         }
 
       } else {
@@ -12129,13 +12208,13 @@ export default function App() {
         return {
           ...p,
           attentionScore: currentAttention + 20,
-          boostedUsers: [...(p.boostedUsers || []), currentUser.id || currentUser.name]
+          boostedUsers: Array.from(new Set([...(p.boostedUsers || []), currentUser.id || currentUser.name]))
         };
       }));
 
       addNotification('Сигнал принят! 🔥', 'Добавлено +20 к уровню внимания публикации.');
 
-      // 6. Force reload the feed from Database to refresh state
+      // Force reload the feed from Database to refresh state
       lastFeedLoadTimeRef.current = 0;
       await loadFeed();
 
@@ -12341,41 +12420,197 @@ export default function App() {
   };
 
   const renderBlocked = () => {
+    const blockInfo = currentUser?.profileBlockInfo;
+    const reason = blockInfo?.reason || currentUser?.blockReason || 'Нарушение правил сообщества';
+    const duration = blockInfo?.duration || 'Навсегда';
+    const comment = blockInfo?.comment || currentUser?.moderatorComment || '';
+
+    const block_comment = comment;
+    let commentTitle = "";
+    let commentBody = "";
+
+    if (block_comment?.trim()) {
+      commentTitle = "Комментарий модератора";
+      commentBody = block_comment;
+    } else {
+      commentTitle = "";
+      commentBody = "Ваш аккаунт был заблокирован за нарушение правил платформы. Пожалуйста, соблюдайте правила общения.";
+    }
+
+    // Check if there's already a pending appeal from this user
+    const hasPendingAppeal = appeals.some(a => a.userId === currentUser?.id && a.status === 'pending');
+
+    const handleSendAppeal = (text: string) => {
+      if (!text.trim()) return;
+      const newAppeal = {
+        id: `appeal-${Date.now()}`,
+        userId: currentUser?.id || 'unknown',
+        userName: currentUser?.name || 'Пользователь',
+        userAvatar: currentUser?.avatar || '',
+        text,
+        reason,
+        duration,
+        blockedBy: blockInfo?.blockedBy || 'Модератор системы',
+        date: 'Только что',
+        status: 'pending'
+      };
+      setAppeals(prev => {
+        const updated = [newAppeal, ...prev];
+        localStorage.setItem('user_appeals', JSON.stringify(updated));
+        return updated;
+      });
+      addNotification('Апелляция отправлена', 'Ваша апелляция успешно отправлена и будет рассмотрена модераторами.');
+    };
+
     return (
       <motion.div 
-        initial={{ opacity: 0 }} 
-        animate={{ opacity: 1 }} 
-        className="bg-white p-6 md:p-8 rounded-[2px] border border-[#dae1e8] text-center space-y-4 max-w-[560px] mx-auto mt-10 shadow-none"
+        initial={{ opacity: 0, y: 10 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="bg-white p-6 md:p-8 rounded-2xl border border-zinc-200/60 text-center space-y-6 max-w-[480px] w-full mx-auto shadow-sm font-sans flex flex-col items-center"
       >
-        <h1 className="text-[20px] font-bold text-red-600 mt-4 mb-2 text-center tracking-normal font-sans border-b border-[#dae1e8] pb-3">
-          Аккаунт ограничен
-        </h1>
-        <p className="text-[14px] text-zinc-700 leading-relaxed font-sans text-center">
-          Доступ временно ограничен. Если считаете решение ошибочным — обратитесь в поддержку.
-        </p>
-        <div className="flex justify-center gap-4 pt-4">
-          <button
-            onClick={async () => {
-              await authCtxSignOut();
-              setIsRegistered(false);
-              setCurrentUser(null);
-              setIsAdminMode(false);
-              setIsUserMenuOpen(false);
-              navigate('/');
-            }}
-            className="px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-[4px] text-[13px] font-bold transition-colors cursor-pointer border border-zinc-200"
-          >
-            Выйти
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('support');
-            }}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-[4px] text-[13px] font-bold transition-colors cursor-pointer"
-          >
-            Написать в поддержку
-          </button>
+        {/* Avatar */}
+        <div className="w-20 h-20 rounded-full overflow-hidden border border-zinc-200 shadow-xs shrink-0">
+          {currentUser?.avatar ? (
+            <UserAvatar user={currentUser} avatarUrl={currentUser.avatar} className="w-full h-full" />
+          ) : (
+            <div className="w-full h-full bg-zinc-100 flex items-center justify-center text-zinc-400 text-2xl">👤</div>
+          )}
         </div>
+
+        {/* Title */}
+        <div className="space-y-1">
+          <h1 className="text-[19px] font-bold text-zinc-900 tracking-tight leading-tight">
+            Профиль временно недоступен
+          </h1>
+          <p className="text-[13px] text-zinc-500 leading-normal max-w-[340px] mx-auto">
+            Ваша страница была заблокирована модерацией за нарушение правил сервиса.
+          </p>
+        </div>
+
+        <hr className="w-full border-zinc-150/85 my-1" />
+
+        {/* Reason block */}
+        <div className="w-full text-left space-y-1.5">
+          <div className="text-[11.5px] font-semibold text-zinc-400 uppercase tracking-wider">Причина</div>
+          <div className="text-[13.5px] text-zinc-800 font-medium bg-zinc-50/50 p-3 rounded-lg border border-zinc-200/40">
+            {reason}
+          </div>
+        </div>
+
+        {/* Moderation Comment block */}
+        <div className="w-full text-left space-y-1.5">
+          <div className="text-[11.5px] font-semibold text-zinc-400 uppercase tracking-wider">
+            {commentTitle || "Комментарий модерации"}
+          </div>
+          <div className="text-[13.5px] text-zinc-650 leading-relaxed bg-zinc-50/50 p-3 rounded-lg border border-zinc-200/40 italic">
+            « {commentBody} »
+          </div>
+        </div>
+
+        {/* Associated Post block */}
+        {(blockedPost || blockedPostLoading || blockedPostDeleted) && (
+          <>
+            <hr className="w-full border-zinc-150/85 my-1" />
+            <div className="w-full text-left space-y-2.5">
+              <div className="text-[11.5px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Публикация, связанная с блокировкой
+              </div>
+              {blockedPostLoading ? (
+                <div className="text-center py-4 text-zinc-400 text-xs">Загрузка публикации...</div>
+              ) : blockedPostDeleted ? (
+                <div className="p-3 bg-zinc-50 text-center rounded-lg border border-zinc-200/60 text-zinc-500 text-[13px]">
+                  Эта публикация больше недоступна
+                </div>
+              ) : blockedPost ? (
+                <div className="bg-zinc-50/30 rounded-xl border border-zinc-200/60 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full overflow-hidden border border-zinc-150 shrink-0">
+                      {blockedPost.authorAvatar ? (
+                        <UserAvatar 
+                          user={users.find(u => u.name === blockedPost.authorName)} 
+                          avatarUrl={blockedPost.authorAvatar} 
+                          className="w-full h-full" 
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-zinc-100 flex items-center justify-center text-zinc-400 text-[10px]">👤</div>
+                      )}
+                    </div>
+                    <div className="flex flex-col leading-tight">
+                      <span className="text-[12.5px] font-bold text-zinc-800">{blockedPost.authorName}</span>
+                      <span className="text-[10px] text-zinc-400">
+                        {getPostDisplayTime ? getPostDisplayTime(blockedPost.timestamp) : 'недавно'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[13px] text-zinc-700 whitespace-pre-line select-text leading-relaxed">
+                    {blockedPost.text}
+                  </div>
+                  {blockedPost.image && (
+                    <div className="border border-zinc-150/60 bg-white overflow-hidden max-h-[180px] flex items-center justify-center rounded-lg">
+                      <img 
+                        src={blockedPost.image} 
+                        className="w-full object-cover max-h-[180px]" 
+                        alt="Вложение" 
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
+
+        <hr className="w-full border-zinc-150/85 my-1" />
+
+        {/* Appeal block */}
+        <div className="w-full text-left space-y-2">
+          <div className="text-[11.5px] font-semibold text-zinc-400 uppercase tracking-wider">Подать апелляцию</div>
+          {hasPendingAppeal ? (
+            <div className="bg-[#fff9cc] text-[#285473] p-3.5 rounded-lg border border-[#f0e69c] text-[12.5px] font-sans">
+              Ваша апелляция уже находится на рассмотрении администрации. Пожалуйста, ожидайте ответа.
+            </div>
+          ) : (
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const textarea = form.elements.namedItem('appealText') as HTMLTextAreaElement;
+                handleSendAppeal(textarea.value);
+                textarea.value = '';
+              }}
+              className="space-y-3"
+            >
+              <textarea
+                name="appealText"
+                required
+                placeholder="Опишите, почему вы считаете блокировку ошибочной..."
+                className="w-full bg-white border border-zinc-200 p-3 rounded-lg text-[13px] h-24 resize-none focus:outline-none focus:border-[#5181b8] focus:ring-1 focus:ring-[#5181b8] placeholder:text-zinc-400 transition-all font-sans leading-relaxed"
+              />
+              <button
+                type="submit"
+                className="w-full py-2 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-lg text-[13px] font-bold transition-all cursor-pointer border-0 shadow-xs hover:shadow-sm"
+              >
+                Отправить апелляцию
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* Sign Out */}
+        <button
+          onClick={async () => {
+            await authCtxSignOut();
+            setIsRegistered(false);
+            setCurrentUser(null);
+            setIsAdminMode(false);
+            setIsUserMenuOpen(false);
+            navigate('/');
+          }}
+          className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-[13px] font-bold transition-all cursor-pointer border border-zinc-200 shadow-xs"
+        >
+          Выйти из аккаунта
+        </button>
       </motion.div>
     );
   };
@@ -16689,88 +16924,22 @@ export default function App() {
                       );
                     }
 
-                        const hasImage = filteredAuthorPosts.some(p => !!p.image);
-                        const effectiveViewMode = hasImage ? 'list' : profileViewMode;
-
                         return (
                           <div className="space-y-4 w-full">
                             {/* Profile Format Filter - Compact Dropdown */}
                             <div className="flex justify-between items-center gap-4 py-1 select-none">
                               <PostFormatFilter selectedFormat={profileFormatFilter} onChange={setProfileFormatFilter} />
-                              
-                              {/* Profile view switcher (Instagram-style Square Grid vs Feed List) */}
-                              {!hasImage && (
-                                <div className="flex items-center gap-1 p-0.5 bg-zinc-100 rounded-lg shrink-0">
-                                  <button
-                                    onClick={() => setProfileViewMode('grid')}
-                                    className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'grid' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
-                                    title="Плитка"
-                                  >
-                                    <LayoutGrid size={15} />
-                                  </button>
-                                  <button
-                                    onClick={() => setProfileViewMode('list')}
-                                    className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'list' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
-                                    title="Список"
-                                  >
-                                    <List size={15} />
-                                  </button>
-                                </div>
-                              )}
                             </div>
 
-                            {effectiveViewMode === 'grid' ? (
-                          filteredAuthorPosts.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-1.5 md:gap-3">
-                              {filteredAuthorPosts.map(post => (
-                                <div 
-                                  key={post.id} 
-                                  onClick={() => {
-                                    navigate('/post/' + post.id);
-                                  }}
-                                  className="aspect-square relative group bg-neutral-50 border border-zinc-200/40 rounded-xl overflow-hidden cursor-pointer hover:opacity-95 transition-all flex flex-col justify-between p-3 select-none shadow-xs"
-                                >
-                                  {post.image ? (
-                                    <img src={post.image} alt="thumbnail" className="absolute inset-0 w-full h-full object-cover rounded-xl" />
-                                  ) : (
-                                    <div className="text-[10px] sm:text-[11px] text-zinc-700 leading-normal line-clamp-5 select-none text-left font-sans text-ellipsis overflow-hidden break-words">
-                                      <div dangerouslySetInnerHTML={{ __html: post.text?.slice(0, 160) || '' }} />
-                                    </div>
-                                  )}
-                                  
-                                  <div className="absolute top-1.5 right-1.5 p-1 bg-white/80 backdrop-blur-md rounded-md text-zinc-600 shadow-xs border border-zinc-200/10">
-                                    {post.postFormat === 'RESEARCH' ? <BookOpen size={10} className="text-purple-600" /> : post.postFormat === 'ANALYSIS' ? <BarChart3 size={10} className="text-teal-600" /> : <MessageSquare size={10} className="text-zinc-600" />}
-                                  </div>
-
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3 text-white text-xs font-bold rounded-xl">
-                                    <div className="flex items-center gap-1">
-                                      <ThumbsUp size={12} className="fill-white" />
-                                      <span>{(post.likes || 0) + (post.boostedUsers?.length || 0) * 20}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <MessageSquare size={12} className="fill-white" />
-                                      <span>{post.comments?.length || 0}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
-                              Нет публикаций в выбранном формате
-                            </div>
-                          )
-                        ) : (
-                          filteredAuthorPosts.length > 0 ? (
-                            filteredAuthorPosts.map(post => renderUnifiedPostCard(post, false))
-                          ) : (
-                            <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
-                              Нет публикаций в выбранном формате
-                            </div>
-                          )
-                        )}
-                      </div>
-                    );
+                            {filteredAuthorPosts.length > 0 ? (
+                              filteredAuthorPosts.map(post => renderUnifiedPostCard(post, false))
+                            ) : (
+                              <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center text-vk-text-secondary text-[12.5px]">
+                                Нет публикаций в выбранном формате
+                              </div>
+                            )}
+                          </div>
+                        );
                   })()
                 ) : (
                   <div className="bg-vk-white p-12 rounded-[2px] border border-vk-separator text-center">

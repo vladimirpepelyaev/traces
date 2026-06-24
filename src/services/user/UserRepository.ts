@@ -15,6 +15,11 @@ export interface UserProfile {
   status?: string;
   created_at?: string;
   updated_at?: string;
+  attention_balance?: number;
+  block_reason?: string | null;
+  block_comment?: string | null;
+  blocked_at?: string | null;
+  blocked_post_id?: string | null;
 }
 
 export interface UserProgress {
@@ -76,7 +81,8 @@ export class UserRepository {
         public_settings: data.public_settings,
         status: data.status || '',
         created_at: data.created_at,
-        updated_at: data.updated_at
+        updated_at: data.updated_at,
+        attention_balance: data.attention_balance || 0
       };
     });
   }
@@ -285,6 +291,10 @@ export class UserRepository {
 
     await this.saveProfile(userId, { 
       blocked, 
+      block_reason: blocked ? (blockReason || null) : null,
+      block_comment: blocked ? (moderatorComment || null) : null,
+      blocked_at: blocked ? (blockInfo?.timestamp || new Date().toISOString()) : null,
+      blocked_post_id: blocked ? (blockInfo?.blocked_post_id || null) : null,
       public_settings: updatedSettings 
     });
   }

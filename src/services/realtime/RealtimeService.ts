@@ -3,6 +3,31 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 
 type RealtimeCallback = (payload: any) => void;
 
+function mapDbPostToFeedPost(db: any): any {
+  if (!db) return null;
+  const rawTime = db.created_at || db.timestamp;
+  return {
+    id: db.id,
+    authorName: db.author_name || db.authorName,
+    authorAvatar: db.author_avatar || db.authorAvatar,
+    title: db.title || undefined,
+    text: db.text || undefined,
+    image: db.image || undefined,
+    likes: db.likes || 0,
+    timestamp: rawTime,
+    isLiked: db.is_liked || db.isLiked || false,
+    isDownvoted: db.is_downvoted || db.isDownvoted || false,
+    comments: db.comments || [],
+    moderatedBy: db.moderated_by || db.moderatedBy || undefined,
+    isApproved: db.is_approved === null ? (db.isApproved === null ? undefined : db.isApproved) : db.is_approved,
+    postFormat: db.post_format || db.postFormat || undefined,
+    topicScores: db.topic_scores || db.topicScores || [],
+    attentionScore: db.attention_score || db.attentionScore || 0,
+    boostedUsers: db.boosted_users || db.boostedUsers || [],
+    quietReactions: db.quiet_reactions || db.quietReactions || { saved: 0, returned: 0, continued: 0 }
+  };
+}
+
 class RealtimeServiceProvider {
   private channels: RealtimeChannel[] = [];
   private fallbackChannel: BroadcastChannel | null = null;
@@ -21,7 +46,8 @@ class RealtimeServiceProvider {
           const { type, data } = event.data;
           console.log(`[RealtimeService Fallback] Received event ${type}:`, data);
           if (type === 'POST_CHANGE') {
-            this.postCallbacks.forEach(cb => cb(data));
+            const mappedPost = mapDbPostToFeedPost(data);
+            this.postCallbacks.forEach(cb => cb(mappedPost));
           } else if (type === 'ALERT_INSERT') {
             this.alertCallbacks.forEach(cb => cb(data));
           } else if (type === 'TICKET_CHANGE') {
@@ -97,8 +123,9 @@ class RealtimeServiceProvider {
               try {
                 if (payload.new) {
                   console.log('[RealtimeService] Post change via Supabase:', payload.eventType, payload.new);
+                  const mappedPost = mapDbPostToFeedPost(payload.new);
                   this.postCallbacks.forEach(cb => {
-                    try { cb(payload.new); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
+                    try { cb(mappedPost); } catch (e) { console.error('[RealtimeService] Callback error:', e); }
                   });
                 }
               } catch (cbErr) {

@@ -165,6 +165,7 @@ export interface AppUser {
   boostsLeft?: number;
   boostsUsed?: number;
   boostsResetTime?: string;
+  attentionBalance?: number;
 }
 
 export interface VerificationRequest {

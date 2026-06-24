@@ -1977,6 +1977,107 @@ export default function App() {
   const [editPassword, setEditPassword] = useState('');
   const [activeInfoTab, setActiveInfoTab] = useState<'support' | 'complaints' | 'blocks' | 'markups' | 'appeals'>('support');
 
+  // Attention balance states
+  const [isChangeBalanceModalOpen, setIsChangeBalanceModalOpen] = useState(false);
+  const [balanceAmountInput, setBalanceAmountInput] = useState('');
+  const [attentionTransactions, setAttentionTransactions] = useState<any[]>([]);
+
+  // Format transaction date to Russian "15 июня" format
+  const formatTransactionDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return 'сегодня';
+      const months = [
+        'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+      ];
+      const day = date.getDate();
+      const month = months[date.getMonth()];
+      return `${day} ${month}`;
+    } catch (e) {
+      return 'сегодня';
+    }
+  };
+
+  // Fetch transactions on active user profile change
+  useEffect(() => {
+    if (!infoUser) {
+      setAttentionTransactions([]);
+      return;
+    }
+
+    const fetchTransactions = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+        const { data, error } = await supabase
+          .from('attention_transactions')
+          .select('*')
+          .eq('user_id', infoUser.id)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('[fetchTransactions] Error:', error);
+          return;
+        }
+
+        if (data) {
+          setAttentionTransactions(data);
+        }
+      } catch (err) {
+        console.error('[fetchTransactions] Unexpected error:', err);
+      }
+    };
+
+    fetchTransactions();
+  }, [infoUser?.id]);
+
+  const handleChangeBalance = async (amount: number) => {
+    if (!infoUser) return;
+    const currentBalance = infoUser.attentionBalance || 0;
+    const newBalance = currentBalance + amount;
+
+    try {
+      await profileRepository.saveProfile(infoUser.id, {
+        attention_balance: newBalance
+      });
+    } catch (err) {
+      console.error('[handleChangeBalance] Error updating balance:', err);
+    }
+
+    const desc = amount > 0 ? 'Начисление баланса' : 'Продвижение публикации';
+    const newTx = {
+      user_id: infoUser.id,
+      amount: amount,
+      description: desc,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await supabase.from('attention_transactions').insert(newTx);
+    } catch (err) {
+      console.error('[handleChangeBalance] Error inserting transaction:', err);
+    }
+
+    const updatedUser = {
+      ...infoUser,
+      attentionBalance: newBalance
+    };
+
+    setUsers(prev => prev.map(u => u.id === infoUser.id ? updatedUser : u));
+    setInfoUser(updatedUser);
+    setAttentionTransactions(prev => [
+      {
+        id: Math.random().toString(),
+        ...newTx
+      },
+      ...prev
+    ]);
+
+    addNotification('Успешно', `Баланс изменен. Новый баланс: ${newBalance}`);
+    setIsChangeBalanceModalOpen(false);
+    setBalanceAmountInput('');
+  };
+
   // Modals state
   const [blockingComplaint, setBlockingComplaint] = useState<Complaint | null>(null);
   const [blockingSource, setBlockingSource] = useState<'main' | 'spam' | 'pro'>('main');
@@ -4543,6 +4644,22 @@ export default function App() {
               )}
             </div>
 
+            {/* Баланс под аватаркой */}
+            <div className="w-full bg-[#f2f5f9] border border-[#d3dfef] rounded-[4px] p-3 text-center">
+              <div className="text-[11px] font-bold text-[#2a5885] uppercase tracking-wider mb-1">Баланс</div>
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsChangeBalanceModalOpen(true);
+                  setBalanceAmountInput('');
+                }}
+                className="text-[18px] font-extrabold text-[#2a5885] hover:underline cursor-pointer focus:outline-none"
+                title="Нажмите, чтобы изменить баланс"
+              >
+                {user.attentionBalance !== undefined ? user.attentionBalance : 0}
+              </button>
+            </div>
+
             <div className="w-full space-y-2">
               <button 
                 onClick={() => {
@@ -4876,134 +4993,154 @@ export default function App() {
                 </div>
               )}
 
-              {/* VK Style Sub Tabs */}
-              <div className="flex border-b border-vk-separator my-4 overflow-x-auto no-scrollbar">
-                <button 
-                  onClick={() => setActiveInfoTab('support')}
-                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'support' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
-                >
-                  Вопросы в поддержку ({userTickets.length})
-                </button>
-                <button 
-                  onClick={() => setActiveInfoTab('complaints')}
-                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'complaints' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
-                >
-                  Жалобы ({userComplaints.length})
-                </button>
-                <button 
-                  onClick={() => setActiveInfoTab('blocks')}
-                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'blocks' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
-                >
-                  Блокировки ({blockingLogs.length})
-                </button>
-                <button 
-                  onClick={() => setActiveInfoTab('appeals')}
-                  className={`py-2 px-1 mr-4 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'appeals' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
-                >
-                  Апелляции ({userAppeals.length})
-                </button>
-                <button 
-                  onClick={() => setActiveInfoTab('markups')}
-                  className={`py-2 px-1 text-[12.5px] font-medium border-b-2 transition-all shrink-0 ${activeInfoTab === 'markups' ? 'border-[#5181b8] text-[#2a5885]' : 'border-transparent text-vk-text-secondary hover:text-vk-text'}`}
-                >
-                  Логи модератора ({markupLogs.length})
-                </button>
-              </div>
+              {/* Все данные отображаются сразу одним списком */}
+              <div className="space-y-6 pt-4 text-left">
+                {/* 1. Вопросы в поддержку */}
+                <div className="space-y-2.5">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator flex justify-between items-center">
+                    <span>Вопросы в поддержку</span>
+                    <span className="text-[11.5px] font-normal text-vk-text-secondary">({userTickets.length})</span>
+                  </h3>
+                  {userTickets.length > 0 ? (
+                    <div className="space-y-2">
+                      {userTickets.map(t => (
+                        <div key={t.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                          <div className="flex justify-between font-medium text-vk-text mb-1">
+                            <span>Тикет #{t.id} - {t.title}</span>
+                            <span className={`text-[11px] px-1.5 py-0.5 rounded-sm font-bold ${t.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{t.status}</span>
+                          </div>
+                          <p className="text-vk-text-secondary">{t.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
 
-              {/* Tab Content */}
-              <div className="space-y-3 min-h-[150px]">
-                {activeInfoTab === 'support' && (
-                  <div className="space-y-2">
-                    {userTickets.map(t => (
-                      <div key={t.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
-                        <div className="flex justify-between font-medium text-vk-text mb-1">
-                          <span>Тикет #{t.id} - {t.title}</span>
-                          <span className={`text-[11px] px-1.5 py-0.5 rounded-sm font-bold ${t.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{t.status}</span>
+                {/* 2. Жалобы */}
+                <div className="space-y-2.5">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator flex justify-between items-center">
+                    <span>Жалобы</span>
+                    <span className="text-[11.5px] font-normal text-vk-text-secondary">({userComplaints.length})</span>
+                  </h3>
+                  {userComplaints.length > 0 ? (
+                    <div className="space-y-2">
+                      {userComplaints.map(c => (
+                        <div key={c.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                          <div className="flex justify-between font-medium text-vk-text mb-1">
+                            <span>Жалоба от {c.userName}</span>
+                            <span className="text-[#e64646] font-mono pr-1">{c.rating}</span>
+                          </div>
+                          <p className="text-vk-text-secondary">«{c.content}»</p>
+                          <p className="text-[11px] text-[#2a5885] mt-1">{c.type}</p>
                         </div>
-                        <p className="text-vk-text-secondary">{t.description}</p>
-                      </div>
-                    ))}
-                    {userTickets.length === 0 && (
-                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Вопросов в поддержку не найдено.</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
 
-                {activeInfoTab === 'complaints' && (
-                  <div className="space-y-2">
-                    {userComplaints.map(c => (
-                      <div key={c.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
-                        <div className="flex justify-between font-medium text-vk-text mb-1">
-                          <span>Жалоба от {c.userName}</span>
-                          <span className="text-[#e64646] font-mono pr-1">{c.rating}</span>
+                {/* 3. Блокировки */}
+                <div className="space-y-2.5">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator flex justify-between items-center">
+                    <span>Блокировки</span>
+                    <span className="text-[11.5px] font-normal text-vk-text-secondary">({blockingLogs.length})</span>
+                  </h3>
+                  {blockingLogs.length > 0 ? (
+                    <div className="space-y-2">
+                      {blockingLogs.map(l => (
+                        <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                          <div className="flex justify-between font-medium text-vk-text mb-1">
+                            <span>{l.action}</span>
+                            <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                          </div>
+                          <p className="text-vk-text-secondary">{l.message}</p>
                         </div>
-                        <p className="text-vk-text-secondary">«{c.content}»</p>
-                        <p className="text-[11px] text-[#2a5885] mt-1">{c.type}</p>
-                      </div>
-                    ))}
-                    {userComplaints.length === 0 && (
-                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Жалоб на пользователя не найдено.</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
 
-                {activeInfoTab === 'blocks' && (
-                  <div className="space-y-2">
-                    {blockingLogs.map(l => (
-                      <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
-                        <div className="flex justify-between font-medium text-vk-text mb-1">
-                          <span>{l.action}</span>
-                          <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                {/* 4. Апелляции */}
+                <div className="space-y-2.5">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator flex justify-between items-center">
+                    <span>Апелляции</span>
+                    <span className="text-[11.5px] font-normal text-vk-text-secondary">({userAppeals.length})</span>
+                  </h3>
+                  {userAppeals.length > 0 ? (
+                    <div className="space-y-2">
+                      {userAppeals.map(a => (
+                        <div key={a.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px] space-y-1.5 text-left">
+                          <div className="flex justify-between font-medium text-vk-text mb-1">
+                            <span className="font-semibold text-vk-text">Заявка #{a.id} • {a.date}</span>
+                            <span className={`text-[10.5px] font-bold ${a.status === 'pending' ? 'text-amber-600' : a.status === 'approved' ? 'text-[#4bb34b]' : 'text-[#a63232]'}`}>
+                              {a.status === 'pending' ? 'На проверке' : a.status === 'approved' ? 'Одобрена' : 'Отклонена'}
+                            </span>
+                          </div>
+                          <p className="italic text-[#555] bg-white p-2 rounded border border-vk-separator">«{a.text}»</p>
+                          <div className="text-[11px] text-[#656565] grid grid-cols-1 sm:grid-cols-3 gap-1 pt-1">
+                            <div><span className="text-vk-text-secondary">Инициатор бана:</span> <span className="font-medium text-vk-text">{a.blockedBy}</span></div>
+                            <div><span className="text-vk-text-secondary">Причина:</span> <span className="font-medium text-vk-text">{a.reason}</span></div>
+                            <div><span className="text-vk-text-secondary">Срок:</span> <span className="font-medium text-vk-text">{a.duration}</span></div>
+                          </div>
                         </div>
-                        <p className="text-vk-text-secondary">{l.message}</p>
-                      </div>
-                    ))}
-                    {blockingLogs.length === 0 && (
-                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Записей о блокировках не найдено.</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
 
-                {activeInfoTab === 'markups' && (
-                  <div className="space-y-2">
-                    {markupLogs.map(l => (
-                      <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
-                        <div className="flex justify-between font-medium text-vk-text mb-1">
-                          <span>{l.action}</span>
-                          <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                {/* 5. Логи модератора */}
+                <div className="space-y-2.5">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator flex justify-between items-center">
+                    <span>Логи модератора</span>
+                    <span className="text-[11.5px] font-normal text-vk-text-secondary">({markupLogs.length})</span>
+                  </h3>
+                  {markupLogs.length > 0 ? (
+                    <div className="space-y-2">
+                      {markupLogs.map(l => (
+                        <div key={l.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px]">
+                          <div className="flex justify-between font-medium text-vk-text mb-1">
+                            <span>{l.action}</span>
+                            <span className="text-vk-text-secondary font-mono">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : ''}</span>
+                          </div>
+                          <p className="text-vk-text-secondary">{l.message}</p>
                         </div>
-                        <p className="text-vk-text-secondary">{l.message}</p>
-                      </div>
-                    ))}
-                    {markupLogs.length === 0 && (
-                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Логи модератора пусты.</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
 
-                {activeInfoTab === 'appeals' && (
-                  <div className="space-y-2">
-                    {userAppeals.map(a => (
-                      <div key={a.id} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px] space-y-1.5 text-left">
-                        <div className="flex justify-between font-medium text-vk-text mb-1">
-                          <span className="font-semibold text-vk-text">Заявка #{a.id} • {a.date}</span>
-                          <span className={`text-[10.5px] font-bold ${a.status === 'pending' ? 'text-amber-600' : a.status === 'approved' ? 'text-[#4bb34b]' : 'text-[#a63232]'}`}>
-                            {a.status === 'pending' ? 'На проверке' : a.status === 'approved' ? 'Одобрена' : 'Отклонена'}
-                          </span>
+                {/* 6. История трат */}
+                <div className="space-y-2.5 pb-2">
+                  <h3 className="text-[13px] font-bold text-[#2a5885] uppercase tracking-wider pb-1.5 border-b border-vk-separator">
+                    История трат
+                  </h3>
+                  {attentionTransactions.filter(tx => tx.amount < 0).length > 0 ? (
+                    <div className="space-y-2">
+                      {attentionTransactions.filter(tx => tx.amount < 0).map(tx => (
+                        <div key={tx.id || Math.random().toString()} className="p-3 bg-[#f7f8fa] border border-vk-separator rounded-[4px] text-[12.5px] flex justify-between items-center">
+                          <div className="text-left">
+                            <p className="font-bold text-red-600 text-[13px]">{tx.amount}</p>
+                            <p className="text-vk-text-secondary text-[11px] mt-0.5">{tx.description || 'Списание средств'}</p>
+                          </div>
+                          <div className="text-right text-vk-text-secondary font-mono text-[11.5px]">
+                            {tx.created_at ? formatTransactionDate(tx.created_at) : 'сегодня'}
+                          </div>
                         </div>
-                        <p className="italic text-[#555] bg-white p-2 rounded border border-vk-separator">«{a.text}»</p>
-                        <div className="text-[11px] text-[#656565] grid grid-cols-1 sm:grid-cols-3 gap-1 pt-1">
-                          <div><span className="text-vk-text-secondary">Инициатор бана:</span> <span className="font-medium text-vk-text">{a.blockedBy}</span></div>
-                          <div><span className="text-vk-text-secondary">Причина:</span> <span className="font-medium text-vk-text">{a.reason}</span></div>
-                          <div><span className="text-vk-text-secondary">Срок:</span> <span className="font-medium text-vk-text">{a.duration}</span></div>
-                        </div>
-                      </div>
-                    ))}
-                    {userAppeals.length === 0 && (
-                      <p className="text-vk-text-secondary text-[12px] text-center py-6">Апелляций от этого пользователя не поступало.</p>
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-vk-text-secondary text-[12px] italic pl-1">Записей нет</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -18184,6 +18321,60 @@ export default function App() {
                 >
                   Закрыть без действия
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isChangeBalanceModalOpen && infoUser && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setIsChangeBalanceModalOpen(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
+              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+                <h3 className="text-sm font-bold text-[#285473]">Изменить баланс</h3>
+                <button onClick={() => setIsChangeBalanceModalOpen(false)} className="text-[#656565] hover:opacity-70"><X size={18} /></button>
+              </div>
+              <div className="p-4 space-y-4 text-left">
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1 block tracking-wider">
+                    Текущий баланс пользователя {infoUser.name}
+                  </label>
+                  <p className="text-[16px] font-bold text-[#2a5885]">{infoUser.attentionBalance || 0}</p>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-1 block tracking-wider font-sans">
+                    Количество
+                  </label>
+                  <input
+                    type="number"
+                    value={balanceAmountInput}
+                    onChange={(e) => setBalanceAmountInput(e.target.value)}
+                    placeholder="Например: 100 или -50"
+                    className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8] font-sans font-medium"
+                  />
+                  <p className="text-[10.5px] text-vk-text-secondary mt-1">Положительное число — для начисления, отрицательное — для списания.</p>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      const val = parseInt(balanceAmountInput);
+                      if (isNaN(val) || val === 0) {
+                        addNotification('Ошибка', 'Введите корректное количество');
+                        return;
+                      }
+                      handleChangeBalance(val);
+                    }}
+                    className="grow py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd] transition-colors cursor-pointer"
+                  >
+                    Подтвердить
+                  </button>
+                  <button
+                    onClick={() => setIsChangeBalanceModalOpen(false)}
+                    className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium hover:bg-[#dfe6ed] transition-colors cursor-pointer"
+                  >
+                    Отмена
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

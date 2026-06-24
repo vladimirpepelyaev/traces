@@ -164,6 +164,10 @@ export class ProfileRepositoryProvider {
 
     await this.saveProfile(userId, { 
       blocked, 
+      block_reason: blocked ? (blockReason || null) : null,
+      block_comment: blocked ? (moderatorComment || null) : null,
+      blocked_at: blocked ? (blockInfo?.timestamp || new Date().toISOString()) : null,
+      blocked_post_id: blocked ? (blockInfo?.blocked_post_id || null) : null,
       public_settings: updatedSettings 
     });
   }
@@ -349,7 +353,6 @@ export class PostRepositoryProvider {
     try {
       await ensureProfileExists();
       const dbPost = this.mapPostToDb(post);
-      delete dbPost.id; // delete payload.id
       const { data, error } = await supabase
         .from('posts')
         .insert(dbPost)

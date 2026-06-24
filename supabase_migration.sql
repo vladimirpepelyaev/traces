@@ -27,6 +27,24 @@ CREATE POLICY "Enable read/write for self in profiles" ON profiles
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Enable update for staff on profiles" ON profiles;
+CREATE POLICY "Enable update for staff on profiles" ON profiles
+  FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+      AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+      AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
 DROP POLICY IF EXISTS "Enable read for everyone in profiles" ON profiles;
 CREATE POLICY "Enable read for everyone in profiles" ON profiles
   FOR SELECT TO authenticated

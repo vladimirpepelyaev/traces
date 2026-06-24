@@ -329,92 +329,90 @@ export const DiscussionComments: React.FC<DiscussionCommentsProps> = ({
         {commentsDisabled ? (
           <p className="text-[11.5px] text-[#818c99] italic">{commentsDisabledMessage}</p>
         ) : (
-          <>
-        {replyTarget && (
-          <div className="flex items-center justify-between text-[10.5px] text-[#55677d] bg-[#f0f2f5] px-2.5 py-1.5 rounded-[3px]">
-            <span>Ответ {replyTarget.authorName}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setReplyToCommentId(null);
-                setCommentText('');
-              }}
-              className="text-[#2a5885] hover:underline"
-            >
-              Отмена
-            </button>
+          <div className="space-y-2.5">
+            {replyTarget && (
+              <div className="flex items-center justify-between text-[10.5px] text-[#55677d] bg-[#f0f2f5] px-2.5 py-1.5 rounded-[3px]">
+                <span>Ответ для {replyTarget.authorName}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyToCommentId(null);
+                    setCommentText('');
+                  }}
+                  className="text-[10px] text-[#2a5885] hover:underline cursor-pointer"
+                >
+                  Отмена
+                </button>
+              </div>
+            )}
+
+            {/* Comment type switcher buttons */}
+            <div className="flex flex-wrap items-center gap-1.5 py-1 select-none">
+              <span className="text-[10.5px] text-[#818c99] mr-1">Тип:</span>
+              <button
+                type="button"
+                onClick={() => setCommentType('continue_thought')}
+                className={`px-2 py-0.5 text-[10px] rounded-full border transition-all cursor-pointer ${
+                  commentType === 'continue_thought'
+                    ? 'bg-teal-50 border-teal-300 text-teal-800 font-semibold'
+                    : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
+                }`}
+              >
+                🌿 Продолжение мысли
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommentType('disagree')}
+                className={`px-2 py-0.5 text-[10px] rounded-full border transition-all cursor-pointer ${
+                  commentType === 'disagree'
+                    ? 'bg-rose-50 border-rose-200 text-rose-800 font-semibold'
+                    : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
+                }`}
+              >
+                ⚖️ Другая точка зрения
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommentType('share_experience')}
+                className={`px-2 py-0.5 text-[10px] rounded-full border transition-all cursor-pointer ${
+                  commentType === 'share_experience'
+                    ? 'bg-sky-50 border-sky-200 text-sky-800 font-semibold'
+                    : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
+                }`}
+              >
+                💬 Опыт из жизни
+              </button>
+            </div>
+
+            <div className="flex gap-2.5 items-center">
+              <LocalAvatar name={currentUser?.name || "Гость"} avatarUrl={currentUser?.avatar} className="w-6.5 h-6.5" />
+              <div className="grow relative flex gap-2">
+                <input
+                  type="text"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder={
+                    replyTarget
+                      ? `Ответ для ${replyTarget.authorName}...`
+                      : 'Напишите содержательный комментарий...'
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSend();
+                    }
+                  }}
+                  className="grow bg-[#f0f2f5] rounded-[16px] py-1.5 px-3 text-[12.5px] focus:outline-none focus:bg-white border border-transparent focus:border-[#dce1e6] placeholder:text-[#818c99] transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  className="text-teal-600 p-1.5 hover:bg-teal-50 rounded-full transition-colors shrink-0 cursor-pointer"
+                >
+                  <Send size={15} />
+                </button>
+              </div>
+            </div>
           </div>
-        )}
-
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] font-medium text-[#55677d] uppercase select-none">Тип ответа:</span>
-          
-          <button
-            onClick={() => setCommentType('continue_thought')}
-            className={`px-2 py-0.5 rounded-[12px] text-[10.5px] font-medium transition-all flex items-center gap-1 cursor-pointer border ${
-              commentType === 'continue_thought'
-                ? 'bg-teal-50 border-teal-300 text-teal-800 font-semibold'
-                : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
-            }`}
-          >
-            <span>🌿 Продолжить</span>
-          </button>
-
-          <button
-            onClick={() => setCommentType('disagree')}
-            className={`px-2 py-0.5 rounded-[12px] text-[10.5px] font-medium transition-all flex items-center gap-1 cursor-pointer border ${
-              commentType === 'disagree'
-                ? 'bg-rose-50 border-rose-200 text-rose-800 font-semibold'
-                : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
-            }`}
-          >
-            <span>⚖️ Возразить</span>
-          </button>
-
-          <button
-            onClick={() => setCommentType('share_experience')}
-            className={`px-2 py-0.5 rounded-[12px] text-[10.5px] font-medium transition-all flex items-center gap-1 cursor-pointer border ${
-              commentType === 'share_experience'
-                ? 'bg-sky-50 border-sky-200 text-sky-800 font-semibold'
-                : 'bg-white border-gray-200 text-[#55677d] hover:bg-gray-50'
-            }`}
-          >
-            <span>💬 Поделиться опытом</span>
-          </button>
-        </div>
-
-        <div className="flex gap-2.5 items-center">
-          <LocalAvatar name={currentUser?.name || "Гость"} avatarUrl={currentUser?.avatar} className="w-6.5 h-6.5" />
-          <div className="grow relative flex gap-2">
-            <input
-              type="text"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              placeholder={
-                replyTarget
-                  ? `Ответ для ${replyTarget.authorName}...`
-                  : commentType === 'continue_thought'
-                    ? 'Какое продолжение этой мысли вы видите?'
-                    : commentType === 'disagree'
-                      ? 'С чем именно вы не согласны? Приведите аргумент...'
-                      : 'Опишите похожий случай из вашей жизни...'
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleSend();
-                }
-              }}
-              className="grow bg-[#f0f2f5] rounded-[16px] py-1.5 px-3 text-[12.5px] focus:outline-none focus:bg-white border border-transparent focus:border-[#dce1e6] placeholder:text-[#818c99] transition-all"
-            />
-            <button
-              onClick={handleSend}
-              className="text-teal-600 p-1.5 hover:bg-teal-50 rounded-full transition-colors shrink-0 cursor-pointer"
-            >
-              <Send size={15} />
-            </button>
-          </div>
-        </div>
-          </>
         )}
       </div>
     </div>

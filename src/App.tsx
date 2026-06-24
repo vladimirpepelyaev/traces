@@ -1426,10 +1426,18 @@ export default function App() {
   };
 
   // Registration State
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
-  const [isRegistered, setIsRegistered] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(authUser);
+  const [isRegistered, setIsRegistered] = useState(!!authUser);
   const isHydratingRef = useRef<boolean>(false);
   const lastHydratedUserIdRef = useRef<string | null>(null);
+
+  // Synchronize state with AuthContext instantly during render to prevent stale frames on refresh
+  const prevAuthUserRef = useRef(authUser);
+  if (prevAuthUserRef.current !== authUser) {
+    prevAuthUserRef.current = authUser;
+    setCurrentUser(authUser);
+    setIsRegistered(!!authUser);
+  }
 
   useEffect(() => {
     if (authUser) {
@@ -2209,10 +2217,10 @@ export default function App() {
     if (tabId === 'internal-mail') return '/messages';
     
     if ([
-      'spam', 'verification', 'tasks', 'internal-mail', 'support', 'appeals', 
+      'spam', 'verification', 'tasks', 'support', 'appeals', 
       'requests', 'users', 'management', 'statistics', 'announcements', 'wiki', 
       'security', 'action-logs', 'monitoring', 'translations', 'quality-control', 
-      'personnel', 'page_moderation', 'discussed-now', 'notifications'
+      'personnel', 'page_moderation'
     ].includes(tabId) || tabId.startsWith('support-category-')) {
       return `/admin/${tabId}`;
     }
@@ -5940,7 +5948,7 @@ export default function App() {
                   {/* Buttons */}
                   <div className="border-t border-[#f0f2f5] pt-3.5 flex flex-wrap justify-between items-center gap-2">
                     <div className="text-[11px] text-[#818c99]">
-                      Лайков: {post.likes}
+                      Лайков: {(post.likes || 0) + (post.boostedUsers?.length || 0) * 20}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -7740,7 +7748,7 @@ export default function App() {
 
                           {/* Matching tag indicators */}
                           <div className="mt-3 pt-2 border-t border-[#f2f4f7] flex items-center justify-between text-[11px] text-[#818c99]">
-                            <span>Лайков: <span className="text-[#a0a0a0] font-bold">{post.likes}</span></span>
+                            <span>Лайков: <span className="text-[#a0a0a0] font-bold">{(post.likes || 0) + (post.boostedUsers?.length || 0) * 20}</span></span>
                             <span className="text-red-600 font-bold uppercase tracking-wider text-[9.5px]">
                               Попадает под {ruleFormParameter === 'delete' || ruleFormParameter === 'delete_ban' ? 'Удаление' : 'Флаг в спам'}
                             </span>
@@ -11256,7 +11264,7 @@ export default function App() {
               }`}
               title="▲ Положительный сигнал качества следа"
             >
-              <span className={post.isLiked ? 'text-emerald-500' : 'text-zinc-400'}>▲</span> {post.likes || 0}
+              <span className={post.isLiked ? 'text-emerald-500' : 'text-zinc-400'}>▲</span> {(post.likes || 0) + (post.boostedUsers?.length || 0) * 20}
             </button>
             <button 
               onClick={(e) => {
@@ -15357,7 +15365,7 @@ export default function App() {
     }
 
     const actualCurrentUser = users.find(u => u.id === currentUser?.id) || currentUser;
-    if (actualCurrentUser?.isBlocked || isProfileBlocked) {
+    if ((actualCurrentUser?.isBlocked || isProfileBlocked) && activeTab !== 'support') {
       return renderBlocked();
     }
 
@@ -16681,32 +16689,37 @@ export default function App() {
                       );
                     }
 
-                    return (
-                      <div className="space-y-4 w-full">
-                        {/* Profile Format Filter - Compact Dropdown */}
-                        <div className="flex justify-between items-center gap-4 py-1 select-none">
-                          <PostFormatFilter selectedFormat={profileFormatFilter} onChange={setProfileFormatFilter} />
-                          
-                          {/* Profile view switcher (Instagram-style Square Grid vs Feed List) */}
-                          <div className="flex items-center gap-1 p-0.5 bg-zinc-100 rounded-lg shrink-0">
-                            <button
-                              onClick={() => setProfileViewMode('grid')}
-                              className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'grid' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
-                              title="Плитка"
-                            >
-                              <LayoutGrid size={15} />
-                            </button>
-                            <button
-                              onClick={() => setProfileViewMode('list')}
-                              className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'list' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
-                              title="Список"
-                            >
-                              <List size={15} />
-                            </button>
-                          </div>
-                        </div>
+                        const hasImage = filteredAuthorPosts.some(p => !!p.image);
+                        const effectiveViewMode = hasImage ? 'list' : profileViewMode;
 
-                        {profileViewMode === 'grid' ? (
+                        return (
+                          <div className="space-y-4 w-full">
+                            {/* Profile Format Filter - Compact Dropdown */}
+                            <div className="flex justify-between items-center gap-4 py-1 select-none">
+                              <PostFormatFilter selectedFormat={profileFormatFilter} onChange={setProfileFormatFilter} />
+                              
+                              {/* Profile view switcher (Instagram-style Square Grid vs Feed List) */}
+                              {!hasImage && (
+                                <div className="flex items-center gap-1 p-0.5 bg-zinc-100 rounded-lg shrink-0">
+                                  <button
+                                    onClick={() => setProfileViewMode('grid')}
+                                    className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'grid' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
+                                    title="Плитка"
+                                  >
+                                    <LayoutGrid size={15} />
+                                  </button>
+                                  <button
+                                    onClick={() => setProfileViewMode('list')}
+                                    className={`p-1.5 rounded-md cursor-pointer transition-all ${profileViewMode === 'list' ? 'bg-white text-[#4F7DF3] shadow-xs' : 'text-zinc-400 hover:text-zinc-600'}`}
+                                    title="Список"
+                                  >
+                                    <List size={15} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {effectiveViewMode === 'grid' ? (
                           filteredAuthorPosts.length > 0 ? (
                             <div className="grid grid-cols-3 gap-1.5 md:gap-3">
                               {filteredAuthorPosts.map(post => (
@@ -16732,7 +16745,7 @@ export default function App() {
                                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3 text-white text-xs font-bold rounded-xl">
                                     <div className="flex items-center gap-1">
                                       <ThumbsUp size={12} className="fill-white" />
-                                      <span>{post.likes || 0}</span>
+                                      <span>{(post.likes || 0) + (post.boostedUsers?.length || 0) * 20}</span>
                                     </div>
                                     <div className="flex items-center gap-1">
                                       <MessageSquare size={12} className="fill-white" />
@@ -16897,6 +16910,16 @@ export default function App() {
     );
   }
 
+  // Top-level lock screen render guard for blocked users (fixes white screen on refresh when blocked)
+  const isCurrentUserBlocked = currentUser?.isBlocked || users.find(u => u.id === currentUser?.id)?.isBlocked;
+  if (isRegistered && isCurrentUserBlocked && activeTab !== 'support') {
+    return (
+      <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center font-sans p-4 select-none">
+        {renderBlocked()}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen font-sans selection:bg-zinc-200 selection:text-zinc-900 bg-[#fafaf9] pb-20">
       {/* Header */}
@@ -16920,7 +16943,7 @@ export default function App() {
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               >
                 <UserAvatar user={currentUser} avatarUrl={currentUser?.avatar} className="w-5.5 h-5.5" />
-                <span className="text-[11px] font-semibold text-zinc-850 max-w-[80px] truncate hidden sm:inline-block leading-none">{currentUser?.name.split(' ')[0]}</span>
+                <span className="text-[11px] font-semibold text-zinc-850 max-w-[80px] truncate hidden sm:inline-block leading-none">{currentUser?.name ? currentUser.name.split(' ')[0] : ''}</span>
                 <ChevronDown size={11} className="text-zinc-500" />
               </div>
 
@@ -16937,7 +16960,7 @@ export default function App() {
                     <button 
                       onClick={() => { 
                         setUserActionTarget(currentUser);
-                        setRequestFields({ name: currentUser?.name.split(' ')[0] || '', surname: currentUser?.name.split(' ')[1] || '', reason: 'Заявка на верификацию', logout: false });
+                        setRequestFields({ name: currentUser?.name ? currentUser.name.split(' ')[0] : '', surname: (currentUser?.name && currentUser.name.split(' ')[1]) || '', reason: 'Заявка на верификацию', logout: false });
                         setIsVerificationContext(true);
                         setIsCreateRequestModalOpen(true);
                         setIsUserMenuOpen(false); 

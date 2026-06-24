@@ -229,10 +229,12 @@ export class PostRepositoryProvider {
 
         const likesCount = postRx.filter((r: any) => r.type === 'like').length;
         const downvotesCount = postRx.filter((r: any) => r.type === 'downvote').length;
+        const attentionUsers = postRx.filter((r: any) => r.type === 'attention').map((r: any) => r.user_id);
 
         // Final calculated rating
         post.likes = likesCount - downvotesCount;
         (post as any).dislikes = downvotesCount;
+        post.boostedUsers = Array.from(new Set([...(post.boostedUsers || []), ...attentionUsers]));
 
         if (currentUserId) {
           post.isLiked = postRx.some((r: any) => r.user_id === currentUserId && r.type === 'like');

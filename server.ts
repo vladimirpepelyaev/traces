@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 
@@ -63,11 +64,14 @@ async function startServer() {
     return res.json({ match: null });
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), "dist");
+  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(distPath);
+
+  if (!isProd) {
     // Bulletproof SPA redirect rewrite for non-file dev paths
     app.use((req, res, next) => {
       if (req.method === "GET" && !req.path.includes(".") && !req.path.startsWith("/api/")) {
-        req.url = req.originalUrl;
+        req.url = "/";
       }
       next();
     });
@@ -80,7 +84,6 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // Production static serving with fallback
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

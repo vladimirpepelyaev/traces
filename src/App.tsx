@@ -2735,35 +2735,57 @@ export default function App() {
       try {
         let postId = null;
 
-        // 1. Try profiles.blocked_post_id
-        if (isSupabaseConfigured) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('blocked_post_id')
-            .eq('id', currentUser.id)
-            .maybeSingle();
-
-          if (profile) {
-            postId = profile.blocked_post_id;
-          }
+        // 1. Try from currentUser profileBlockInfo / publicSettings first
+        if (currentUser?.profileBlockInfo?.blocked_post_id) {
+          postId = currentUser.profileBlockInfo.blocked_post_id;
+        } else if (currentUser?.publicSettings?.blocked_post_id) {
+          postId = currentUser.publicSettings.blocked_post_id;
         }
 
-        // 2. Try complaints.target_id
+        // 2. Try profiles.public_settings from DB as backup
         if (!postId && isSupabaseConfigured) {
-          const { data: complaintsData } = await supabase
-            .from('complaints')
-            .select('target_id')
-            .eq('user_id', currentUser.id)
-            .eq('resolution', 'blocked')
-            .order('created_at', { ascending: false })
-            .limit(1);
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('public_settings')
+              .eq('id', currentUser.id)
+              .maybeSingle();
 
-          if (complaintsData && complaintsData.length > 0) {
-            postId = complaintsData[0].target_id;
+            if (profile && profile.public_settings) {
+              postId = profile.public_settings.blocked_post_id;
+            }
+          } catch (profileErr) {
+            console.warn('Could not load public_settings from profiles table:', profileErr);
           }
         }
 
-        // 3. Load the post
+        // 3. Load complaints using select('*') to handle target_id or content backup
+        if (!postId && isSupabaseConfigured) {
+          try {
+            const { data: complaintsData } = await supabase
+              .from('complaints')
+              .select('*')
+              .eq('user_id', currentUser.id)
+              .eq('resolution', 'blocked')
+              .order('created_at', { ascending: false })
+              .limit(1);
+
+            if (complaintsData && complaintsData.length > 0) {
+              const firstCompl = complaintsData[0];
+              postId = firstCompl.target_id;
+              if (!postId && firstCompl.content) {
+                const match = firstCompl.content.match(/\[TargetID:\s*([a-zA-Z0-9_-]+)\]/);
+                if (match) {
+                  postId = match[1];
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('Safely caught target_id column error during block post load:', err);
+          }
+        }
+
+        // 4. Load the post
         if (postId) {
           const post = await postRepository.getById(postId);
           if (post) {
@@ -2780,7 +2802,7 @@ export default function App() {
     };
 
     loadBlockedPost();
-  }, [currentUser?.id, currentUser?.isBlocked, isProfileBlocked]);
+  }, [currentUser?.id, currentUser?.isBlocked, isProfileBlocked, currentUser?.profileBlockInfo, currentUser?.publicSettings]);
 
   const [selectedViolations, setSelectedViolations] = useState<{ [key: string]: boolean }>({});
   const [isProfileVerified, setIsProfileVerified] = useState(false);
@@ -3342,6 +3364,9 @@ export default function App() {
       }
     });
 
+    const selectedPost = targetUserPosts.find(p => selectedViolations[p.id]);
+    const blockedPostId = selectedPost ? selectedPost.id : undefined;
+
     const blockData = {
       reason: blockReason,
       comment: replyText,
@@ -3350,6 +3375,7 @@ export default function App() {
       blockedBy: operatorName || 'Агент Поддержки',
       examplesList: activeViolations,
       isWithUnban: isWithUnban,
+      blocked_post_id: blockedPostId,
       examples: {
         posts: targetUserPosts.some(p => selectedViolations[p.id]),
         name: !!selectedViolations['name'],
@@ -3361,7 +3387,7 @@ export default function App() {
     try {
       if (isSupabaseConfigured) {
         // 1. Direct DB block set on profile
-        await profileRepository.setBlocked(targetId, true);
+        await profileRepository.setBlocked(targetId, true, blockReason, replyText, blockData);
 
         // 2. Direct insert Action to DB moderationRepository
         await moderationRepository.insertAction({
@@ -3528,6 +3554,8 @@ export default function App() {
       const targetUserName = blockingComplaint.userName;
       const targetUserId = blockingComplaint.userId;
 
+      const blockedPostId = blockingComplaint.type === 'post' ? blockingComplaint.targetId : undefined;
+
       const blockData = {
         duration: blockDuration,
         reason: blockReason,
@@ -3536,6 +3564,7 @@ export default function App() {
         moderator: operatorName || 'Агент Поддержки',
         blockedBy: operatorName || 'Агент Поддержки',
         examplesList: [blockingComplaint.content],
+        blocked_post_id: blockedPostId,
         examples: {
           posts: true,
           name: false,
@@ -3550,7 +3579,7 @@ export default function App() {
 
           // 1. Direct DB block set on profile
           if (targetUserId) {
-            await profileRepository.setBlocked(targetUserId, true);
+            await profileRepository.setBlocked(targetUserId, true, blockReason, replyText, blockData);
           }
 
           // 2. Direct Update status and resolution fields on complaint
@@ -12522,39 +12551,10 @@ export default function App() {
                   Эта публикация больше недоступна
                 </div>
               ) : blockedPost ? (
-                <div className="bg-zinc-50/30 rounded-xl border border-zinc-200/60 p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full overflow-hidden border border-zinc-150 shrink-0">
-                      {blockedPost.authorAvatar ? (
-                        <UserAvatar 
-                          user={users.find(u => u.name === blockedPost.authorName)} 
-                          avatarUrl={blockedPost.authorAvatar} 
-                          className="w-full h-full" 
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-zinc-100 flex items-center justify-center text-zinc-400 text-[10px]">👤</div>
-                      )}
-                    </div>
-                    <div className="flex flex-col leading-tight">
-                      <span className="text-[12.5px] font-bold text-zinc-800">{blockedPost.authorName}</span>
-                      <span className="text-[10px] text-zinc-400">
-                        {getPostDisplayTime ? getPostDisplayTime(blockedPost.timestamp) : 'недавно'}
-                      </span>
-                    </div>
-                  </div>
+                <div className="bg-zinc-50/30 rounded-xl border border-zinc-200/60 p-4">
                   <div className="text-[13px] text-zinc-700 whitespace-pre-line select-text leading-relaxed">
                     {blockedPost.text}
                   </div>
-                  {blockedPost.image && (
-                    <div className="border border-zinc-150/60 bg-white overflow-hidden max-h-[180px] flex items-center justify-center rounded-lg">
-                      <img 
-                        src={blockedPost.image} 
-                        className="w-full object-cover max-h-[180px]" 
-                        alt="Вложение" 
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                  )}
                 </div>
               ) : null}
             </div>

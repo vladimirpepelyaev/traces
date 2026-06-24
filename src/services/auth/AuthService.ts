@@ -49,6 +49,17 @@ export function profileToAppUser(profile: any): AppUser {
   rolesArray.recovery = isSuperAdmin;
   rolesArray.feed_moderator = isSuperAdmin || isModerator;
 
+  const blockReason = profile.public_settings?.block_reason || profile.status || '';
+  const moderatorComment = profile.public_settings?.moderator_comment || '';
+  const profileBlockInfo = profile.public_settings?.profile_block_info || (profile.blocked ? {
+    duration: profile.public_settings?.block_duration || 'Навсегда',
+    reason: profile.public_settings?.block_reason || 'Нарушение правил сообщества',
+    comment: profile.public_settings?.moderator_comment || '',
+    timestamp: profile.updated_at ? new Date(profile.updated_at) : new Date(),
+    moderator: profile.public_settings?.blocked_by || 'Агент Поддержки',
+    blocked_post_id: profile.public_settings?.blocked_post_id || undefined
+  } : undefined);
+
   const appUser: AppUser = {
     id: profile.id,
     name: profile.display_name || profile.username || 'Пользователь',
@@ -80,7 +91,10 @@ export function profileToAppUser(profile: any): AppUser {
       complaints: true,
       delete: isSuperAdmin,
       mark: isEmployee
-    }
+    },
+    blockReason: blockReason,
+    moderatorComment: moderatorComment,
+    profileBlockInfo: profileBlockInfo
   };
 
   // Log permissions and roles

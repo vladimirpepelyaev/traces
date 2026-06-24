@@ -254,8 +254,39 @@ export class UserRepository {
   /**
    * Block or unblock a user profile
    */
-  async setBlocked(userId: string, blocked: boolean): Promise<void> {
-    await this.saveProfile(userId, { blocked });
+  async setBlocked(
+    userId: string, 
+    blocked: boolean, 
+    blockReason?: string, 
+    moderatorComment?: string, 
+    blockInfo?: any
+  ): Promise<void> {
+    const profile = await this.getProfile(userId);
+    const existingSettings = profile?.public_settings || {};
+    
+    const updatedSettings = {
+      ...existingSettings,
+      block_reason: blocked ? blockReason : undefined,
+      moderator_comment: blocked ? moderatorComment : undefined,
+      block_duration: blocked ? blockInfo?.duration : undefined,
+      blocked_by: blocked ? blockInfo?.blockedBy : undefined,
+      profile_block_info: blocked ? blockInfo : undefined,
+      blocked_post_id: blocked ? blockInfo?.blocked_post_id : undefined
+    };
+
+    if (!blocked) {
+      delete updatedSettings.block_reason;
+      delete updatedSettings.moderator_comment;
+      delete updatedSettings.block_duration;
+      delete updatedSettings.blocked_by;
+      delete updatedSettings.profile_block_info;
+      delete updatedSettings.blocked_post_id;
+    }
+
+    await this.saveProfile(userId, { 
+      blocked, 
+      public_settings: updatedSettings 
+    });
   }
 
   /**

@@ -133,8 +133,39 @@ export class ProfileRepositoryProvider {
     await this.saveProfile(userId, { role });
   }
 
-  async setBlocked(userId: string, blocked: boolean): Promise<void> {
-    await this.saveProfile(userId, { blocked });
+  async setBlocked(
+    userId: string, 
+    blocked: boolean, 
+    blockReason?: string, 
+    moderatorComment?: string, 
+    blockInfo?: any
+  ): Promise<void> {
+    const profile = await this.getProfile(userId);
+    const existingSettings = profile?.public_settings || {};
+    
+    const updatedSettings = {
+      ...existingSettings,
+      block_reason: blocked ? blockReason : undefined,
+      moderator_comment: blocked ? moderatorComment : undefined,
+      block_duration: blocked ? blockInfo?.duration : undefined,
+      blocked_by: blocked ? blockInfo?.blockedBy : undefined,
+      profile_block_info: blocked ? blockInfo : undefined,
+      blocked_post_id: blocked ? blockInfo?.blocked_post_id : undefined
+    };
+
+    if (!blocked) {
+      delete updatedSettings.block_reason;
+      delete updatedSettings.moderator_comment;
+      delete updatedSettings.block_duration;
+      delete updatedSettings.blocked_by;
+      delete updatedSettings.profile_block_info;
+      delete updatedSettings.blocked_post_id;
+    }
+
+    await this.saveProfile(userId, { 
+      blocked, 
+      public_settings: updatedSettings 
+    });
   }
 
   async uploadAvatar(userId: string, file: File | Blob): Promise<string> {
@@ -755,19 +786,75 @@ export class ReportRepositoryProvider {
   async insert(complaint: Complaint): Promise<Complaint> {
     if (!isSupabaseConfigured) return complaint;
     const payload = this.mapComplaintToDb(complaint);
-    const { data, error } = await supabase
-      .from('complaints')
-      .insert(payload)
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('complaints')
+        .insert(payload)
+        .select()
+        .single();
 
-    console.log('[DB]', 'complaints', payload, data, error);
+      console.log('[DB]', 'complaints', payload, data, error);
 
-    if (error) {
-      console.error('[ReportRepository] Error insert complaint:', error);
-      throw error;
+      if (error) {
+        if (error.code === '42703') {
+          console.warn('[ReportRepository] Missing columns, retrying with fallback payload...');
+          const fallbackPayload = { ...payload };
+          delete fallbackPayload.target_id;
+          delete fallbackPayload.target_type;
+          delete fallbackPayload.target_status;
+          delete fallbackPayload.resolution;
+          delete fallbackPayload.resolution_comment;
+          delete fallbackPayload.resolved_at;
+          delete fallbackPayload.moderation_action_id;
+          
+          if (payload.target_id) {
+            fallbackPayload.content = `${payload.content || ''} [TargetID: ${payload.target_id}]`.trim();
+          }
+          
+          const { data: retryData, error: retryError } = await supabase
+            .from('complaints')
+            .insert(fallbackPayload)
+            .select()
+            .single();
+            
+          if (retryError) {
+            console.error('[ReportRepository] Fallback insert failed:', retryError);
+            throw retryError;
+          }
+          return this.mapDbToComplaint(retryData);
+        }
+        console.error('[ReportRepository] Error insert complaint:', error);
+        throw error;
+      }
+      return this.mapDbToComplaint(data);
+    } catch (err: any) {
+      if (err.code === '42703') {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.target_id;
+        delete fallbackPayload.target_type;
+        delete fallbackPayload.target_status;
+        delete fallbackPayload.resolution;
+        delete fallbackPayload.resolution_comment;
+        delete fallbackPayload.resolved_at;
+        delete fallbackPayload.moderation_action_id;
+        
+        if (payload.target_id) {
+          fallbackPayload.content = `${payload.content || ''} [TargetID: ${payload.target_id}]`.trim();
+        }
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('complaints')
+          .insert(fallbackPayload)
+          .select()
+          .single();
+          
+        if (retryError) {
+          throw retryError;
+        }
+        return this.mapDbToComplaint(retryData);
+      }
+      throw err;
     }
-    return this.mapDbToComplaint(data);
   }
 
   async update(complaintId: string, updates: Partial<Complaint>): Promise<void> {
@@ -785,17 +872,61 @@ export class ReportRepositoryProvider {
     if (updates.resolved_at !== undefined) dbUpdates.resolved_at = updates.resolved_at;
     if (updates.moderation_action_id !== undefined) dbUpdates.moderation_action_id = updates.moderation_action_id;
 
-    const { data, error } = await supabase
-      .from('complaints')
-      .update(dbUpdates)
-      .eq('id', complaintId)
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('complaints')
+        .update(dbUpdates)
+        .eq('id', complaintId)
+        .select();
 
-    console.log('[DB]', 'complaints', { complaintId, ...dbUpdates }, data, error);
+      console.log('[DB]', 'complaints update', { complaintId, ...dbUpdates }, data, error);
 
-    if (error) {
-      console.error('[ReportRepository] Error update complaint:', error);
-      throw error;
+      if (error) {
+        if (error.code === '42703') {
+          console.warn('[ReportRepository] Missing columns during update, retrying with fallback...');
+          const fallbackUpdates = { ...dbUpdates };
+          delete fallbackUpdates.target_type;
+          delete fallbackUpdates.target_status;
+          delete fallbackUpdates.resolution;
+          delete fallbackUpdates.resolution_comment;
+          delete fallbackUpdates.resolved_at;
+          delete fallbackUpdates.moderation_action_id;
+          
+          const { error: retryError } = await supabase
+            .from('complaints')
+            .update(fallbackUpdates)
+            .eq('id', complaintId);
+            
+          if (retryError) {
+            console.error('[ReportRepository] Fallback update failed:', retryError);
+            throw retryError;
+          }
+          return;
+        }
+        console.error('[ReportRepository] Error update complaint:', error);
+        throw error;
+      }
+    } catch (err: any) {
+      if (err.code === '42703') {
+        const fallbackUpdates = { ...dbUpdates };
+        delete fallbackUpdates.target_type;
+        delete fallbackUpdates.target_status;
+        delete fallbackUpdates.resolution;
+        delete fallbackUpdates.resolution_comment;
+        delete fallbackUpdates.resolved_at;
+        delete fallbackUpdates.moderation_action_id;
+        
+        const { error: retryError } = await supabase
+          .from('complaints')
+          .update(fallbackUpdates)
+          .eq('id', complaintId);
+          
+        if (retryError) {
+          throw retryError;
+        }
+        return;
+      }
+      throw err;
     }
   }
 
@@ -816,6 +947,14 @@ export class ReportRepositoryProvider {
   }
 
   private mapDbToComplaint(db: any): Complaint {
+    let targetId = db.target_id || undefined;
+    if (!targetId && db.content) {
+      const match = db.content.match(/\[TargetID:\s*([a-zA-Z0-9_-]+)\]/);
+      if (match) {
+        targetId = match[1];
+      }
+    }
+
     return {
       id: db.id,
       userId: db.user_id,
@@ -829,7 +968,7 @@ export class ReportRepositoryProvider {
       dept: db.dept,
       timestamp: db.created_at ? new Date(db.created_at) : undefined,
       moderatedBy: db.moderated_by,
-      targetId: db.target_id || undefined,
+      targetId: targetId,
       targetName: db.target_name || undefined,
       status: db.status || 'pending',
       // Added fields mapping

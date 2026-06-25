@@ -61,6 +61,8 @@ import {
   formatRelativeTime,
 } from './features/notifications/notificationHelpers';
 import { PlatformNotification } from './features/notifications/notificationTypes';
+import { Testpool } from './components/Testpool';
+import { testpoolService, isEnabled } from './services/testpool/TestpoolService';
 import { 
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
@@ -155,6 +157,7 @@ import {
   AlertTriangle,
   Flag,
   Flame,
+  Sliders,
 } from 'lucide-react';
 
 import { 
@@ -1164,7 +1167,7 @@ export default function App() {
     'profile', 'feed', 'discussed-now', 'notifications', 'support', 'moderation', 'spam', 'page_moderation', 
     'verification', 'requests', 'users', 'management', 'statistics', 
     'announcements', 'wiki', 'security', 'action-logs', 'monitoring', 
-    'quality-control', 'personnel', 'appeals', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout'
+    'quality-control', 'personnel', 'appeals', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout', 'testpool'
   ]);
   const [grantedAccess, setGrantedAccess] = useState<string[]>([]);
 
@@ -2877,6 +2880,7 @@ export default function App() {
     { id: 'announcements', icon: Icon16WorkOutline, label: 'Объявления', count: announcements.filter(a => a.isPinned).length, adminOnly: true },
     { id: 'wiki', icon: Icon16WorkOutline, label: 'База знаний', adminOnly: true },
     { id: 'personnel', icon: Icon16WorkOutline, label: 'Сотрудники', count: staffCount, adminOnly: true },
+    { id: 'testpool', icon: Sliders, label: 'Testpool' },
     { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
   ];
 
@@ -2893,6 +2897,10 @@ export default function App() {
       // Basic tabs always accessible
       if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy' || item.id === 'discussed-now') {
         return true;
+      }
+
+      if (item.id === 'testpool') {
+        return !!(isAdminMode || currentUser?.isEmployee || isWorker(currentUser));
       }
 
       if (item.adminOnly) {
@@ -16757,6 +16765,14 @@ export default function App() {
         return renderPersonnel();
       case 'page_moderation':
         return renderPageModeration();
+      case 'testpool':
+        return (
+          <Testpool
+            currentUser={currentUser}
+            users={users}
+            addNotification={addNotification}
+          />
+        );
 
       case 'profile':
       default: {
@@ -17040,6 +17056,29 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* Early Access / Ранний доступ Experiments Block */}
+            {(() => {
+              const activeUserExps = testpoolService.getActiveUserExperiments(currentDisplayUser?.id || '', currentDisplayUser);
+              if (activeUserExps.length === 0) return null;
+              
+              return (
+                <div className="bg-white p-5 border border-zinc-200/60 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-3" id="profile-early-access">
+                  <div className="flex items-center gap-2 border-b border-zinc-100 pb-2.5">
+                    <span className="text-[#5181b8] text-base">✨</span>
+                    <h3 className="font-semibold text-zinc-900 text-sm tracking-tight">Ранний доступ</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" id="early-access-list">
+                    {activeUserExps.map((exp, idx) => (
+                      <div key={idx} className="bg-zinc-50/50 border border-zinc-100 p-3.5 rounded-xl space-y-1" id={`early-access-item-${idx}`}>
+                        <h4 className="font-semibold text-zinc-800 text-xs">{exp.title}</h4>
+                        <p className="text-[11px] text-zinc-500 leading-normal">{exp.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* In-tab dynamic user profile insights dashboard */}
             {!isViewingServiceProfile && (

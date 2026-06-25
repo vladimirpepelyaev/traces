@@ -110,7 +110,7 @@ export class ExperimentRepository {
 
         if (error) {
           // Code 42P01 means table does not exist
-          if (error.code === '42P01' || error.status === 404) {
+          if (error.code === '42P01' || (error as any).status === 404) {
             console.warn(
               '[Testpool Repository] Database tables do not exist in Supabase yet. ' +
               'Falling back to LocalStorage. Please apply `/supabase_migration_testpool.sql` to your Supabase SQL editor to enable database persistence.'

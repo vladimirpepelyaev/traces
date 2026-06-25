@@ -4,6 +4,7 @@ import {
   testpoolService, 
   isEnabled 
 } from '../services/testpool/TestpoolService';
+import { experimentRepository } from '../services/testpool/ExperimentRepository';
 import { TestpoolExperiment, TestpoolAssignment, TestpoolEvent, AppUser, ExperimentStatus } from '../types';
 import { 
   Search, 
@@ -33,6 +34,7 @@ interface TestpoolProps {
 
 export function Testpool({ currentUser, users, addNotification }: TestpoolProps) {
   const [experiments, setExperiments] = useState<TestpoolExperiment[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Modals state
@@ -58,18 +60,48 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
   // Experiment change log state
   const [eventLogs, setEventLogs] = useState<TestpoolEvent[]>([]);
 
-  // Load experiments on mount and register listener for real-time state sync
+  // Load experiments on mount and register listener for real-time state sync with diagnostics
   useEffect(() => {
-    const updateList = () => {
-      testpoolService.preload().then(() => {
-        setExperiments(Array.from((testpoolService as any).experimentsCache.values()));
-      });
+    console.log('TESTPOOL_ROUTE', window.location.pathname);
+
+    let reason = 'none';
+    // If not authorized to see, we might redirect (or we might just let parent handle)
+    const canAccess = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin' || currentUser.isEmployee);
+    if (!canAccess) {
+      reason = 'not_authorized';
+    }
+    console.log('TESTPOOL_REDIRECT_REASON', reason);
+
+    const updateList = async () => {
+      try {
+        setLoading(true);
+        const data = await experimentRepository.getExperiments();
+        console.log('TESTPOOL_RESPONSE', data);
+
+        await testpoolService.preload();
+        const loadedExps = Array.from((testpoolService as any).experimentsCache.values()) as TestpoolExperiment[];
+        setExperiments(loadedExps);
+      } catch (err) {
+        console.error('[Testpool] Error preloading experiments:', err);
+        console.log('TESTPOOL_RESPONSE', null);
+      } finally {
+        setLoading(false);
+      }
     };
 
     updateList();
     const unsubscribe = testpoolService.subscribe(updateList);
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
+
+  // TESTPOOL_RENDER diagnostics log
+  useEffect(() => {
+    console.log('TESTPOOL_RENDER', {
+      loading,
+      experimentsCount: experiments.length,
+      currentExperiment: experiments[0] || null
+    });
+  }, [loading, experiments]);
 
   // Update participant list when participant modal is open
   useEffect(() => {
@@ -318,6 +350,122 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
       addNotification('Ошибка', 'Не удалось изменить процент раскатки');
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4" id="testpool-loader">
+        <div className="w-10 h-10 border-4 border-[#5181b8] border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm text-zinc-500 font-medium">Загрузка экспериментов...</p>
+      </div>
+    );
+  }
+
+  if (experiments.length === 0) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto text-center space-y-6 mt-12 bg-white border border-[#e3e9f0] rounded-2xl shadow-sm" id="testpool-empty-state-root">
+        <Sliders className="mx-auto text-zinc-300" size={48} />
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-zinc-800">Экспериментов пока нет</h2>
+          <p className="text-sm text-zinc-500">Создайте первый эксперимент</p>
+        </div>
+        <button 
+          onClick={() => setIsCreateOpen(true)}
+          className="mx-auto flex items-center justify-center gap-2 bg-[#5181b8] text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-[#4671a3] transition cursor-pointer"
+        >
+          <Plus size={16} />
+          Создать эксперимент
+        </button>
+        
+        {/* Render Create Experiment Modal inside Empty State if opened */}
+        <AnimatePresence>
+          {isCreateOpen && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white border border-[#e3e9f0] rounded-2xl p-6 max-w-md w-full shadow-xl text-left"
+              >
+                <div className="flex items-center justify-between border-b border-zinc-100 pb-3 mb-4">
+                  <h3 className="font-semibold text-zinc-900 text-lg">Зарегистрировать функцию</h3>
+                  <button onClick={() => setIsCreateOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {formError && (
+                  <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-600 p-3 rounded-xl text-xs flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{formError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-zinc-400 font-medium mb-1">
+                      Служебный ключ функции (уникальный) <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="E.g. ai_summary_widget, new_header"
+                      value={newKey}
+                      onChange={(e) => setNewKey(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200/80 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#5181b8]/20 focus:border-[#5181b8]"
+                    />
+                    <p className="text-[10px] text-zinc-400 mt-1">
+                      Используется разработчиками в коде: <code className="bg-zinc-100 px-1 rounded">isEnabled('key', userId)</code>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 font-medium mb-1">
+                      Название функции <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="E.g. Умный помощник в комментариях"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200/80 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#5181b8]/20 focus:border-[#5181b8]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 font-medium mb-1">Описание и цель запуска</label>
+                    <textarea 
+                      placeholder="Укажите, что тестирует фича, и какая целевая группа..."
+                      rows={3}
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200/80 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#5181b8]/20 focus:border-[#5181b8] resize-none"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-3 border-t border-zinc-100">
+                    <button 
+                      type="button"
+                      onClick={() => setIsCreateOpen(false)}
+                      className="px-4 py-2 border border-zinc-200 rounded-lg text-sm text-zinc-500 hover:bg-zinc-50"
+                    >
+                      Отмена
+                    </button>
+                    <button 
+                      type="submit"
+                      className="px-4 py-2 bg-[#5181b8] hover:bg-[#4671a3] text-white rounded-lg text-sm font-medium"
+                    >
+                      Зарегистрировать
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6" id="testpool-section">

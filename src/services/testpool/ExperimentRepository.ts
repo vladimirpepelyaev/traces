@@ -77,6 +77,24 @@ const INITIAL_EXPERIMENTS_SEED: TestpoolExperiment[] = [
     include_new_users: true,
     released_at: null,
     expires_at: null
+  },
+  {
+    id: 'e5e9d5f2-4b6a-4cf7-8d9e-1b3c5a7e9f05',
+    key: 'profile_custom_colors_v1',
+    title: 'Кастомные цвета профиля (v1)',
+    description: 'Возможность настройки индивидуального цветового оформления профиля и постов.',
+    status: 'draft',
+    enabled: false,
+    created_by: 'system',
+    updated_by: 'system',
+    created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    rollout_percent: 0,
+    include_new_users: false,
+    released_at: null,
+    expires_at: null,
+    rollout_all: false,
+    rollout_new_users: false
   }
 ];
 
@@ -460,6 +478,101 @@ export class ExperimentRepository {
       throw error;
     }
     return data;
+  }
+
+  async isEnabled(experimentKey: string, userId: string, userProfile?: any): Promise<boolean> {
+    if (!experimentKey || !userId) return false;
+
+    const experiment = await this.getExperimentByKey(experimentKey);
+    if (!experiment) return false;
+
+    // Must be enabled
+    if (!experiment.enabled) return false;
+
+    // 1. либо пользователь присутствует в testpool_assignments
+    const assignments = await this.getAssignments(experiment.id);
+    const isAssigned = assignments.some(a => a.user_id === userId && !a.removed_at && a.enabled);
+    if (isAssigned) return true;
+
+    // 2. либо experiment.rollout_all=true
+    const rolloutAll = (experiment as any).rollout_all === true || experiment.rollout_percent === 100 || experiment.status === 'released';
+    if (rolloutAll) return true;
+
+    // 3. либо experiment.rollout_new_users=true и профиль создан после запуска
+    const rolloutNewUsers = (experiment as any).rollout_new_users === true || experiment.status === 'new_users' || experiment.include_new_users === true;
+    if (rolloutNewUsers) {
+      try {
+        let profile = userProfile;
+        if (!profile && userId) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('created_at')
+            .eq('id', userId)
+            .maybeSingle();
+          if (!error && data) {
+            profile = data;
+          }
+        }
+        if (profile && profile.created_at) {
+          const userRegDate = new Date(profile.created_at).getTime();
+          const launchTime = experiment.released_at 
+            ? new Date(experiment.released_at).getTime() 
+            : new Date(experiment.created_at).getTime();
+          if (userRegDate > launchTime) {
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error('[ExperimentRepository] Error checking rollout_new_users dates:', e);
+      }
+    }
+
+    return false;
+  }
+
+  async assignUser(experimentId: string, userId: string, source: string = 'manual'): Promise<any> {
+    return this.addAssignment({
+      experiment_id: experimentId,
+      user_id: userId,
+      source,
+      enabled: true
+    });
+  }
+
+  async removeUser(experimentId: string, userId: string): Promise<boolean> {
+    return this.removeAssignment(experimentId, userId);
+  }
+
+  async trackEvent(experimentIdOrAction: string, operatorIdOrUserId?: string, action?: string, payload?: any): Promise<any> {
+    let experimentId = '';
+    let operatorId = operatorIdOrUserId || 'system';
+    let finalAction = experimentIdOrAction;
+    let finalPayload = payload || {};
+
+    if (action) {
+      experimentId = experimentIdOrAction;
+      operatorId = operatorIdOrUserId || 'system';
+      finalAction = action;
+    } else {
+      const experiment = await this.getExperimentByKey('profile_custom_colors_v1');
+      if (experiment) {
+        experimentId = experiment.id;
+      }
+      operatorId = operatorIdOrUserId || 'system';
+      finalAction = experimentIdOrAction;
+    }
+
+    if (!experimentId) {
+      console.warn('[ExperimentRepository] Cannot track event - no experimentId found for action:', finalAction);
+      return null;
+    }
+
+    return this.addEvent({
+      experiment_id: experimentId,
+      operator_id: operatorId,
+      action: finalAction,
+      payload: finalPayload
+    });
   }
 }
 

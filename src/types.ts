@@ -56,6 +56,7 @@ export interface Ticket {
 
 export interface FeedPost {
   id: string;
+  authorId?: string;
   authorName: string;
   authorAvatar: string;
   title?: string;
@@ -113,6 +114,7 @@ export interface AppUser {
   isVerified: boolean;
   isBlocked: boolean;
   regDate: string;
+  profileTheme?: string;
   isDeleted?: boolean;
   originalName?: string;
   isPornMarked?: boolean;
@@ -268,6 +270,8 @@ export interface TestpoolExperiment {
   include_new_users: boolean;
   released_at: string | null;
   expires_at: string | null;
+  rollout_all?: boolean;
+  rollout_new_users?: boolean;
 }
 
 export interface TestpoolAssignment {

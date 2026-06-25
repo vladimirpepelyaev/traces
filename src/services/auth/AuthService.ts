@@ -69,6 +69,7 @@ export function profileToAppUser(profile: any): AppUser {
     isVerified: isVerified,
     isBlocked: !!profile.blocked,
     regDate: profile.created_at ? new Date(profile.created_at).toLocaleDateString() : new Date().toLocaleDateString(),
+    profileTheme: profile.profile_theme || 'default',
     role: role,
     roleList: [role],
     roles: rolesArray,

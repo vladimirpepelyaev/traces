@@ -498,7 +498,11 @@ export default function App() {
   };
 
   const handleProfileReportSubmit = async (reason: string) => {
-    if (!reportingProfile || !currentUser) return;
+    console.log("PROFILE_REPORT_SUBMIT_START", { reason, reportingProfile, currentUser, isSupabaseConfigured });
+    if (!reportingProfile || !currentUser) {
+      console.warn("PROFILE_REPORT_EARLY_RETURN - missing reportingProfile or currentUser", { reportingProfile, currentUser });
+      return;
+    }
     setIsSendingComplaint(true);
     setComplaintError(null);
 
@@ -521,11 +525,14 @@ export default function App() {
     };
 
     try {
+      console.log("PROFILE_REPORT_INSERT_CALLING", complaint);
       // 1. Insert to DB and select back inside reportRepository.insert
       const inserted = await reportRepository.insert(complaint);
+      console.log("PROFILE_REPORT_INSERT_SUCCESS", inserted);
       
       // 2. Fetch all from DB and update state (Source of truth is DB only)
       const allComplaints = await reportRepository.getAll();
+      console.log("PROFILE_REPORT_GETALL", allComplaints);
       if (allComplaints) {
         _setComplaintsOriginal(allComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
         _setSpamComplaintsOriginal(allComplaints.filter(c => c.dept === 'Spam'));
@@ -558,7 +565,11 @@ export default function App() {
   };
 
   const handlePostReportSubmit = async (reason: string) => {
-    if (!reportingPost || !currentUser) return;
+    console.log("POST_REPORT_SUBMIT_START", { reason, reportingPost, currentUser, isSupabaseConfigured });
+    if (!reportingPost || !currentUser) {
+      console.warn("POST_REPORT_EARLY_RETURN - missing reportingPost or currentUser", { reportingPost, currentUser });
+      return;
+    }
     setIsSendingComplaint(true);
     setComplaintError(null);
 
@@ -580,11 +591,14 @@ export default function App() {
     };
 
     try {
+      console.log("POST_REPORT_INSERT_CALLING", complaint);
       // 1. Insert to DB and select back
       const inserted = await reportRepository.insert(complaint);
+      console.log("POST_REPORT_INSERT_SUCCESS", inserted);
 
       // 2. Fetch all from DB and update state (Source of truth is DB only)
       const allComplaints = await reportRepository.getAll();
+      console.log("POST_REPORT_GETALL", allComplaints);
       if (allComplaints) {
         _setComplaintsOriginal(allComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
         _setSpamComplaintsOriginal(allComplaints.filter(c => c.dept === 'Spam'));

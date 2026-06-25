@@ -790,19 +790,19 @@ export class ReportRepositoryProvider {
     if (!isSupabaseConfigured) return complaint;
     const payload = this.mapComplaintToDb(complaint);
     try {
+      console.log('[DB] [ReportRepository] complaints insert call:', payload);
       const { data, error } = await supabase
         .from('complaints')
         .insert(payload)
         .select()
         .single();
 
-      console.log('[DB]', 'complaints', payload, data, error);
+      console.log('[DB] [ReportRepository] complaints first insert result:', { data, error });
 
       if (error) {
         if (error.code === '42703') {
           console.warn('[ReportRepository] Missing columns, retrying with fallback payload...');
           const fallbackPayload = { ...payload };
-          delete fallbackPayload.target_id;
           delete fallbackPayload.target_type;
           delete fallbackPayload.target_status;
           delete fallbackPayload.resolution;
@@ -810,16 +810,14 @@ export class ReportRepositoryProvider {
           delete fallbackPayload.resolved_at;
           delete fallbackPayload.moderation_action_id;
           
-          if (payload.target_id) {
-            fallbackPayload.content = `${payload.content || ''} [TargetID: ${payload.target_id}]`.trim();
-          }
-          
+          console.log('[DB] [ReportRepository] Retrying with fallbackPayload:', fallbackPayload);
           const { data: retryData, error: retryError } = await supabase
             .from('complaints')
             .insert(fallbackPayload)
             .select()
             .single();
             
+          console.log('[DB] [ReportRepository] Fallback insert result:', { retryData, retryError });
           if (retryError) {
             console.error('[ReportRepository] Fallback insert failed:', retryError);
             throw retryError;
@@ -831,9 +829,9 @@ export class ReportRepositoryProvider {
       }
       return this.mapDbToComplaint(data);
     } catch (err: any) {
+      console.error('[ReportRepository] Exception in insert:', err);
       if (err.code === '42703') {
         const fallbackPayload = { ...payload };
-        delete fallbackPayload.target_id;
         delete fallbackPayload.target_type;
         delete fallbackPayload.target_status;
         delete fallbackPayload.resolution;
@@ -841,16 +839,14 @@ export class ReportRepositoryProvider {
         delete fallbackPayload.resolved_at;
         delete fallbackPayload.moderation_action_id;
         
-        if (payload.target_id) {
-          fallbackPayload.content = `${payload.content || ''} [TargetID: ${payload.target_id}]`.trim();
-        }
-        
+        console.log('[DB] [ReportRepository] Catch block retrying with fallbackPayload:', fallbackPayload);
         const { data: retryData, error: retryError } = await supabase
           .from('complaints')
           .insert(fallbackPayload)
           .select()
           .single();
           
+        console.log('[DB] [ReportRepository] Catch block fallback insert result:', { retryData, retryError });
         if (retryError) {
           throw retryError;
         }

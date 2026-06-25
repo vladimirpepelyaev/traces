@@ -166,6 +166,17 @@ import {
 import { PrivacySettingsModal } from './features/profile-privacy/PrivacySettingsModal';
 import { ProfilePreviewStatus } from './features/profile-preview/ProfilePreviewStatus';
 
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 const SupportAgentAvatar = ({ className = "w-[44px] h-[44px]", src }: { className?: string; src?: string }) => {
   const avatarSrc = src || (window as any)._operatorAvatar || "images.png";
   return (
@@ -492,7 +503,7 @@ export default function App() {
     setComplaintError(null);
 
     const complaint: Complaint = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       userId: currentUser.id,
       userName: currentUser.name || 'Anonymous',
       userAvatar: currentUser.avatar || '',
@@ -552,7 +563,7 @@ export default function App() {
     setComplaintError(null);
 
     const complaint: Complaint = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       userId: currentUser.id,
       userName: currentUser.name || 'Anonymous',
       userAvatar: currentUser.avatar || '',
@@ -11340,7 +11351,7 @@ export default function App() {
 
     const analyzedTopics = TopicScoreService.analyzePost('', inputText, allTopics);
     const newPost: FeedPost = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       authorName: currentUser.name,
       authorAvatar: currentUser.avatar || '',
       text: inputText,

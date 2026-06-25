@@ -485,12 +485,14 @@ export default function App() {
   };
 
   const handleComplainAboutProfile = (user: any) => {
+    console.log('REPORT_HANDLER', 'complain profile', user);
     setReportingProfile(user);
     setComplaintError(null);
     setIsSendingComplaint(false);
   };
 
   const handleComplainAboutPost = (post: any) => {
+    console.log('REPORT_HANDLER', 'complain post', post);
     setReportingPost(post);
     setComplaintError(null);
     setIsSendingComplaint(false);
@@ -498,6 +500,7 @@ export default function App() {
   };
 
   const handleProfileReportSubmit = async (reason: string) => {
+    console.log('REPORT_HANDLER', 'profile submit', reason);
     console.log("PROFILE_REPORT_SUBMIT_START", { reason, reportingProfile, currentUser, isSupabaseConfigured });
     if (!reportingProfile || !currentUser) {
       console.warn("PROFILE_REPORT_EARLY_RETURN - missing reportingProfile or currentUser", { reportingProfile, currentUser });
@@ -565,6 +568,7 @@ export default function App() {
   };
 
   const handlePostReportSubmit = async (reason: string) => {
+    console.log('REPORT_HANDLER', 'post submit', reason);
     console.log("POST_REPORT_SUBMIT_START", { reason, reportingPost, currentUser, isSupabaseConfigured });
     if (!reportingPost || !currentUser) {
       console.warn("POST_REPORT_EARLY_RETURN - missing reportingPost or currentUser", { reportingPost, currentUser });
@@ -13964,169 +13968,6 @@ export default function App() {
             </motion.div>
           </div>
         )}
-
-        {/* Report/Complaint Modal for Profile */}
-        {reportingProfile && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
-            >
-              {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
-                <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
-                  <Flag size={16} className="text-[#e64646]" />
-                  Пожаловаться на профиль
-                </h3>
-                <button 
-                  disabled={isSendingComplaint}
-                  onClick={() => { setReportingProfile(null); setComplaintError(null); }}
-                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Modal Content */}
-              <div className="p-5 space-y-4">
-                <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left flex items-center gap-2.5">
-                  <img src={reportingProfile.avatar} className="w-8 h-8 rounded-full object-cover" />
-                  <div>
-                    <div className="text-[12.5px] font-semibold text-vk-text">{reportingProfile.name}</div>
-                    <div className="text-[10px] text-vk-text-secondary">Отдел: Модерация страниц</div>
-                  </div>
-                </div>
-
-                {complaintError && (
-                  <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
-                    {complaintError}
-                  </div>
-                )}
-
-                {isSendingComplaint && (
-                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
-                    Сохранение жалобы в БД...
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-[12px] font-semibold text-vk-text block mb-2">
-                    Выберите причину жалобы:
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
-                      <button
-                        key={reason}
-                        disabled={isSendingComplaint}
-                        onClick={() => handleProfileReportSubmit(reason)}
-                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <span>{reason}</span>
-                        <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
-                <button
-                  disabled={isSendingComplaint}
-                  onClick={() => { setReportingProfile(null); setComplaintError(null); }}
-                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
-                >
-                  Отмена
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Report/Complaint Modal for Post */}
-        {reportingPost && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
-            >
-              {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
-                <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
-                  <Flag size={16} className="text-[#e64646]" />
-                  Пожаловаться на публикацию
-                </h3>
-                <button 
-                  disabled={isSendingComplaint}
-                  onClick={() => { setReportingPost(null); setComplaintError(null); }}
-                  className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Modal Content */}
-              <div className="p-5 space-y-4">
-                <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left">
-                  <div className="text-[11px] text-vk-text-secondary font-semibold uppercase tracking-wider mb-1">
-                    Автор публикации: {reportingPost.authorName}
-                  </div>
-                  {reportingPost.text && (
-                    <div className="text-[12px] text-vk-text italic line-clamp-2 break-words">
-                      «{reportingPost.text}»
-                    </div>
-                  )}
-                </div>
-
-                {complaintError && (
-                  <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
-                    {complaintError}
-                  </div>
-                )}
-
-                {isSendingComplaint && (
-                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
-                    Сохранение жалобы в БД...
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-[12px] font-semibold text-vk-text block mb-2">
-                    Выберите причину жалобы:
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
-                      <button
-                        key={reason}
-                        disabled={isSendingComplaint}
-                        onClick={() => handlePostReportSubmit(reason)}
-                        className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <span>{reason}</span>
-                        <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
-                <button
-                  disabled={isSendingComplaint}
-                  onClick={() => { setReportingPost(null); setComplaintError(null); }}
-                  className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
-                >
-                  Отмена
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
       </motion.div>
     );
   };
@@ -17153,7 +16994,10 @@ export default function App() {
                           </button>
 
                           <button 
-                            onClick={() => handleComplainAboutProfile(currentDisplayUser)}
+                            onClick={() => {
+                              console.log('REPORT_CLICK', 'profile', currentDisplayUser);
+                              handleComplainAboutProfile(currentDisplayUser);
+                            }}
                             className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-[#EF4444] border border-rose-100 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <ShieldAlert size={13} />
@@ -19510,6 +19354,175 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* Global Report/Complaint Modal for Profile */}
+      {reportingProfile && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-[10000] p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
+              <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
+                <Flag size={16} className="text-[#e64646]" />
+                Пожаловаться на профиль
+              </h3>
+              <button 
+                disabled={isSendingComplaint}
+                onClick={() => { setReportingProfile(null); setComplaintError(null); }}
+                className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-5 space-y-4">
+              <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left flex items-center gap-2.5">
+                <img src={reportingProfile.avatar} className="w-8 h-8 rounded-full object-cover" />
+                <div>
+                  <div className="text-[12.5px] font-semibold text-vk-text">{reportingProfile.name}</div>
+                  <div className="text-[10px] text-vk-text-secondary">Отдел: Модерация страниц</div>
+                </div>
+              </div>
+
+              {complaintError && (
+                <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
+                  {complaintError}
+                </div>
+              )}
+
+              {isSendingComplaint && (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
+                  Сохранение жалобы в БД...
+                </div>
+              )}
+
+              <div>
+                <label className="text-[12px] font-semibold text-vk-text block mb-2">
+                  Выберите причину жалобы:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
+                    <button
+                      key={reason}
+                      disabled={isSendingComplaint}
+                      onClick={() => {
+                        console.log('REPORT_MODAL_SUBMIT_CLICK', 'profile', reason);
+                        handleProfileReportSubmit(reason);
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span>{reason}</span>
+                      <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
+              <button
+                disabled={isSendingComplaint}
+                onClick={() => { setReportingProfile(null); setComplaintError(null); }}
+                className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+              >
+                Отмена
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Global Report/Complaint Modal for Post */}
+      {reportingPost && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-[10000] p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[8px] border border-[#dce1e6] shadow-xl w-full max-w-md overflow-hidden text-left"
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-[#e7e8ec] flex items-center justify-between bg-[#fafbfc]">
+              <h3 className="text-[14px] font-bold text-vk-text flex items-center gap-2">
+                <Flag size={16} className="text-[#e64646]" />
+                Пожаловаться на публикацию
+              </h3>
+              <button 
+                disabled={isSendingComplaint}
+                onClick={() => { setReportingPost(null); setComplaintError(null); }}
+                className="text-gray-400 hover:text-gray-600 rounded-full p-1 cursor-pointer disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-5 space-y-4">
+              <div className="bg-[#f0f2f5] p-3 rounded-[6px] border border-[#e7e8ec] text-left">
+                <div className="text-[11px] text-vk-text-secondary font-semibold uppercase tracking-wider mb-1">
+                  Автор публикации: {reportingPost.authorName}
+                </div>
+                {reportingPost.text && (
+                  <div className="text-[12px] text-vk-text italic line-clamp-2 break-words">
+                    «{reportingPost.text}»
+                  </div>
+                )}
+              </div>
+
+              {complaintError && (
+                <div className="text-xs text-red-650 bg-red-50 border border-red-200 rounded p-2.5 text-left font-sans font-medium">
+                  {complaintError}
+                </div>
+              )}
+
+              {isSendingComplaint && (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-vk-text-secondary font-medium">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#5181b8] border-t-transparent" />
+                  Сохранение жалобы в БД...
+                </div>
+              )}
+
+              <div>
+                <label className="text-[12px] font-semibold text-vk-text block mb-2">
+                  Выберите причину жалобы:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['Спам', 'Оскорбление', 'Угроза', 'Домогательство', 'Мошенничество', 'Доксинг'] as const).map((reason) => (
+                    <button
+                      key={reason}
+                      disabled={isSendingComplaint}
+                      onClick={() => {
+                        console.log('REPORT_MODAL_SUBMIT_CLICK', 'post', reason);
+                        handlePostReportSubmit(reason);
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 rounded-[4px] border border-[#dce1e6] hover:border-[#5181b8] text-[13px] hover:bg-[#eaf2ff] transition-all font-medium text-vk-text cursor-pointer hover:text-[#2a5885] flex items-center justify-between group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span>{reason}</span>
+                      <ChevronRight size={13} className="text-gray-400 group-hover:text-[#2a5885] transition-colors" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-[#e7e8ec] bg-[#fafbfc] flex justify-end gap-2 text-right">
+              <button
+                disabled={isSendingComplaint}
+                onClick={() => { setReportingPost(null); setComplaintError(null); }}
+                className="px-4 py-1.5 hover:bg-[#eef2f5] text-vk-text-secondary rounded-[4px] text-[12.5px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+              >
+                Отмена
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {activeMenuPost && menuPosition && createPortal(
         <>
           {/* Click outside backdrop catcher */}
@@ -19529,6 +19542,7 @@ export default function App() {
           >
             <button 
               onClick={(e) => {
+                console.log('REPORT_CLICK', 'post', activeMenuPost);
                 e.stopPropagation();
                 handleComplainAboutPost(activeMenuPost);
                 setActiveMenuPost(null);

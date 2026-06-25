@@ -791,11 +791,13 @@ export class ReportRepositoryProvider {
     const payload = this.mapComplaintToDb(complaint);
     try {
       console.log('[DB] [ReportRepository] complaints insert call:', payload);
+      console.log('REPORT_INSERT_START');
       const { data, error } = await supabase
         .from('complaints')
         .insert(payload)
         .select()
         .single();
+      console.log('REPORT_INSERT_DONE');
 
       console.log('[DB] [ReportRepository] complaints first insert result:', { data, error });
 

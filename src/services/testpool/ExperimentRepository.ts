@@ -534,36 +534,44 @@ export class ExperimentRepository {
     return data || [];
   }
 
-  async addEvent(event: Omit<TestpoolEvent, 'id' | 'created_at'>): Promise<TestpoolEvent> {
+  async addEvent(event: any): Promise<any> {
     await this.checkDatabaseAvailability();
 
-    const newEvent: TestpoolEvent = {
+    const isUUID = (val: any): boolean => {
+      return typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    };
+
+    const cleanUUID = (val: any): string | null => {
+      return isUUID(val) ? val : null;
+    };
+
+    // Construct the full potential DB payload matching user's testpool_events schema
+    const newEvent: any = {
       id: generateUUID(),
-      experiment_id: event.experiment_id,
-      operator_id: event.operator_id,
-      action: event.action,
+      experiment_id: cleanUUID(event.experiment_id),
+      user_id: cleanUUID(event.user_id || event.operator_id),
+      operator_id: cleanUUID(event.operator_id),
+      target_id: cleanUUID(event.target_id),
+      event: event.event || event.action || null,
+      event_key: event.event_key || event.action || null,
+      action: event.action || event.event || '',
+      metadata: event.metadata || null,
       payload: event.payload || {},
-      created_at: new Date().toISOString()
+      result: event.result || null,
+      created_at: event.created_at || new Date().toISOString(),
+      updated_at: event.updated_at || null
     };
 
     if (this.useLocalStorage) {
       const data = localStorage.getItem('testpool_events');
-      const list: TestpoolEvent[] = data ? JSON.parse(data) : [];
+      const list: any[] = data ? JSON.parse(data) : [];
       list.push(newEvent);
       localStorage.setItem('testpool_events', JSON.stringify(list));
       return newEvent;
     }
 
-    const { data, error } = await supabase
-      .from('testpool_events')
-      .insert(newEvent)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[ExperimentRepository] addEvent error:', error);
-      throw error;
-    }
+    // Use safeSupabaseWrite to handle dynamic database schema changes seamlessly
+    const data = await safeSupabaseWrite('testpool_events', 'insert', newEvent);
     return data;
   }
 
@@ -631,34 +639,50 @@ export class ExperimentRepository {
   }
 
   async trackEvent(experimentIdOrAction: string, operatorIdOrUserId?: string, action?: string, payload?: any): Promise<any> {
+    const isUUID = (val: any): boolean => {
+      return typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    };
+
     let experimentId = '';
-    let operatorId = operatorIdOrUserId || 'system';
+    let operatorId = operatorIdOrUserId || '';
     let finalAction = experimentIdOrAction;
     let finalPayload = payload || {};
 
     if (action) {
-      experimentId = experimentIdOrAction;
-      operatorId = operatorIdOrUserId || 'system';
-      finalAction = action;
-    } else {
-      const experiment = await this.getExperimentByKey('profile_custom_colors_v1');
-      if (experiment) {
-        experimentId = experiment.id;
+      if (isUUID(experimentIdOrAction)) {
+        experimentId = experimentIdOrAction;
+        finalAction = action;
+      } else {
+        // First parameter is NOT a UUID (it's the event name/key). Let's resolve the actual experiment's UUID.
+        const experiment = await this.getExperimentByKey('profile_custom_colors_v1');
+        if (experiment) {
+          experimentId = experiment.id;
+        }
+        finalAction = experimentIdOrAction;
       }
-      operatorId = operatorIdOrUserId || 'system';
-      finalAction = experimentIdOrAction;
-    }
-
-    if (!experimentId) {
-      console.warn('[ExperimentRepository] Cannot track event - no experimentId found for action:', finalAction);
-      return null;
+    } else {
+      if (isUUID(experimentIdOrAction)) {
+        experimentId = experimentIdOrAction;
+        finalAction = 'action';
+      } else {
+        const experiment = await this.getExperimentByKey('profile_custom_colors_v1');
+        if (experiment) {
+          experimentId = experiment.id;
+        }
+        finalAction = experimentIdOrAction;
+      }
     }
 
     return this.addEvent({
       experiment_id: experimentId,
       operator_id: operatorId,
+      user_id: operatorId,
       action: finalAction,
-      payload: finalPayload
+      event: finalAction,
+      event_key: finalAction,
+      target_id: null,
+      payload: finalPayload,
+      created_at: new Date().toISOString()
     });
   }
 }

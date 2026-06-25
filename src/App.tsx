@@ -286,6 +286,278 @@ const ImagePlaceholder = ({ className = "", forceGrayscale = false }: { classNam
   );
 };
 
+export function calculateBlockedUntil(duration: string): string | null {
+  const now = Date.now();
+  if (!duration || duration === 'Навсегда' || duration.toLowerCase() === 'permanent') {
+    return null;
+  }
+  
+  if (duration === '1 час') {
+    return new Date(now + 60 * 60 * 1000).toISOString();
+  }
+  if (duration === '1 день' || duration === '24 часа') {
+    return new Date(now + 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (duration === '3 дня') {
+    return new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (duration === '7 дней' || duration === '1 неделя') {
+    return new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (duration === '30 дней') {
+    return new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  
+  // Parse any custom format as fallback
+  const num = parseInt(duration);
+  if (!isNaN(num)) {
+    if (duration.includes('час')) {
+      return new Date(now + num * 60 * 60 * 1000).toISOString();
+    }
+    if (duration.includes('день') || duration.includes('дня') || duration.includes('дней')) {
+      return new Date(now + num * 24 * 60 * 60 * 1000).toISOString();
+    }
+    if (duration.includes('недел')) {
+      return new Date(now + num * 7 * 24 * 60 * 60 * 1000).toISOString();
+    }
+  }
+  
+  return null;
+}
+
+interface BlockUserModalProps {
+  isOpen: boolean;
+  targetId: string;
+  targetName: string;
+  complaint: Complaint | null;
+  onClose: () => void;
+  onConfirm: (
+    targetId: string,
+    targetName: string,
+    reason: string,
+    comment: string,
+    duration: string,
+    isWithUnban: boolean,
+    selectedViolations: { [key: string]: boolean },
+    complaint: Complaint | null
+  ) => Promise<void>;
+  feedPosts: FeedPost[];
+  users: AppUser[];
+  currentUser: AppUser | null;
+}
+
+const BlockUserModal: React.FC<BlockUserModalProps> = ({
+  isOpen,
+  targetId,
+  targetName,
+  complaint,
+  onClose,
+  onConfirm,
+  feedPosts,
+  users,
+  currentUser
+}) => {
+  const [reason, setReason] = useState('Спам');
+  const [duration, setDuration] = useState('1 день');
+  const [isWithUnban, setIsWithUnban] = useState(false);
+  const [comment, setComment] = useState('');
+  const [selectedViolations, setSelectedViolations] = useState<{ [key: string]: boolean }>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Initialize selected violations if complaint is present
+  useEffect(() => {
+    if (isOpen) {
+      if (complaint) {
+        setReason(complaint.type === 'post' ? 'Спам' : 'Оскорбление');
+        setDuration('1 день');
+        // If there is post violation content, check it
+        if (complaint.targetId) {
+          setSelectedViolations({ [complaint.targetId]: true });
+        } else {
+          setSelectedViolations({});
+        }
+        setComment(complaint.content || '');
+      } else {
+        setReason('Спам');
+        setDuration('1 день');
+        setIsWithUnban(false);
+        setComment('');
+        setSelectedViolations({});
+      }
+    }
+  }, [complaint, isOpen]);
+
+  if (!isOpen) return null;
+
+  const targetUser = users.find(u => u.id === targetId);
+  const userPosts = feedPosts.filter(p => p.authorName === targetName);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      await onConfirm(
+        targetId,
+        targetName,
+        reason,
+        comment,
+        duration,
+        isWithUnban,
+        selectedViolations,
+        complaint
+      );
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const blockDurations = ['1 час', '1 день', '3 дня', '7 дней', '30 дней', 'Навсегда'];
+  const blockReasons = ['Спам', 'Оскорбление', 'Фейк', 'Опасный контент', 'Реклама', 'Другое'];
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        exit={{ opacity: 0 }} 
+        className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" 
+        onClick={onClose} 
+      />
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0, y: 10 }} 
+        animate={{ scale: 1, opacity: 1, y: 0 }} 
+        exit={{ scale: 0.95, opacity: 0, y: 10 }} 
+        className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator"
+      >
+        <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
+          <h3 className="text-sm font-bold text-[#285473]">
+            {complaint ? 'Блокировка по жалобе' : 'Блокировка аккаунта'}
+          </h3>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="bg-[#f0f2f5] p-3 rounded-[2px] border border-[#dce1e6] text-[12.5px]">
+            <div className="text-vk-text-secondary">Блокируемый пользователь:</div>
+            <div className="font-semibold text-[#285473]">{targetName}</div>
+            <div className="text-[10px] text-gray-500 font-mono select-all">ID: {targetId}</div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Причина блокировки</label>
+            <select 
+              value={reason} 
+              onChange={(e) => setReason(e.target.value)} 
+              className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+            >
+              {blockReasons.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Срок блокировки</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {blockDurations.map(d => (
+                 <button 
+                  type="button"
+                  key={d} 
+                  onClick={() => setDuration(d)}
+                  className={`py-1.5 px-1 rounded-[2px] text-[11px] font-medium border text-center transition-all ${duration === d ? 'border-[#5181b8] bg-[#f0f2f5] text-[#2a5885] font-bold' : 'border-[#dce1e6] hover:border-[#5181b8] text-vk-text-secondary bg-white'}`}
+                 >
+                   {d}
+                 </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-[#fcfdfd] border border-[#e2e7eb] p-2.5 rounded-[2px] select-none">
+            <label className="flex items-center gap-2 cursor-pointer text-[#2a5885] font-semibold text-[12px]">
+               <input 
+                 type="checkbox" 
+                 checked={isWithUnban} 
+                 onChange={(e) => setIsWithUnban(e.target.checked)} 
+                 className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6] cursor-pointer" 
+               />
+               <span>С разбаном (возможность апелляции)</span>
+            </label>
+          </div>
+
+          <div>
+             <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Комментарий модератора / Причина</label>
+             <textarea 
+               value={comment} 
+               onChange={(e) => setComment(e.target.value)} 
+               placeholder="Причина для пользователя..."
+               className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8] min-h-[80px]"
+             />
+          </div>
+
+          {(userPosts.length > 0 || targetUser?.status) && (
+            <div>
+               <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Примеры нарушений для показа</label>
+               <div className="space-y-2 bg-[#f7f8fa] p-2.5 rounded-[2px] border border-[#dce1e6] text-[12.5px] text-vk-text max-h-[180px] overflow-y-auto">
+                  {/* Name selection */}
+                  <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                     <input 
+                       type="checkbox" 
+                       checked={!!selectedViolations['name']} 
+                       onChange={(e) => setSelectedViolations(prev => ({ ...prev, name: e.target.checked }))} 
+                       className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                     />
+                     <span className="truncate">Имя профиля: «{targetName}»</span>
+                  </label>
+
+                  {/* Status selection */}
+                  {targetUser?.status && (
+                    <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                       <input 
+                         type="checkbox" 
+                         checked={!!selectedViolations['status']} 
+                         onChange={(e) => setSelectedViolations(prev => ({ ...prev, status: e.target.checked }))} 
+                         className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                       />
+                       <span className="truncate">Статус: «{targetUser.status}»</span>
+                    </label>
+                  )}
+
+                  {/* Publications of the user */}
+                  {userPosts.map((post, idx) => (
+                    <label key={post.id} className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
+                       <input 
+                         type="checkbox" 
+                         checked={!!selectedViolations[post.id]} 
+                         onChange={(e) => setSelectedViolations(prev => ({ ...prev, [post.id]: e.target.checked }))} 
+                         className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
+                       />
+                       <span className="truncate flex-1 font-sans">Пост #{idx + 1}: «{post.text ? (post.text.length > 25 ? `${post.text.substring(0, 25)}...` : post.text) : 'Изображение'}»</span>
+                    </label>
+                  ))}
+               </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button 
+              onClick={handleSubmit} 
+              disabled={isSubmitting}
+              className="grow py-1.5 bg-[#e64646] hover:bg-[#d53e3e] disabled:bg-gray-400 text-white rounded-[2px] text-[12.5px] font-medium transition-colors"
+            >
+              {isSubmitting ? 'Блокировка...' : 'Заблокировать'}
+            </button>
+            <button 
+              onClick={onClose} 
+              disabled={isSubmitting}
+              className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium hover:bg-[#dfe6ed] transition-colors"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 // --- Constants ---
 const COMPLAINT_TYPES = ['Оскорбление', 'Рассылка спама', 'Пропаганда насилия', 'Нецензурная лексика', 'Введение в заблуждение', 'Рекламная страница', 'Клонирование профиля'];
 const DEPARTMENTS = ['Спам', 'Про'];
@@ -3633,18 +3905,54 @@ export default function App() {
     });
   };
 
-  const confirmProfileBlock = async () => {
-    const targetUser = selectedUserData || currentUser;
-    if (!targetUser) return;
+  const getBlockTargetIdAndName = () => {
+    if (blockingComplaint) {
+      let targetUserId = blockingComplaint.userId;
+      if (targetUserId === 'mock-post-author' || !isUUID(targetUserId)) {
+        const foundUser = users.find(u => u.name === blockingComplaint.userName);
+        if (foundUser && foundUser.id && isUUID(foundUser.id)) {
+          targetUserId = foundUser.id;
+        }
+      }
+      return {
+        id: targetUserId,
+        name: blockingComplaint.userName,
+        complaint: blockingComplaint
+      };
+    } else if (isProfileBlockModalOpen) {
+      const targetUser = selectedUserData || currentUser;
+      return {
+        id: targetUser?.id || '',
+        name: targetUser?.name || 'Anonymous',
+        complaint: null
+      };
+    }
+    return null;
+  };
 
-    const targetId = targetUser.id;
-    const targetName = targetUser.name || 'Anonymous';
-    const complaintId = blockingComplaint?.id || '';
+  const handleBlockUser = async (
+    targetId: string,
+    targetName: string,
+    reason: string,
+    comment: string,
+    duration: string,
+    isWithUnban: boolean,
+    selectedViolations: { [key: string]: boolean },
+    complaint: Complaint | null
+  ) => {
+    if (!isUUID(targetId)) {
+      addNotification('Ошибка', 'Невозможно заблокировать: объект не связан с реальным пользователем.');
+      return;
+    }
 
-    const targetUserPosts = feedPosts.filter(p => p.authorName === targetUser?.name);
+    const blocked_until = calculateBlockedUntil(duration);
+    const targetUser = users.find(u => u.id === targetId);
+    const targetUserPosts = feedPosts.filter(p => p.authorName === targetName);
+    
     const activeViolations: string[] = [];
-    if (selectedViolations['name']) activeViolations.push(`Имя профиля: «${targetUser?.name || ''}»`);
-    if (selectedViolations['status']) activeViolations.push(`Статус profile: «${targetUser?.status || ''}»`);
+    if (selectedViolations['name']) activeViolations.push(`Имя профиля: «${targetName}»`);
+    if (selectedViolations['status'] && targetUser?.status) activeViolations.push(`Статус profile: «${targetUser.status}»`);
+    
     targetUserPosts.forEach((post, idx) => {
       if (selectedViolations[post.id]) {
         activeViolations.push(`Публикация #${idx + 1}: «${post.text}»`);
@@ -3652,62 +3960,90 @@ export default function App() {
     });
 
     const selectedPost = targetUserPosts.find(p => selectedViolations[p.id]);
-    const blockedPostId = selectedPost ? selectedPost.id : undefined;
+    const blockedPostId = selectedPost ? selectedPost.id : (complaint?.type === 'post' ? complaint.targetId : undefined);
 
     const blockData = {
-      reason: blockReason,
-      comment: replyText,
+      duration,
+      blocked_until,
+      reason,
+      comment,
       timestamp: new Date(),
       moderator: operatorName || 'Агент Поддержки',
       blockedBy: operatorName || 'Агент Поддержки',
-      examplesList: activeViolations,
-      isWithUnban: isWithUnban,
+      examplesList: activeViolations.length > 0 ? activeViolations : (complaint ? [complaint.content] : []),
+      isWithUnban,
       blocked_post_id: blockedPostId,
       examples: {
-        posts: targetUserPosts.some(p => selectedViolations[p.id]),
+        posts: targetUserPosts.some(p => selectedViolations[p.id]) || (complaint?.type === 'post'),
         name: !!selectedViolations['name'],
         status: !!selectedViolations['status'],
         other: false
       }
     };
 
-    const payload = {
+    console.log('BAN_PAYLOAD', {
       user_id: targetId,
       userName: targetName,
-      reason: blockReason,
-      comment: replyText,
-      duration: blockDuration
-    };
-    console.log('BAN_PAYLOAD', payload);
-
-    if (!isUUID(payload.user_id)) {
-      addNotification('Ошибка', 'Невозможно заблокировать: объект не связан с реальным пользователем.');
-      return;
-    }
+      reason,
+      comment,
+      duration,
+      blocked_until
+    });
 
     try {
       if (isSupabaseConfigured) {
-        // 1. Direct DB block set on profile
-        const updatedProfile = await profileRepository.setBlocked(targetId, true, blockReason, replyText, blockData);
+        // Direct DB block set on profile
+        const updatedProfile = await profileRepository.setBlocked(targetId, true, reason, comment, blockData);
 
         if (updatedProfile) {
-          // 2. Direct insert Action to DB moderationRepository - ONLY if rowsAffected > 0
-          await moderationRepository.insertAction({
-            type: "profile",
-            action: "block",
-            targetId: targetId,
-            targetName: targetName,
-            complaintId: complaintId,
-            result: "blocked",
-            message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`
-          });
+          const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
 
-          // 3. Update the state with refreshed profile as database source of truth
+          if (complaint) {
+            // Direct Update status and resolution fields on complaint
+            if (complaint.id) {
+              await reportRepository.update(complaint.id, {
+                status: "resolved",
+                resolved_at: new Date().toISOString(),
+                resolution: "blocked",
+                moderation_action_id: actionId
+              });
+            }
+
+            // Direct insert Action to DB moderationRepository
+            await moderationRepository.insertAction({
+              id: actionId,
+              type: "complaint",
+              action: "resolve",
+              targetId: complaint.id,
+              targetName: complaint.userName,
+              result: "blocked"
+            });
+          } else {
+            // Direct insert Action to DB moderationRepository
+            await moderationRepository.insertAction({
+              type: "profile",
+              action: "block",
+              targetId: targetId,
+              targetName: targetName,
+              result: "blocked",
+              message: `Пользователь заблокирован на ${duration} по причине: ${reason}`
+            });
+          }
+
+          // Update the state with refreshed profile as database source of truth
           const appUser = profileToAppUser(updatedProfile);
           setUsers(prev => prev.map(u => u.id === targetId ? appUser : u));
 
           if (selectedUserData && selectedUserData.id === targetId) {
             setSelectedUserData(appUser);
+          }
+
+          if (complaint) {
+            // Sync source of truth DB for complaints list
+            const dbComplaints = await reportRepository.getAll();
+            _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+            _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+            _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
           }
         } else {
           addNotification('Ошибка', 'Пользователь не найден в базе данных.');
@@ -3717,33 +4053,76 @@ export default function App() {
         // Fallback for offline mode, standard optimistic local save
         const updatedUser = { 
           ...targetUser, 
+          id: targetId,
+          name: targetName,
           isBlocked: true,
-          blockReason: blockReason,
-          moderatorComment: replyText,
+          blockReason: reason,
+          moderatorComment: comment,
           profileBlockInfo: blockData
-        };
-        setUsers(prev => prev.map(u => u.id === targetId ? updatedUser : u));
+        } as AppUser;
+
+        setUsers(prev => {
+          const exists = prev.some(u => u.id === targetId);
+          if (exists) {
+            return prev.map(u => u.id === targetId ? updatedUser : u);
+          } else {
+            return [...prev, updatedUser];
+          }
+        });
+
         if (selectedUserData && selectedUserData.id === targetId) {
           setSelectedUserData(updatedUser);
         }
+
+        if (complaint) {
+          if (blockingSource === 'spam') {
+            setSpamComplaints(prev => prev.filter(c => c.id !== complaint.id));
+          } else if (blockingSource === 'page_moderation') {
+            setPageComplaints(prev => prev.filter(c => c.id !== complaint.id));
+          } else {
+            setComplaints(prev => prev.filter(c => c.id !== complaint.id));
+          }
+        }
       }
 
-      // Add moderator log (updates moderation actions database table and logs list)
+      // Apply visual deletes for posts if needed
+      if (isBlockAndDelete && complaint) {
+        setFeedPosts(prev => prev.filter(p => p.text !== complaint.content));
+      }
+
+      if (complaint) {
+        setProcessedCount(prev => prev + 1);
+        setModeratorHistory(prev => [{ 
+          id: Math.random().toString(), 
+          complaintId: complaint.id, 
+          action: isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка', 
+          message: `Пользователь ${targetName} заблокирован по причине: ${reason}`, 
+          timestamp: new Date() 
+        }, ...prev]);
+
+        {
+          const blockActionType = isBlockAndDelete ? 'block_delete' : 'block';
+          const blockActionName = isBlockAndDelete ? 'Заблокировать и удалить' : 'Заблокировать';
+          logComplaintAction(complaint, blockActionType, blockActionName, blockingSource as any, `Причина: ${reason}. Срок: ${duration}. Комментарий: ${comment}`);
+        }
+      }
+
+      // Add moderator log
       addModeratorLog({
         type: 'moderation',
         action: 'Блокировка',
-        message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`,
+        message: `Пользователь заблокирован на ${duration} по причине: ${reason}`,
         targetId,
         targetName
       });
 
-      const logAction = `Заблокирован Оператором #${operatorId} на ${blockDuration} по причине: ${blockReason}${replyText ? `\nКомментарий: ${replyText}` : ''}`;
+      const logAction = `Заблокирован Оператором #${operatorId} на ${duration} по причине: ${reason}${comment ? `\nКомментарий: ${comment}` : ''}`;
       setProfileModerationLogs(prev => [{ id: Math.random().toString(), action: logAction, timestamp: new Date() }, ...prev]);
-      setIsProfileBlockModalOpen(false);
-      addNotification('Блокировка', `Пользователь с ID ${targetId} заблокирован`);
+      
+      addNotification('Блокировка', `Пользователь ${targetName} заблокирован`);
 
     } catch (err: any) {
-      console.error('[confirmProfileBlock] DB write block error:', err);
+      console.error('[handleBlockUser] Error:', err);
       addNotification('Ошибка', 'Не удалось полностью заблокировать пользователя на сервере.');
     }
   };
@@ -3840,192 +4219,7 @@ export default function App() {
     }
   };
 
-  const confirmBlock = async () => {
-    if (blockingComplaint) {
-      const targetUserName = blockingComplaint.userName;
-      let targetUserId = blockingComplaint.userId;
 
-      // Try to resolve targetUserId by matching name if targetUserId is a non-UUID placeholder
-      if (targetUserId === 'mock-post-author' || !isUUID(targetUserId)) {
-        const foundUser = users.find(u => u.name === targetUserName);
-        if (foundUser && foundUser.id && isUUID(foundUser.id)) {
-          targetUserId = foundUser.id;
-        }
-      }
-
-      const blockedPostId = blockingComplaint.type === 'post' ? blockingComplaint.targetId : undefined;
-
-      const blockData = {
-        duration: blockDuration,
-        reason: blockReason,
-        comment: replyText,
-        timestamp: new Date(),
-        moderator: operatorName || 'Агент Поддержки',
-        blockedBy: operatorName || 'Агент Поддержки',
-        examplesList: [blockingComplaint.content],
-        blocked_post_id: blockedPostId,
-        examples: {
-          posts: true,
-          name: false,
-          status: false,
-          other: false
-        }
-      };
-
-      const payload = {
-        user_id: targetUserId,
-        userName: targetUserName,
-        reason: blockReason,
-        comment: replyText,
-        duration: blockDuration
-      };
-      console.log('BAN_PAYLOAD', payload);
-
-      if (!isUUID(payload.user_id)) {
-        addNotification('Ошибка', 'Невозможно заблокировать: объект не связан с реальным пользователем.');
-        return;
-      }
-
-      try {
-        if (isSupabaseConfigured) {
-          const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
-
-          // 1. Direct DB block set on profile
-          let updatedProfile = null;
-          if (targetUserId) {
-            updatedProfile = await profileRepository.setBlocked(targetUserId, true, blockReason, replyText, blockData);
-          }
-
-          if (updatedProfile) {
-            // 2. Direct Update status and resolution fields on complaint
-            if (blockingComplaint.id) {
-              await reportRepository.update(blockingComplaint.id, {
-                status: "resolved",
-                resolved_at: new Date().toISOString(),
-                resolution: "blocked",
-                moderation_action_id: actionId
-              });
-            }
-
-            // 3. Direct insert Action to DB moderationRepository
-            await moderationRepository.insertAction({
-              id: actionId,
-              type: "complaint",
-              action: "resolve",
-              targetId: blockingComplaint.id,
-              targetName: blockingComplaint.userName,
-              result: "blocked"
-            });
-
-            // 4. Update the state with refreshed profile as database source of truth
-            const appUser = profileToAppUser(updatedProfile);
-            setUsers(prev => prev.map(u => u.id === targetUserId ? appUser : u));
-
-            if (selectedUserData && selectedUserData.id === targetUserId) {
-              setSelectedUserData(appUser);
-            }
-            // DO NOT update currentUser or auth.user
-
-            // 5. Sync source of truth DB for complaints list
-            const dbComplaints = await reportRepository.getAll();
-            _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
-            _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
-            _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
-          } else {
-            addNotification('Ошибка', 'Не удалось обновить профиль в базе данных: пользователь не найден.');
-            return;
-          }
-
-        } else {
-          // Fallback optimistic updates for offline mode
-          setUsers(prev => {
-            const exists = prev.some(u => u.id === targetUserId || u.name === targetUserName);
-            if (exists) {
-              return prev.map(u => (u.id === targetUserId || u.name === targetUserName) ? { 
-                ...u, 
-                isBlocked: true, 
-                blockReason: blockReason, 
-                moderatorComment: replyText,
-                profileBlockInfo: blockData
-              } : u);
-            } else {
-              const newUser: AppUser = {
-                id: targetUserId || `u-${Date.now()}`,
-                name: targetUserName,
-                avatar: blockingComplaint.userAvatar || `https://i.pravatar.cc/150?u=${targetUserId}`,
-                trustLevel: parseFloat(blockingComplaint.rating || '0.7'),
-                isVerified: false,
-                isBlocked: true,
-                regDate: 'сегодня',
-                blockReason: blockReason,
-                moderatorComment: replyText,
-                profileBlockInfo: blockData
-              };
-              return [...prev, newUser];
-            }
-          });
-
-          if (selectedUserData && (selectedUserData.id === targetUserId || selectedUserData.name === targetUserName)) {
-            setSelectedUserData(prev => prev ? {
-              ...prev,
-              isBlocked: true,
-              blockReason: blockReason,
-              moderatorComment: replyText,
-              profileBlockInfo: blockData
-            } : null);
-          }
-
-          if (currentUser && (currentUser.id === targetUserId || currentUser.name === targetUserName)) {
-            setIsProfileBlocked(true);
-            setProfileBlockInfo(blockData);
-            setCurrentUser(prev => prev ? {
-              ...prev,
-              isBlocked: true,
-              blockReason: blockReason,
-              moderatorComment: replyText,
-              profileBlockInfo: blockData
-            } : null);
-          }
-
-          if (blockingSource === 'spam') {
-            setSpamComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-          } else if (blockingSource === 'page_moderation') {
-            setPageComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-          } else {
-            setComplaints(prev => prev.filter(c => c.id !== blockingComplaint.id));
-          }
-        }
-
-        // Apply visual deletes for posts if needed
-        if (isBlockAndDelete) {
-          setFeedPosts(prev => prev.filter(p => p.text !== blockingComplaint.content));
-        }
-
-        setProcessedCount(prev => prev + 1);
-        setModeratorHistory(prev => [{ 
-          id: Math.random().toString(), 
-          complaintId: blockingComplaint.id, 
-          action: isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка', 
-          message: `Пользователь ${targetUserName} заблокирован по причине: ${blockReason}`, 
-          timestamp: new Date() 
-        }, ...prev]);
-        
-        {
-          const blockActionType = isBlockAndDelete ? 'block_delete' : 'block';
-          const blockActionName = isBlockAndDelete ? 'Заблокировать и удалить' : 'Заблокировать';
-          logComplaintAction(blockingComplaint, blockActionType, blockActionName, blockingSource as any, `Причина: ${blockReason}. Срок: ${blockDuration}. Комментарий: ${replyText}`);
-        }
-        
-        addNotification('Действие успешно', `Пользователь ${targetUserName} заблокирован`);
-        setBlockingComplaint(null);
-        setReplyText('');
-
-      } catch (err: any) {
-        console.error('[confirmBlock] Error during block resolve flow:', err);
-        addNotification('Ошибка', 'Не удалось полностью заблокировать пользователя и закрыть жалобу.');
-      }
-    }
-  };
 
   const startSupportWork = () => {
     setIsSupportStarted(true);
@@ -17992,43 +18186,7 @@ export default function App() {
            </div>
         )}
 
-        {blockingComplaint && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setBlockingComplaint(null)} />
-            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
-              <div className="p-4 bg-[#fafbfc] border-b border-vk-separator">
-                 <h3 className="text-sm font-bold text-[#285473]">{isBlockAndDelete ? 'Блокировка и удаление' : 'Блокировка'}</h3>
-              </div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Причина</label>
-                  <select value={blockReason} onChange={(e) => setBlockReason(e.target.value)} className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none">
-                    {BLOCK_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Срок</label>
-                  <select value={blockDuration} onChange={(e) => setBlockDuration(e.target.value)} className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none">
-                    {BLOCK_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block">Комментарий модератора</label>
-                  <textarea 
-                    value={replyText} 
-                    onChange={(e) => setReplyText(e.target.value)} 
-                    placeholder="Описание нарушения..."
-                    className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none min-h-[80px]"
-                  />
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button onClick={confirmBlock} className="grow py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd] transition-colors">Подтвердить</button>
-                  <button onClick={() => setBlockingComplaint(null)} className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium hover:bg-[#dfe6ed] transition-colors">Отменить</button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
+
 
         {forwardingComplaint && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
@@ -18435,113 +18593,27 @@ export default function App() {
           </div>
         )}
 
-        {isProfileBlockModalOpen && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50" onClick={() => setIsProfileBlockModalOpen(false)} />
-            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} className="bg-white w-full max-w-sm rounded-[2px] overflow-hidden shadow-2xl relative z-10 border border-vk-separator">
-               <div className="p-4 bg-[#fafbfc] border-b border-vk-separator flex justify-between items-center">
-                  <h3 className="text-sm font-bold text-[#285473]">Блокировка аккаунта</h3>
-               </div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Причина блокировки</label>
-                  <select 
-                    value={blockReason} 
-                    onChange={(e) => setBlockReason(e.target.value)} 
-                    className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8]"
-                  >
-                    {['Спам', 'Оскорбление', 'Фейк', 'Опасный контент', 'Реклама'].map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Срок блокировки</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {['1 день', '3 дня', '7 дней', 'Навсегда'].map(d => (
-                       <button 
-                        key={d} 
-                        onClick={() => setBlockDuration(d)}
-                        className={`py-1.5 px-3 rounded-[2px] text-[12px] font-medium border transition-all ${blockDuration === d ? 'border-[#5181b8] bg-[#f0f2f5] text-[#2a5885]' : 'border-[#dce1e6] hover:border-[#5181b8] text-vk-text-secondary'}`}
-                       >
-                         {d}
-                       </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="bg-[#fcfdfd] border border-[#e2e7eb] p-2.5 rounded-[2px] select-none">
-                  <label className="flex items-center gap-2 cursor-pointer text-[#2a5885] font-semibold text-[12px]">
-                     <input 
-                       id="isWithUnban_modal_cb"
-                       type="checkbox" 
-                       checked={isWithUnban} 
-                       onChange={(e) => setIsWithUnban(e.target.checked)} 
-                       className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6] cursor-pointer" 
-                     />
-                     <span>С разбаном (возможность апелляции)</span>
-                  </label>
-                </div>
-                <div>
-                   <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Комментарий модератора</label>
-                   <textarea 
-                     value={replyText} 
-                     onChange={(e) => setReplyText(e.target.value)} 
-                     placeholder="Причина для пользователя..."
-                     className="w-full bg-[#f7f8fa] border border-[#dce1e6] p-2 rounded-[2px] text-[12.5px] focus:outline-none focus:border-[#5181b8] min-h-[80px]"
-                   />
-                </div>
-                <div>
-                   <label className="text-[11px] font-bold text-vk-text-secondary uppercase mb-2 block tracking-wider">Примеры нарушений для показа</label>
-                   <div className="space-y-2 bg-[#f7f8fa] p-2.5 rounded-[2px] border border-[#dce1e6] text-[12.5px] text-vk-text max-h-[180px] overflow-y-auto">
-                      {/* Name selection */}
-                      <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
-                         <input 
-                           type="checkbox" 
-                           checked={!!selectedViolations['name']} 
-                           onChange={(e) => setSelectedViolations(prev => ({ ...prev, name: e.target.checked }))} 
-                           className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
-                         />
-                         <span className="truncate">Имя профиля: «{selectedUserData?.name || currentUser?.name || 'Не указано'}»</span>
-                      </label>
-
-                      {/* Status selection */}
-                      <label className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
-                         <input 
-                           type="checkbox" 
-                           checked={!!selectedViolations['status']} 
-                           onChange={(e) => setSelectedViolations(prev => ({ ...prev, status: e.target.checked }))} 
-                           className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
-                         />
-                         <span className="truncate">Статус: «{selectedUserData?.status || currentUser?.status || 'Не указан'}»</span>
-                      </label>
-
-                      {/* Publications of the user */}
-                      {(() => {
-                        const targetUser = selectedUserData || currentUser;
-                        const userPosts = feedPosts.filter(p => p.authorName === targetUser?.name);
-                        if (userPosts.length === 0) {
-                          return <div className="text-[11px] text-vk-text-secondary py-1 italic">Нет публикаций</div>;
-                        }
-                        return userPosts.map((post, idx) => (
-                          <label key={post.id} className="flex items-center gap-2 cursor-pointer select-none py-1 border-b border-vk-separator/40 last:border-0 last:pb-0">
-                             <input 
-                               type="checkbox" 
-                               checked={!!selectedViolations[post.id]} 
-                               onChange={(e) => setSelectedViolations(prev => ({ ...prev, [post.id]: e.target.checked }))} 
-                               className="rounded text-[#5181b8] focus:ring-[#5181b8] border-[#dce1e6]" 
-                             />
-                             <span className="truncate flex-1">Пост #{idx + 1}: «{post.text ? (post.text.length > 25 ? `${post.text.substring(0, 25)}...` : post.text) : 'Изображение'}»</span>
-                          </label>
-                        ));
-                      })()}
-                   </div>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button onClick={confirmProfileBlock} className="grow py-1.5 bg-[#5181b8] text-white rounded-[2px] text-[12.5px] font-medium hover:bg-[#5b88bd]">Заблокировать</button>
-                  <button onClick={() => setIsProfileBlockModalOpen(false)} className="grow py-1.5 bg-[#e5ebf1] text-[#55677d] rounded-[2px] text-[12.5px] font-medium">Отмена</button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
+        {(() => {
+          const blockTarget = getBlockTargetIdAndName();
+          if (!blockTarget) return null;
+          
+          return (
+            <BlockUserModal 
+              isOpen={true}
+              targetId={blockTarget.id}
+              targetName={blockTarget.name}
+              complaint={blockTarget.complaint}
+              onClose={() => {
+                setIsProfileBlockModalOpen(false);
+                setBlockingComplaint(null);
+              }}
+              onConfirm={handleBlockUser}
+              feedPosts={feedPosts}
+              users={users}
+              currentUser={currentUser}
+            />
+          );
+        })()}
 
         {isRequestRejectModalOpen && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">

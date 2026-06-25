@@ -197,7 +197,7 @@ export class ProfileRepositoryProvider {
       // User requested exact fields
       moderation_status: blocked ? 'blocked' : 'active',
       moderation_reason: blocked ? (blockReason || null) : null,
-      blocked_until: blocked ? (blockInfo?.duration || null) : null,
+      blocked_until: blocked ? (blockInfo?.blocked_until || null) : null,
       moderation_updated_at: new Date().toISOString()
     };
 

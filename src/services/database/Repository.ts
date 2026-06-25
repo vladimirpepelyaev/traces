@@ -970,7 +970,7 @@ export class ReportRepositoryProvider {
       timestamp: db.created_at ? new Date(db.created_at) : undefined,
       moderatedBy: db.moderated_by,
       targetId: targetId,
-      targetName: db.target_name || undefined,
+      targetName: undefined,
       status: db.status || 'pending',
       // Added fields mapping
       target_type: db.target_type || undefined,
@@ -997,7 +997,6 @@ export class ReportRepositoryProvider {
       dept: c.dept || null,
       moderated_by: c.moderatedBy || null,
       target_id: c.targetId || null,
-      target_name: c.targetName || null,
       status: c.status || 'pending',
       created_at: c.created_at || (c.timestamp ? c.timestamp.toISOString() : new Date().toISOString()),
       // Added fields mapping

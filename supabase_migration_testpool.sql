@@ -124,3 +124,6 @@ CREATE POLICY "Enable insert for staff on testpool_events" ON testpool_events
       AND role IN ('super_admin', 'admin', 'moderator', 'moderation', 'support')
     )
   );
+
+-- Add profile_theme column to profiles table
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS profile_theme TEXT DEFAULT 'default';

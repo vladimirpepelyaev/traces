@@ -365,6 +365,12 @@ export function getPostDisplayTime(timestamp: string | undefined): string {
   return timestamp;
 }
 
+const isUUID = (str: string): boolean => {
+  if (!str) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
+
 export default function App() {
   const { user: authUser, loading: authLoading, bootCompleted, signIn: authCtxSignIn, signUp: authCtxSignUp, signOut: authCtxSignOut, hasRole: authCtxHasRole, roles, completeOnboarding } = useAuth();
 
@@ -3665,38 +3671,47 @@ export default function App() {
       }
     };
 
+    const payload = {
+      user_id: targetId,
+      userName: targetName,
+      reason: blockReason,
+      comment: replyText,
+      duration: blockDuration
+    };
+    console.log('BAN_PAYLOAD', payload);
+
+    if (!isUUID(payload.user_id)) {
+      addNotification('Ошибка', 'Невозможно заблокировать: объект не связан с реальным пользователем.');
+      return;
+    }
+
     try {
       if (isSupabaseConfigured) {
         // 1. Direct DB block set on profile
-        await profileRepository.setBlocked(targetId, true, blockReason, replyText, blockData);
+        const updatedProfile = await profileRepository.setBlocked(targetId, true, blockReason, replyText, blockData);
 
-        // 2. Direct insert Action to DB moderationRepository
-        await moderationRepository.insertAction({
-          type: "profile",
-          action: "block",
-          targetId: targetId,
-          targetName: targetName,
-          complaintId: complaintId,
-          result: "blocked",
-          message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`
-        });
+        if (updatedProfile) {
+          // 2. Direct insert Action to DB moderationRepository - ONLY if rowsAffected > 0
+          await moderationRepository.insertAction({
+            type: "profile",
+            action: "block",
+            targetId: targetId,
+            targetName: targetName,
+            complaintId: complaintId,
+            result: "blocked",
+            message: `Пользователь заблокирован на ${blockDuration} по причине: ${blockReason}`
+          });
 
-        // 3. Retrieve single refreshed profile from server
-        const refreshed = await profileRepository.getProfile(targetId);
-
-        // 4. Update the state with refreshed profile as database source of truth
-        if (refreshed) {
-          const appUser = profileToAppUser(refreshed);
+          // 3. Update the state with refreshed profile as database source of truth
+          const appUser = profileToAppUser(updatedProfile);
           setUsers(prev => prev.map(u => u.id === targetId ? appUser : u));
 
           if (selectedUserData && selectedUserData.id === targetId) {
             setSelectedUserData(appUser);
           }
-          if (currentUser?.id === targetId) {
-            setCurrentUser(appUser);
-            setIsProfileBlocked(true);
-            setProfileBlockInfo(blockData);
-          }
+        } else {
+          addNotification('Ошибка', 'Пользователь не найден в базе данных.');
+          return;
         }
       } else {
         // Fallback for offline mode, standard optimistic local save
@@ -3710,11 +3725,6 @@ export default function App() {
         setUsers(prev => prev.map(u => u.id === targetId ? updatedUser : u));
         if (selectedUserData && selectedUserData.id === targetId) {
           setSelectedUserData(updatedUser);
-        }
-        if (currentUser?.id === targetId) {
-          setCurrentUser(updatedUser);
-          setIsProfileBlocked(true);
-          setProfileBlockInfo(blockData);
         }
       }
 
@@ -3833,7 +3843,15 @@ export default function App() {
   const confirmBlock = async () => {
     if (blockingComplaint) {
       const targetUserName = blockingComplaint.userName;
-      const targetUserId = blockingComplaint.userId;
+      let targetUserId = blockingComplaint.userId;
+
+      // Try to resolve targetUserId by matching name if targetUserId is a non-UUID placeholder
+      if (targetUserId === 'mock-post-author' || !isUUID(targetUserId)) {
+        const foundUser = users.find(u => u.name === targetUserName);
+        if (foundUser && foundUser.id && isUUID(foundUser.id)) {
+          targetUserId = foundUser.id;
+        }
+      }
 
       const blockedPostId = blockingComplaint.type === 'post' ? blockingComplaint.targetId : undefined;
 
@@ -3854,58 +3872,69 @@ export default function App() {
         }
       };
 
+      const payload = {
+        user_id: targetUserId,
+        userName: targetUserName,
+        reason: blockReason,
+        comment: replyText,
+        duration: blockDuration
+      };
+      console.log('BAN_PAYLOAD', payload);
+
+      if (!isUUID(payload.user_id)) {
+        addNotification('Ошибка', 'Невозможно заблокировать: объект не связан с реальным пользователем.');
+        return;
+      }
+
       try {
         if (isSupabaseConfigured) {
           const actionId = `act-${Date.now()}-${Math.floor(Math.random() * 1000293)}`;
 
           // 1. Direct DB block set on profile
+          let updatedProfile = null;
           if (targetUserId) {
-            await profileRepository.setBlocked(targetUserId, true, blockReason, replyText, blockData);
+            updatedProfile = await profileRepository.setBlocked(targetUserId, true, blockReason, replyText, blockData);
           }
 
-          // 2. Direct Update status and resolution fields on complaint
-          if (blockingComplaint.id) {
-            await reportRepository.update(blockingComplaint.id, {
-              status: "resolved",
-              resolved_at: new Date().toISOString(),
-              resolution: "blocked",
-              moderation_action_id: actionId
-            });
-          }
-
-          // 3. Direct insert Action to DB moderationRepository
-          await moderationRepository.insertAction({
-            id: actionId,
-            type: "complaint",
-            action: "resolve",
-            targetId: blockingComplaint.id,
-            targetName: blockingComplaint.userName,
-            result: "blocked"
-          });
-
-          // 4. Retrieve single refreshed profile from server
-          if (targetUserId) {
-            const refreshed = await profileRepository.getProfile(targetUserId);
-            if (refreshed) {
-              const appUser = profileToAppUser(refreshed);
-              setUsers(prev => prev.map(u => u.id === targetUserId ? appUser : u));
-
-              if (selectedUserData && selectedUserData.id === targetUserId) {
-                setSelectedUserData(appUser);
-              }
-              if (currentUser?.id === targetUserId) {
-                setCurrentUser(appUser);
-                setIsProfileBlocked(true);
-                setProfileBlockInfo(blockData);
-              }
+          if (updatedProfile) {
+            // 2. Direct Update status and resolution fields on complaint
+            if (blockingComplaint.id) {
+              await reportRepository.update(blockingComplaint.id, {
+                status: "resolved",
+                resolved_at: new Date().toISOString(),
+                resolution: "blocked",
+                moderation_action_id: actionId
+              });
             }
-          }
 
-          // 5. Sync source of truth DB for complaints list
-          const dbComplaints = await reportRepository.getAll();
-          _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
-          _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
-          _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+            // 3. Direct insert Action to DB moderationRepository
+            await moderationRepository.insertAction({
+              id: actionId,
+              type: "complaint",
+              action: "resolve",
+              targetId: blockingComplaint.id,
+              targetName: blockingComplaint.userName,
+              result: "blocked"
+            });
+
+            // 4. Update the state with refreshed profile as database source of truth
+            const appUser = profileToAppUser(updatedProfile);
+            setUsers(prev => prev.map(u => u.id === targetUserId ? appUser : u));
+
+            if (selectedUserData && selectedUserData.id === targetUserId) {
+              setSelectedUserData(appUser);
+            }
+            // DO NOT update currentUser or auth.user
+
+            // 5. Sync source of truth DB for complaints list
+            const dbComplaints = await reportRepository.getAll();
+            _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+            _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+            _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+          } else {
+            addNotification('Ошибка', 'Не удалось обновить профиль в базе данных: пользователь не найден.');
+            return;
+          }
 
         } else {
           // Fallback optimistic updates for offline mode
@@ -14450,67 +14479,73 @@ export default function App() {
 
         <div className="flex gap-4">
           <div className="grow space-y-3">
-            {complaints.map((item) => (
-              <div key={item.id} className="bg-vk-white p-4 rounded-[2px] border border-vk-separator transition-all relative">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
-                    <div 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setComplaints(prev => prev.map(c => c.id === item.id ? { ...c, selected: !c.selected } : c));
-                      }}
-                      className={`w-4 h-4 rounded-[2px] border flex items-center justify-center cursor-pointer transition-colors ${item.selected ? 'bg-[#5181b8] border-[#5181b8]' : 'bg-white border-[#dce1e6] hover:border-[#5181b8]'}`}
-                    >
-                      {item.selected && <Check size={12} className="text-white" />}
+            {complaints.map((complaint) => {
+              console.log('MODERATION_CARD', complaint);
+              const targetUser = users.find(u => u.id === complaint.userId || u.name === complaint.userName);
+              return (
+                <div key={complaint.id} className="bg-vk-white p-4 rounded-[2px] border border-vk-separator transition-all relative">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setComplaints(prev => prev.map(c => c.id === complaint.id ? { ...c, selected: !c.selected } : c));
+                        }}
+                        className={`w-4 h-4 rounded-[2px] border flex items-center justify-center cursor-pointer transition-colors ${complaint.selected ? 'bg-[#5181b8] border-[#5181b8]' : 'bg-white border-[#dce1e6] hover:border-[#5181b8]'}`}
+                      >
+                        {complaint.selected && <Check size={12} className="text-white" />}
+                      </div>
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-vk-separator">
+                         <UserAvatar user={targetUser} avatarUrl={complaint.userAvatar || targetUser?.avatar} className="w-full h-full" />
+                      </div>
+                      <div>
+                        <div onClick={(e) => { 
+                          if (e.altKey) {
+                            handlePostCardClickWithAlt(e, complaint.userName, 'name');
+                            return;
+                          }
+                          setSelectedUserData(targetUser || {
+                            id: complaint.userId,
+                            name: complaint.userName,
+                            avatar: complaint.userAvatar || `https://i.pravatar.cc/150?u=${complaint.userId}`,
+                            trustLevel: parseFloat(complaint.rating || '1.0'),
+                            isVerified: false,
+                            isBlocked: false,
+                            regDate: 'сегодня'
+                          });
+                          navigate('/user/' + complaint.userId); 
+                        }} 
+                        className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{complaint.userName}</div>
+                        <div className="text-[11px] text-vk-text-secondary">ID: {complaint.userId}</div>
+                      </div>
                     </div>
-                    <div className="w-8 h-8 rounded-full overflow-hidden border border-vk-separator">
-                       <UserAvatar user={users.find(u => u.name === item.userName || u.id === item.id)} avatarUrl={item.userAvatar || users.find(u => u.name === item.userName || u.id === item.id)?.avatar} className="w-full h-full" />
-                    </div>
-                    <div>
-                      <div onClick={(e) => { 
-                        if (e.altKey) {
-                          handlePostCardClickWithAlt(e, item.userName, 'name');
-                          return;
-                        }
-                        setSelectedUserData({
-                          id: item.id,
-                          name: item.userName,
-                          avatar: `https://i.pravatar.cc/150?u=${item.id}`,
-                          trustLevel: parseFloat(item.rating),
-                          isVerified: false,
-                          isBlocked: false,
-                          regDate: 'сегодня'
-                        });
-                        navigate('/user/' + item.id); 
-                      }} 
-                      className="text-[12.5px] font-semibold text-[#285473] hover:underline cursor-pointer">{item.userName}</div>
-                      <div className="text-[11px] text-vk-text-secondary">Уровень доверия: {Math.random().toFixed(2)}</div>
+                    <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(complaint.rating || '1.0') > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
+                      Рейтинг: {complaint.rating}
                     </div>
                   </div>
-                  <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-[2px] ${parseFloat(item.rating) > 0.7 ? 'bg-red-50 text-[#e64646]' : 'bg-[#f0f2f5] text-[#656565]'}`}>
-                    Рейтинг: {item.rating}
+                  <div className="pl-6 md:pl-8 text-left">
+                    <div className="text-[12.5px] font-medium mb-1">Тип: <span className="text-[#2a5885]">{complaint.target_type || complaint.type}</span></div>
+                    <div className="text-[12.5px] font-medium mb-1">Причина: <span className="text-[#e64646]">{complaint.reason || 'Не указана'}</span></div>
+                    <div className="text-[12.5px] font-medium mb-1">Статус: <span className="text-emerald-600 font-semibold">{complaint.status}</span></div>
+                    <div className="text-[12.5px] text-vk-text-secondary mb-3 p-3 bg-[#f7f8fa] border border-vk-separator rounded-[2px] italic"> «{complaint.content}» </div>
+                    
+                    {complaint.image && (
+                      <div className="mb-4 rounded-[1px] overflow-hidden border border-vk-separator max-w-sm">
+                         <ImagePlaceholder className="w-full h-40" />
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-1.5">
+                       <button onClick={() => handleModerationAction(complaint.id, 'block_delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать и удалить</button>
+                       <button onClick={() => handleModerationAction(complaint.id, 'block')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать</button>
+                       <button onClick={() => handleModerationAction(complaint.id, 'delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Удалить</button>
+                       <button onClick={() => handleModerationAction(complaint.id, 'ignore')} className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Игнорировать</button>
+                       <button onClick={() => handleModerationAction(complaint.id, 'forward')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">В отдел</button>
+                    </div>
                   </div>
                 </div>
-                <div className="pl-6 md:pl-8">
-                  <div className="text-[12.5px] font-medium mb-1">Тип: <span className="text-[#2a5885]">{item.type}</span></div>
-                  <div className="text-[12.5px] text-vk-text-secondary mb-3 p-3 bg-[#f7f8fa] border border-vk-separator rounded-[2px] italic"> «{item.content}» </div>
-                  
-                  {item.image && (
-                    <div className="mb-4 rounded-[1px] overflow-hidden border border-vk-separator max-w-sm">
-                       <ImagePlaceholder className="w-full h-40" />
-                    </div>
-                  )}
-                  
-                  <div className="flex flex-wrap gap-1.5">
-                     <button onClick={() => handleModerationAction(item.id, 'block_delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать и удалить</button>
-                     <button onClick={() => handleModerationAction(item.id, 'block')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Заблокировать</button>
-                     <button onClick={() => handleModerationAction(item.id, 'delete')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Удалить</button>
-                     <button onClick={() => handleModerationAction(item.id, 'ignore')} className="bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">Игнорировать</button>
-                     <button onClick={() => handleModerationAction(item.id, 'forward')} className="bg-[#5181b8] hover:bg-[#5b88bd] text-white px-3 py-1 rounded-[2px] text-[12px] font-medium transition-colors">В отдел</button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {complaints.length === 0 && (
               <div className="bg-vk-white p-20 rounded-[2px] border border-vk-separator text-center flex flex-col items-center gap-4">
                 <ShieldCheck size={48} className="text-[#dce1e6]" />

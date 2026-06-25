@@ -95,11 +95,24 @@ export class ResilienceService {
 }
 
 // ==========================================
+// UUID HELPER
+// ==========================================
+export function isUUID(str: string): boolean {
+  if (!str) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// ==========================================
 // 1. PROFILE REPOSITORY
 // ==========================================
 export class ProfileRepositoryProvider {
   async getProfile(userId: string): Promise<any | null> {
     if (!isSupabaseConfigured) return null;
+    if (!isUUID(userId)) {
+      console.warn('[ProfileRepository] getProfile was called with invalid UUID:', userId);
+      return null;
+    }
     return ResilienceService.deduplicate(`get-profile-${userId}`, async () => {
       const { data, error } = await supabase
         .from('profiles')
@@ -114,18 +127,26 @@ export class ProfileRepositoryProvider {
     });
   }
 
-  async saveProfile(userId: string, updates: any): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    await ResilienceService.retry(async () => {
+  async saveProfile(userId: string, updates: any): Promise<any | null> {
+    if (!isSupabaseConfigured) return null;
+    if (!isUUID(userId)) {
+      console.warn('[ProfileRepository] saveProfile was called with invalid UUID:', userId);
+      return null;
+    }
+    return await ResilienceService.retry(async () => {
       const { data, error } = await supabase
         .from('profiles')
         .update(updates)
         .eq('id', userId)
         .select();
 
-      console.log('[DB]', 'profiles', { id: userId, ...updates }, data, error);
+      console.log('[DB]', 'profiles update', { id: userId, ...updates }, data, error);
 
       if (error) throw error;
+      if (data && data.length > 0) {
+        return data[0];
+      }
+      return null;
     });
   }
 
@@ -139,7 +160,11 @@ export class ProfileRepositoryProvider {
     blockReason?: string, 
     moderatorComment?: string, 
     blockInfo?: any
-  ): Promise<void> {
+  ): Promise<any | null> {
+    if (!isUUID(userId)) {
+      console.warn('[ProfileRepository] setBlocked was called with invalid UUID:', userId);
+      return null;
+    }
     const profile = await this.getProfile(userId);
     const existingSettings = profile?.public_settings || {};
     
@@ -162,14 +187,41 @@ export class ProfileRepositoryProvider {
       delete updatedSettings.blocked_post_id;
     }
 
-    await this.saveProfile(userId, { 
+    const payload = { 
       blocked, 
       block_reason: blocked ? (blockReason || null) : null,
       block_comment: blocked ? (moderatorComment || null) : null,
       blocked_at: blocked ? (blockInfo?.timestamp || new Date().toISOString()) : null,
       blocked_post_id: blocked ? (blockInfo?.blocked_post_id || null) : null,
-      public_settings: updatedSettings 
+      public_settings: updatedSettings,
+      // User requested exact fields
+      moderation_status: blocked ? 'blocked' : 'active',
+      moderation_reason: blocked ? (blockReason || null) : null,
+      blocked_until: blocked ? (blockInfo?.duration || null) : null,
+      moderation_updated_at: new Date().toISOString()
+    };
+
+    console.log('BAN_UPDATE', {
+      profileId: userId,
+      payload
     });
+
+    const updatedProfile = await this.saveProfile(userId, payload);
+
+    console.log('BAN_RESULT', updatedProfile);
+
+    // After UPDATE, perform SELECT on profiles and check blocked=true and moderation_status='blocked'
+    if (updatedProfile) {
+      const selectResult = await this.getProfile(userId);
+      console.log('BAN_SELECT_CHECK', selectResult);
+      if (selectResult) {
+        console.log(`Verification: blocked=${selectResult.blocked}, moderation_status=${selectResult.moderation_status}`);
+      }
+    } else {
+      console.warn('BAN_UPDATE failed (0 rows affected)');
+    }
+
+    return updatedProfile;
   }
 
   async uploadAvatar(userId: string, file: File | Blob): Promise<string> {

@@ -509,20 +509,21 @@ export default function App() {
     setIsSendingComplaint(true);
     setComplaintError(null);
 
+    const resolvedProfileName = reportingProfile.name || reportingProfile.display_name || 'Anonymous';
+
     const complaint: Complaint = {
       id: generateUUID(),
-      userId: currentUser.id,
-      userName: currentUser.name || 'Anonymous',
-      userAvatar: currentUser.avatar || '',
+      userId: reportingProfile.id,
+      userName: resolvedProfileName,
+      userAvatar: reportingProfile.avatar || '',
       type: "profile",
       targetId: reportingProfile.id,
-      targetName: reportingProfile.name || 'Anonymous',
       target_type: "profile",
       target_status: "pending",
       reason: reason,
       dept: "Модерация страниц",
       status: "pending",
-      content: `Создана жалоба на аккаунт пользователя ${reportingProfile.name} в раздел «Модерация профилей». Причина: ${reason}`,
+      content: `Жалоба от пользователя ${currentUser.name}`,
       rating: 'Высокий риск',
       created_at: new Date().toISOString()
     };
@@ -543,14 +544,14 @@ export default function App() {
       }
       
       // 3. Log complaint details
-      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${inserted.userName} (ID: ${inserted.userId}) на профиль ${inserted.targetName} (ID: ${inserted.targetId}) по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
+      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${currentUser.name} (ID: ${currentUser.id}) на профиль ${inserted.userName} (ID: ${inserted.userId}) по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
       setModeratorHistory(prev => [...prev, {
         id: `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
         type: 'moderation',
         action: 'Жалоба на профиль',
         message: logMessage,
-        targetId: inserted.targetId,
-        targetName: inserted.targetName,
+        targetId: inserted.targetId || inserted.userId,
+        targetName: inserted.userName,
         operatorId: currentUser.id,
         operatorName: currentUser.name || 'Anonymous',
         timestamp: new Date()
@@ -577,14 +578,18 @@ export default function App() {
     setIsSendingComplaint(true);
     setComplaintError(null);
 
+    const resolvedPostAuthorId = reportingPost.authorId || users.find((u: any) => u.name === reportingPost.authorName)?.id || 'mock-post-author';
+    const resolvedPostAuthorAvatar = reportingPost.authorAvatar || users.find((u: any) => u.name === reportingPost.authorName)?.avatar || '';
+
     const complaint: Complaint = {
       id: generateUUID(),
-      userId: currentUser.id,
-      userName: currentUser.name || 'Anonymous',
-      userAvatar: currentUser.avatar || '',
+      userId: resolvedPostAuthorId,
+      userName: reportingPost.authorName || 'Anonymous',
+      userAvatar: resolvedPostAuthorAvatar,
       type: "post",
       targetId: reportingPost.id,
-      targetName: reportingPost.authorName || 'Anonymous',
+      target_type: "post",
+      target_status: "pending",
       reason: reason,
       dept: "Модерация",
       status: "pending",
@@ -610,14 +615,14 @@ export default function App() {
       }
 
       // 3. Log complaint details
-      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${inserted.userName} (ID: ${inserted.userId}) на пост (ID: ${inserted.targetId}) автора ${inserted.targetName} по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
+      const logMessage = `Жалоба #${inserted.id} отправлена пользователем ${currentUser.name} (ID: ${currentUser.id}) на пост (ID: ${inserted.targetId}) автора ${inserted.userName} по причине: ${inserted.reason}. Статус: ${inserted.status}. Дата: ${new Date(inserted.created_at || '').toLocaleString('ru-RU')}`;
       setModeratorHistory(prev => [...prev, {
         id: `log-${Date.now()}-${Math.floor(Math.random()*100000)}`,
         type: 'moderation',
         action: 'Жалоба на публикацию',
         message: logMessage,
         targetId: inserted.targetId,
-        targetName: inserted.targetName,
+        targetName: inserted.userName,
         operatorId: currentUser.id,
         operatorName: currentUser.name || 'Anonymous',
         timestamp: new Date()

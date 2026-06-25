@@ -13,6 +13,85 @@ const generateUUID = (): string => {
   });
 };
 
+/**
+ * Resilient helper to perform write operations (insert, update, upsert) with retry-upon-column-missing logic.
+ */
+async function safeSupabaseWrite(
+  table: string,
+  operation: 'insert' | 'update' | 'upsert',
+  payload: any,
+  queryModifier?: (query: any) => any
+): Promise<any> {
+  let currentPayload = { ...payload };
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    let query = supabase.from(table);
+    let opQuery: any;
+    if (operation === 'insert') {
+      opQuery = query.insert(currentPayload);
+    } else if (operation === 'update') {
+      opQuery = query.update(currentPayload);
+    } else if (operation === 'upsert') {
+      opQuery = query.upsert(currentPayload, { onConflict: 'experiment_id,user_id' });
+    }
+
+    if (queryModifier) {
+      opQuery = queryModifier(opQuery);
+    }
+
+    const { data, error } = await opQuery.select().maybeSingle();
+
+    if (!error) {
+      return data;
+    }
+
+    console.error(`[safeSupabaseWrite] Error in table "${table}" attempt ${attempts}:`, error);
+
+    const msg = error.message || '';
+    const code = error.code || '';
+    const status = error.status || 0;
+
+    // Check if error is column does not exist (PGRST204 or containing "does not exist")
+    if (code === 'PGRST204' || msg.includes('does not exist') || status === 204 || status === 400 || code === '42703') {
+      // Try to find the column name from the message
+      const match = msg.match(/column "?(\w+)"?/i) || msg.match(/column (?:.*?\.)?(\w+) does not exist/i);
+      if (match && match[1]) {
+        const col = match[1];
+        console.warn(`[safeSupabaseWrite] Stripping missing column "${col}" from table "${table}"`);
+        
+        // Special mapping: if column is "title" on "testpool_experiments", copy to "name"
+        if (col === 'title' && table === 'testpool_experiments') {
+          currentPayload.name = currentPayload.title;
+        }
+
+        delete currentPayload[col];
+        continue; // Retry with cleaned payload
+      } else {
+        // Fallback: strip common troublesome columns if they are in the payload
+        if (table === 'testpool_assignments' && 'source' in currentPayload) {
+          console.warn('[safeSupabaseWrite] Retrying assignments without "source"');
+          delete currentPayload.source;
+          continue;
+        }
+        if (table === 'testpool_experiments' && 'title' in currentPayload) {
+          console.warn('[safeSupabaseWrite] Retrying experiments with "name" instead of "title"');
+          currentPayload.name = currentPayload.title;
+          delete currentPayload.title;
+          continue;
+        }
+      }
+    }
+
+    // If it's a different error, throw it
+    throw error;
+  }
+
+  throw new Error(`Failed after ${maxAttempts} attempts due to schema issues`);
+}
+
 const INITIAL_EXPERIMENTS_SEED: TestpoolExperiment[] = [
   {
     id: 'e16b9d62-7bfb-4fc7-bf94-bca54f0a2ba1',
@@ -186,7 +265,13 @@ export class ExperimentRepository {
       console.error('[ExperimentRepository] getExperiments error:', error);
       return [];
     }
-    return data || [];
+
+    return (data || []).map(row => ({
+      ...row,
+      title: row.title ?? (row as any).name ?? '',
+      rollout_mode: row.rollout_mode ?? (row.rollout_percent === 100 ? 'released' : row.status),
+      users_count: row.users_count ?? 0
+    }));
   }
 
   async getExperimentByKey(key: string): Promise<TestpoolExperiment | null> {
@@ -207,14 +292,21 @@ export class ExperimentRepository {
       console.error('[ExperimentRepository] getExperimentByKey error:', error);
       return null;
     }
-    return data;
+    if (!data) return null;
+    return {
+      ...data,
+      title: data.title ?? (data as any).name ?? '',
+      rollout_mode: data.rollout_mode ?? (data.rollout_percent === 100 ? 'released' : data.status),
+      users_count: data.users_count ?? 0
+    };
   }
 
   async createExperiment(experiment: Partial<TestpoolExperiment>): Promise<TestpoolExperiment> {
     await this.checkDatabaseAvailability();
 
-    const newExperiment: TestpoolExperiment = {
-      id: generateUUID(),
+    const id = generateUUID();
+    const newExperiment: any = {
+      id,
       key: experiment.key || '',
       title: experiment.title || 'Новая функция',
       description: experiment.description || '',
@@ -228,38 +320,38 @@ export class ExperimentRepository {
       include_new_users: experiment.include_new_users ?? false,
       released_at: experiment.released_at || null,
       expires_at: experiment.expires_at || null,
-      ...experiment
     };
 
     if (this.useLocalStorage) {
       const list = await this.getExperiments();
-      list.push(newExperiment);
+      list.push({ ...newExperiment, title: newExperiment.title });
       localStorage.setItem('testpool_experiments', JSON.stringify(list));
-      return newExperiment;
+      return { ...newExperiment, title: newExperiment.title };
     }
 
-    const { data, error } = await supabase
-      .from('testpool_experiments')
-      .insert(newExperiment)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[ExperimentRepository] createExperiment error:', error);
-      throw error;
-    }
-    return data;
+    const data = await safeSupabaseWrite('testpool_experiments', 'insert', newExperiment);
+    return {
+      ...data,
+      title: data.title ?? (data as any).name ?? '',
+    };
   }
 
   async updateExperiment(id: string, updates: Partial<TestpoolExperiment>): Promise<TestpoolExperiment> {
     await this.checkDatabaseAvailability();
 
-    const cleanUpdates = {
-      ...updates,
-      updated_at: new Date().toISOString()
-    };
-    delete (cleanUpdates as any).id;
-    delete (cleanUpdates as any).created_at;
+    // Strict PATCH-style updates: only update fields that were actually passed
+    const cleanUpdates: any = {};
+    if ('title' in updates) cleanUpdates.title = updates.title;
+    if ('description' in updates) cleanUpdates.description = updates.description;
+    if ('status' in updates) cleanUpdates.status = updates.status;
+    if ('enabled' in updates) cleanUpdates.enabled = updates.enabled;
+    if ('rollout_percent' in updates) cleanUpdates.rollout_percent = updates.rollout_percent;
+    if ('include_new_users' in updates) cleanUpdates.include_new_users = updates.include_new_users;
+    if ('released_at' in updates) cleanUpdates.released_at = updates.released_at;
+    if ('expires_at' in updates) cleanUpdates.expires_at = updates.expires_at;
+    if ('updated_by' in updates) cleanUpdates.updated_by = updates.updated_by;
+    
+    cleanUpdates.updated_at = new Date().toISOString();
 
     if (this.useLocalStorage) {
       const list = await this.getExperiments();
@@ -272,18 +364,11 @@ export class ExperimentRepository {
       return updated;
     }
 
-    const { data, error } = await supabase
-      .from('testpool_experiments')
-      .update(cleanUpdates)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[ExperimentRepository] updateExperiment error:', error);
-      throw error;
-    }
-    return data;
+    const data = await safeSupabaseWrite('testpool_experiments', 'update', cleanUpdates, (q) => q.eq('id', id));
+    return {
+      ...data,
+      title: data.title ?? (data as any).name ?? '',
+    };
   }
 
   async deleteExperiment(id: string): Promise<boolean> {
@@ -348,7 +433,12 @@ export class ExperimentRepository {
       console.error('[ExperimentRepository] getAssignments error:', error);
       return [];
     }
-    return data || [];
+    
+    return (data || []).map(row => ({
+      ...row,
+      source: row.source ?? 'manual',
+      assigned_at: row.assigned_at ?? row.created_at ?? new Date().toISOString()
+    }));
   }
 
   async addAssignment(assignment: Omit<TestpoolAssignment, 'id' | 'created_at'>): Promise<TestpoolAssignment> {
@@ -373,23 +463,20 @@ export class ExperimentRepository {
       return newAssignment;
     }
 
-    const { data, error } = await supabase
-      .from('testpool_assignments')
-      .upsert({
-        experiment_id: assignment.experiment_id,
-        user_id: assignment.user_id,
-        source: assignment.source || 'manual',
-        enabled: assignment.enabled ?? true,
-        removed_at: null
-      }, { onConflict: 'experiment_id,user_id' })
-      .select()
-      .single();
+    const payload = {
+      experiment_id: assignment.experiment_id,
+      user_id: assignment.user_id,
+      source: assignment.source || 'manual',
+      enabled: assignment.enabled ?? true,
+      removed_at: null
+    };
 
-    if (error) {
-      console.error('[ExperimentRepository] addAssignment error:', error);
-      throw error;
-    }
-    return data;
+    const data = await safeSupabaseWrite('testpool_assignments', 'upsert', payload);
+    return {
+      ...data,
+      source: data.source ?? 'manual',
+      assigned_at: data.assigned_at ?? data.created_at ?? new Date().toISOString()
+    };
   }
 
   async removeAssignment(experimentId: string, userId: string): Promise<boolean> {

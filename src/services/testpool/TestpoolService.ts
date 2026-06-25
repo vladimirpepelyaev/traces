@@ -26,7 +26,7 @@ export class TestpoolService {
   /**
    * Preloads all experiments and assignments from the repository to make `isEnabled` synchronous.
    */
-  async preload(): Promise<void> {
+  async preload(notify = true): Promise<void> {
     try {
       const experiments = await experimentRepository.getExperiments();
       this.experimentsCache.clear();
@@ -41,7 +41,9 @@ export class TestpoolService {
       }
 
       this.isInitialized = true;
-      this.notifyListeners();
+      if (notify) {
+        this.notifyListeners();
+      }
     } catch (err) {
       console.error('[TestpoolService] Preload failed:', err);
     }

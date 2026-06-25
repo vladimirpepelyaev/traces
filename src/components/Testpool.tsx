@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   testpoolService, 
@@ -60,6 +60,8 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
   // Experiment change log state
   const [eventLogs, setEventLogs] = useState<TestpoolEvent[]>([]);
 
+  const loadingRef = useRef(false);
+
   // Load experiments on mount and register listener for real-time state sync with diagnostics
   useEffect(() => {
     console.log('TESTPOOL_ROUTE', window.location.pathname);
@@ -73,12 +75,17 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
     console.log('TESTPOOL_REDIRECT_REASON', reason);
 
     const updateList = async () => {
+      if (loadingRef.current) {
+        console.log('[Testpool] Skip fetch - already loading');
+        return;
+      }
       try {
+        loadingRef.current = true;
         setLoading(true);
-        const data = await experimentRepository.getExperiments();
-        console.log('TESTPOOL_RESPONSE', data);
+        console.count('TESTPOOL_FETCH');
 
-        await testpoolService.preload();
+        // Pass false to skip notifying listeners during state preloading
+        await testpoolService.preload(false);
         const loadedExps = Array.from((testpoolService as any).experimentsCache.values()) as TestpoolExperiment[];
         setExperiments(loadedExps);
       } catch (err) {
@@ -86,6 +93,7 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
         console.log('TESTPOOL_RESPONSE', null);
       } finally {
         setLoading(false);
+        loadingRef.current = false;
       }
     };
 
@@ -539,7 +547,7 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
           <p className="text-xs text-zinc-400 mt-1">Зарегистрируйте новую функцию для старта</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="testpool-grid">
+        <div className="flex flex-col gap-3" id="testpool-list">
           {filteredExperiments.map((exp) => {
             const statusConfig = getStatusDisplay(exp.status, exp.rollout_percent);
             const userCount = (testpoolService as any).assignmentsCache.get(exp.id)?.length || 0;
@@ -550,93 +558,67 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
                 layout
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white border border-[#e3e9f0] rounded-2xl p-5 flex flex-col justify-between hover:shadow-md hover:border-[#d0d7e0] transition-all relative group shadow-sm"
+                className="bg-white border border-[#e3e9f0] rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-stretch hover:shadow-md hover:border-[#d0d7e0] transition-all relative group shadow-sm w-full h-auto gap-4"
                 id={`card-${exp.key}`}
               >
-                <div>
-                  {/* Top Header */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
+                {/* Left side: Information (Title, key, status, description, users) */}
+                <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold text-zinc-800 text-base group-hover:text-[#5181b8] transition">
                         {exp.title}
                       </h3>
-                      <code className="text-xs font-mono text-zinc-400 bg-zinc-50 border border-zinc-100 rounded-md px-1.5 py-0.5 mt-1 inline-block">
+                      <code className="text-xs font-mono text-zinc-400 bg-zinc-50 border border-zinc-100 rounded-md px-1.5 py-0.5">
                         {exp.key}
                       </code>
+                      <span className={`text-xs px-2.5 py-0.5 font-medium rounded-full border ${statusConfig.bg}`}>
+                        {statusConfig.label}
+                      </span>
                     </div>
-                    
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button 
-                        onClick={() => setIsHistoryOpen(exp)}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition cursor-pointer"
-                        title="История изменений"
-                      >
-                        <History size={16} />
-                      </button>
-                      <button 
-                        onClick={() => setIsEditOpen(exp)}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition cursor-pointer"
-                        title="Редактировать функцию"
-                        id={`btn-edit-${exp.key}`}
-                      >
-                        <Edit3 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteExperiment(exp.id, exp.title)}
-                        className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                        title="Удалить"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Description */}
-                  <p className="text-xs text-zinc-500 mt-3 line-clamp-2">
-                    {exp.description || 'Описание функции отсутствует.'}
-                  </p>
-
-                  {/* Status Badge */}
-                  <div className="mt-4 flex flex-wrap gap-2 items-center">
-                    <span className={`text-xs px-2.5 py-1 font-medium rounded-full border ${statusConfig.bg}`}>
-                      {statusConfig.label}
-                    </span>
-                    <span className="text-[11px] text-zinc-400 font-medium">
-                      {statusConfig.desc}
-                    </span>
-                  </div>
-
-                  {/* Active Users Summary */}
-                  <div className="mt-4 border-t border-zinc-100 pt-3">
-                    <p className="text-xs text-zinc-400 font-medium">
-                      Используется для <span className="text-zinc-700 font-bold">{userCount}</span> пользователей
+                    <p className="text-xs text-zinc-500 mt-2">
+                      {exp.description || 'Описание функции отсутствует.'}
                     </p>
+                  </div>
+
+                  <div className="text-[11px] text-zinc-400 mt-3 pt-2 border-t border-zinc-100 flex items-center gap-1.5 flex-wrap">
+                    <span>{statusConfig.desc}</span>
+                    <span className="text-zinc-300">•</span>
+                    <span>Используется для <span className="text-zinc-700 font-bold">{userCount}</span> пользователей</span>
                   </div>
                 </div>
 
-                {/* Operations Buttons Panel */}
-                <div className="mt-5 pt-3 border-t border-zinc-50 flex flex-wrap gap-1.5">
-                  <button 
-                    onClick={() => setIsParticipantsOpen(exp)}
-                    className="flex items-center gap-1.5 bg-zinc-50 text-zinc-600 border border-zinc-200/80 px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-zinc-100 hover:border-zinc-300 transition cursor-pointer"
-                    id={`btn-participants-${exp.key}`}
-                  >
-                    <Users size={13} />
-                    Раскатано на ({userCount})
-                  </button>
+                {/* Right side: Actions (History, Edit, Delete and Rollout controls) */}
+                <div className="flex flex-col justify-between items-stretch md:items-end gap-3 w-full md:w-[280px] shrink-0 border-t md:border-t-0 md:border-l border-zinc-100 pt-4 md:pt-0 md:pl-4">
+                  {/* Top: Utility Buttons */}
+                  <div className="flex items-center justify-end gap-1.5 self-end">
+                    <button 
+                      onClick={() => setIsHistoryOpen(exp)}
+                      className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition cursor-pointer"
+                      title="История изменений"
+                    >
+                      <History size={16} />
+                    </button>
+                    <button 
+                      onClick={() => setIsEditOpen(exp)}
+                      className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition cursor-pointer"
+                      title="Редактировать функцию"
+                      id={`btn-edit-${exp.key}`}
+                    >
+                      <Edit3 size={16} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteExperiment(exp.id, exp.title)}
+                      className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                      title="Удалить"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
 
-                  <button 
-                    onClick={() => setIsAddUserOpen(exp)}
-                    className="flex items-center gap-1.5 bg-[#5181b8]/10 text-[#5181b8] px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-[#5181b8]/15 transition cursor-pointer"
-                    id={`btn-add-user-${exp.key}`}
-                  >
-                    <UserPlus size={13} />
-                    Добавить пользователя
-                  </button>
-
-                  {/* Quick percentage rollout controls (visible if active and partial) */}
+                  {/* Middle: Percentage slider (visible if active and partial) */}
                   {exp.status === 'partial' && (
-                    <div className="w-full mt-3 p-3 bg-zinc-50 border border-zinc-100 rounded-xl space-y-2">
+                    <div className="w-full p-2 bg-zinc-50 border border-zinc-100 rounded-xl space-y-1">
                       <div className="flex items-center justify-between text-[11px] text-zinc-400 font-medium">
                         <span>Процент раскатки:</span>
                         <span className="text-[#5181b8] font-bold">{exp.rollout_percent}%</span>
@@ -648,71 +630,84 @@ export function Testpool({ currentUser, users, addNotification }: TestpoolProps)
                         step="5"
                         value={exp.rollout_percent}
                         onChange={(e) => handleUpdatePercentage(exp.id, parseInt(e.target.value))}
-                        className="w-full accent-[#5181b8]"
+                        className="w-full accent-[#5181b8] cursor-pointer"
                       />
-                      <div className="flex justify-between text-[9px] text-zinc-400">
-                        <span>0% (Выкл)</span>
-                        <span>50%</span>
-                        <span>100% (Все)</span>
-                      </div>
                     </div>
                   )}
 
-                  {/* Flow Action Controls */}
-                  <div className="flex flex-wrap gap-1.5 w-full mt-3 pt-2 border-t border-zinc-50">
-                    {/* Action 1: Rollout 100% */}
-                    {exp.status !== 'released' && exp.status !== 'disabled' && (
+                  {/* Bottom: Flow controls */}
+                  <div className="flex flex-col gap-1.5 w-full">
+                    <div className="flex gap-1.5">
                       <button 
-                        onClick={() => handleRollout100(exp.id)}
-                        className="flex-1 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer text-center"
-                        title="Раскатить на 100% текущих пользователей"
+                        onClick={() => setIsParticipantsOpen(exp)}
+                        className="flex-1 flex items-center justify-center gap-1 bg-zinc-50 text-zinc-600 border border-zinc-200/80 px-2 py-1.5 rounded-lg text-xs font-medium hover:bg-zinc-100 hover:border-zinc-300 transition cursor-pointer"
+                        id={`btn-participants-${exp.key}`}
                       >
-                        Раскатить на 100%
+                        <Users size={12} />
+                        Пользователи ({userCount})
                       </button>
-                    )}
 
-                    {/* Action 2: Rollout to New Only */}
-                    {exp.status !== 'released' && exp.status !== 'disabled' && (
                       <button 
-                        onClick={() => handleRolloutNewOnly(exp.id)}
-                        className="flex-1 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer text-center"
-                        title="Раскатить только на новые регистрации"
+                        onClick={() => setIsAddUserOpen(exp)}
+                        className="flex-1 flex items-center justify-center gap-1 bg-[#5181b8]/10 text-[#5181b8] px-2 py-1.5 rounded-lg text-xs font-medium hover:bg-[#5181b8]/15 transition cursor-pointer"
+                        id={`btn-add-user-${exp.key}`}
                       >
-                        Только новые
+                        <UserPlus size={12} />
+                        Добавить
                       </button>
-                    )}
+                    </div>
 
-                    {/* Action 3: Release */}
-                    {exp.status !== 'released' && (
-                      <button 
-                        onClick={() => handleRelease(exp.id)}
-                        className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer text-center"
-                        title="Выпустить в релиз (для всех текущих и будущих пользователей)"
-                      >
-                        Релиз
-                      </button>
-                    )}
+                    {/* Flow action triggers */}
+                    <div className="flex flex-wrap gap-1">
+                      {exp.status !== 'released' && exp.status !== 'disabled' && (
+                        <button 
+                          onClick={() => handleRollout100(exp.id)}
+                          className="flex-1 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 px-2 py-1 rounded-lg text-[10px] font-medium transition cursor-pointer text-center"
+                          title="Раскатить на 100% текущих пользователей"
+                        >
+                          Раскатить 100%
+                        </button>
+                      )}
 
-                    {/* Action 4: Disable completely */}
-                    {exp.status !== 'disabled' && (
-                      <button 
-                        onClick={() => handleToggleStatus(exp.id, 'disabled')}
-                        className="flex-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer text-center"
-                        title="Выключить фичу"
-                      >
-                        Выключить
-                      </button>
-                    )}
+                      {exp.status !== 'released' && exp.status !== 'disabled' && (
+                        <button 
+                          onClick={() => handleRolloutNewOnly(exp.id)}
+                          className="flex-1 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 px-2 py-1 rounded-lg text-[10px] font-medium transition cursor-pointer text-center"
+                          title="Раскатить только на новые регистрации"
+                        >
+                          Новые
+                        </button>
+                      )}
 
-                    {/* Action 5: Restore to draft (if disabled) */}
-                    {exp.status === 'disabled' && (
-                      <button 
-                        onClick={() => handleToggleStatus(exp.id, 'draft')}
-                        className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer text-center"
-                      >
-                        Вернуть в черновик
-                      </button>
-                    )}
+                      {exp.status !== 'released' && (
+                        <button 
+                          onClick={() => handleRelease(exp.id)}
+                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded-lg text-[10px] font-medium transition cursor-pointer text-center"
+                          title="Выпустить в релиз (для всех текущих и будущих пользователей)"
+                        >
+                          Релиз
+                        </button>
+                      )}
+
+                      {exp.status !== 'disabled' && (
+                        <button 
+                          onClick={() => handleToggleStatus(exp.id, 'disabled')}
+                          className="flex-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 px-2 py-1 rounded-lg text-[10px] font-medium transition cursor-pointer text-center"
+                          title="Выключить фичу"
+                        >
+                          Выключить
+                        </button>
+                      )}
+
+                      {exp.status === 'disabled' && (
+                        <button 
+                          onClick={() => handleToggleStatus(exp.id, 'draft')}
+                          className="flex-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-2 py-1 rounded-lg text-[10px] font-medium transition cursor-pointer text-center"
+                        >
+                          Черновик
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </motion.div>

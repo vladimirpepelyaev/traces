@@ -62,7 +62,7 @@ import {
 } from './features/notifications/notificationHelpers';
 import { PlatformNotification } from './features/notifications/notificationTypes';
 import { Testpool } from './components/Testpool';
-import { testpoolService, isEnabled } from './services/testpool/TestpoolService';
+import { testpoolService, isEnabled, testpool } from './services/testpool/TestpoolService';
 import { experimentRepository } from './services/testpool/ExperimentRepository';
 import { PROFILE_THEMES, getProfileTheme } from './constants/themes';
 import { 
@@ -1451,6 +1451,10 @@ export default function App() {
   const handleSelectTheme = async (themeId: string) => {
     if (!currentUser) return;
     const selectedColor = themeId;
+    console.log(
+      'COLOR_SELECTED',
+      selectedColor
+    );
     try {
       // 7. Событие писать отдельно
       const trackEvent = async (params: { event: string; payload: { color: string } }) => {
@@ -1470,12 +1474,19 @@ export default function App() {
         profile_theme: selectedColor
       };
 
+      const payload = {
+        public_settings: updatedSettings
+      };
+
+      console.log(
+        'PROFILE_THEME_SAVE',
+        payload
+      );
+
       // 3. При выборе цвета выполнить сохранение профиля
       await profileRepository.saveProfile(
         currentUser.id,
-        {
-          public_settings: updatedSettings
-        }
+        payload
       );
 
       // 4. После успешного UPDATE: обновить состояние без F5
@@ -1500,8 +1511,7 @@ export default function App() {
 
       // 8. Добавить диагностику
       console.log(
-        'PROFILE_THEME_APPLIED',
-        selectedColor,
+        'PROFILE_THEME_UPDATED',
         updated.public_settings
       );
 
@@ -2625,9 +2635,10 @@ export default function App() {
     const loadExperimentAndCheck = async () => {
       if (activeTab === 'profile' && currentUser) {
         try {
-          await testpoolService.loadExperiment('profile_custom_colors_v1');
-          const enabled = testpoolService.isEnabledForUser(currentUser.id);
+          await testpool.loadExperiment('profile_custom_colors_v1');
+          const enabled = await testpool.isEnabled('profile_custom_colors_v1', currentUser.id);
           setIsCustomColorsEnabled(enabled);
+          console.log('EXPERIMENT_ENABLED', enabled);
         } catch (err) {
           console.error('[Experiment] Error loading profile_custom_colors_v1:', err);
         }
@@ -11638,8 +11649,10 @@ export default function App() {
       ? topTopicsOnCard.map(pt => `${pt.topic} ${pt.score}%`).join(' · ')
       : '';
 
+    const postThemeColor = getProfileTheme(authorUser);
+    console.log('POST_CARD_COLOR', postThemeColor);
     const cardStyle = {
-      background: getProfileTheme(authorUser)
+      background: postThemeColor
     };
 
     return (
@@ -16911,8 +16924,10 @@ export default function App() {
           ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
           : getRenderedUser(currentDisplayUser, currentDisplayUser?.publicSettings);
 
+        const profileThemeColor = getProfileTheme(renderedUser);
+        console.log('PROFILE_CARD_COLOR', profileThemeColor);
         const profileCardStyle = {
-          background: getProfileTheme(renderedUser)
+          background: profileThemeColor
         };
 
         const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
@@ -17009,14 +17024,19 @@ export default function App() {
               className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all relative"
             >
               {isCustomColorsEnabled && isOwnProfile && (
-                <button
-                  id="profile-theme-trigger"
-                  onClick={handleOpenThemeModal}
-                  className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-[#4F7DF3] transition-colors rounded-xl hover:bg-zinc-50 cursor-pointer z-10"
-                  title="Изменить оформление"
-                >
-                  <Palette size={18} />
-                </button>
+                (() => {
+                  console.log('PALETTE_RENDERED');
+                  return (
+                    <button
+                      id="profile-theme-trigger"
+                      onClick={handleOpenThemeModal}
+                      className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-[#4F7DF3] transition-colors rounded-xl hover:bg-zinc-50 cursor-pointer z-10"
+                      title="Изменить оформление"
+                    >
+                      <Palette size={18} />
+                    </button>
+                  );
+                })()
               )}
               {!isProfileBlockedHidden && (
                 <div className="relative group w-[104px] h-[104px] shrink-0 overflow-hidden rounded-full border border-zinc-200/60 flex items-center justify-center bg-zinc-50 shadow-inner self-start">

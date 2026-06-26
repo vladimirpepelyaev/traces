@@ -266,6 +266,7 @@ export const DiscussedNow: React.FC<DiscussedNowProps> = ({
 
             const bestComments = getTopComments(post);
             const cardBgColor = getProfileTheme(authorUser);
+            console.log('POST_CARD_COLOR', cardBgColor);
 
             return (
               <motion.div

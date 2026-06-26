@@ -1399,6 +1399,8 @@ export default function App() {
   const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
   const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
   const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
+  const [isCustomColorsEnabled, setIsCustomColorsEnabled] = useState<boolean>(false);
+
   const profileUpdateDebounceTimeoutRef = useRef<any>(null);
   const updateSettingsAndStore = async (newSettings: PublicProfileSettings, overrideDisplayName?: string, overrideStatus?: string) => {
     setPublicSettings(newSettings);
@@ -1449,13 +1451,31 @@ export default function App() {
   const handleSelectTheme = async (themeId: string) => {
     if (!currentUser) return;
     try {
-      await experimentRepository.trackEvent('profile_theme_selected', currentUser.id, 'profile_theme_selected', { theme: themeId });
-      await experimentRepository.trackEvent('profile_theme_changed', currentUser.id, 'profile_theme_changed', { theme: themeId });
-      await profileRepository.saveProfile(currentUser.id, { profile_theme: themeId });
+      // 7. Событие писать отдельно
+      await experimentRepository.trackEvent('profile_theme_selected', currentUser.id, 'profile_theme_selected', { color: themeId });
       
-      // Update local React state instantly
-      setCurrentUser(prev => prev ? { ...prev, profileTheme: themeId } : null);
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, profileTheme: themeId } : u));
+      const existingSettings = currentUser.publicSettings || {};
+      const updatedSettings = {
+        ...existingSettings,
+        profile_theme: themeId
+      };
+
+      // 4. При выборе цвета: сохранить profile.public_settings.profile_theme
+      await profileRepository.saveProfile(currentUser.id, {
+        public_settings: updatedSettings
+      });
+      
+      // 5. После сохранения: немедленно обновить состояние без F5
+      const updatedUser = {
+        ...currentUser,
+        profileTheme: themeId,
+        publicSettings: updatedSettings
+      };
+
+      setCurrentUser(updatedUser);
+      setSelectedUserData(updatedUser);
+      setPublicSettings(updatedSettings);
+      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
       
       addNotification('Оформление', 'Тема профиля успешно обновлена!');
     } catch (err) {
@@ -2572,6 +2592,21 @@ export default function App() {
       }
     }
   }, [location.pathname, userId, users, selectedUserData]);
+
+  useEffect(() => {
+    const loadExperimentAndCheck = async () => {
+      if (activeTab === 'profile' && currentUser) {
+        try {
+          await testpoolService.loadExperiment('profile_custom_colors_v1');
+          const enabled = testpoolService.isEnabledForUser(currentUser.id);
+          setIsCustomColorsEnabled(enabled);
+        } catch (err) {
+          console.error('[Experiment] Error loading profile_custom_colors_v1:', err);
+        }
+      }
+    };
+    loadExperimentAndCheck();
+  }, [activeTab, currentUser]);
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
@@ -11532,7 +11567,7 @@ export default function App() {
         : 'text-[14.5px] text-[#2c2d30] font-normal leading-relaxed';
 
     const authorUser = users.find(u => u.name === post.authorName);
-    const authorThemeId = authorUser?.profileTheme || 'default';
+    const authorThemeId = authorUser?.publicSettings?.profile_theme || authorUser?.profileTheme || 'default';
     const authorTheme = PROFILE_THEMES[authorThemeId] || PROFILE_THEMES.default;
 
     const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
@@ -16834,7 +16869,6 @@ export default function App() {
       default: {
         const currentDisplayUser = selectedUserData || currentUser;
         const isOwnProfile = currentDisplayUser?.id === currentUser?.id;
-        const isCustomColorsEnabled = testpoolService.isEnabled('profile_custom_colors_v1', currentUser?.id);
 
         const ProfileThemeSeenTracker = () => {
           useEffect(() => {
@@ -16856,6 +16890,14 @@ export default function App() {
         const renderedUser = isOwnProfile
           ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
           : getRenderedUser(currentDisplayUser, currentDisplayUser?.publicSettings);
+
+        const userThemeId = renderedUser?.publicSettings?.profile_theme || renderedUser?.profileTheme || 'default';
+        const userTheme = PROFILE_THEMES[userThemeId] || PROFILE_THEMES.default;
+        const profileCardStyle = userThemeId !== 'default' ? {
+          borderLeftColor: userTheme.borderLeft,
+          borderLeftWidth: '4px',
+          backgroundColor: userTheme.cardBg
+        } : {};
 
         const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
         const isProfileBlockedAndNotOwn = !isOwnProfile && renderedUser?.isBlocked;
@@ -16946,7 +16988,10 @@ export default function App() {
             )}
 
             {/* User Main Profile Info Card */}
-            <div className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all relative">
+            <div 
+              style={profileCardStyle}
+              className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all relative"
+            >
               {isCustomColorsEnabled && isOwnProfile && (
                 <button
                   id="profile-theme-trigger"
@@ -17694,7 +17739,7 @@ export default function App() {
                   {Object.entries(PROFILE_THEMES)
                     .filter(([key]) => key !== 'default')
                     .map(([key, config]) => {
-                      const isSelected = (currentUser?.profileTheme || 'default') === key;
+                      const isSelected = (currentUser?.publicSettings?.profile_theme || currentUser?.profileTheme || 'default') === key;
                       return (
                         <button
                           key={key}
@@ -17721,7 +17766,7 @@ export default function App() {
                 <button
                   onClick={() => handleSelectTheme('default')}
                   className={`w-full py-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                    (currentUser?.profileTheme || 'default') === 'default'
+                    (currentUser?.publicSettings?.profile_theme || currentUser?.profileTheme || 'default') === 'default'
                       ? 'bg-zinc-100 text-zinc-800 border-zinc-300'
                       : 'bg-white hover:bg-zinc-50 text-zinc-600 border-zinc-200 hover:text-zinc-800'
                   }`}

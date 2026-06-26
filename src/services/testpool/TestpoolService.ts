@@ -171,6 +171,25 @@ export class TestpoolService {
     return false;
   }
 
+  async loadExperiment(key: string): Promise<TestpoolExperiment | null> {
+    try {
+      const exp = await experimentRepository.getExperimentByKey(key);
+      if (exp) {
+        this.experimentsCache.set(exp.key, exp);
+        const assignments = await experimentRepository.getAssignments(exp.id);
+        this.assignmentsCache.set(exp.id, assignments);
+        return exp;
+      }
+    } catch (err) {
+      console.error('[TestpoolService] loadExperiment failed:', err);
+    }
+    return null;
+  }
+
+  isEnabledForUser(userId: string | null | undefined): boolean {
+    return this.isEnabled('profile_custom_colors_v1', userId);
+  }
+
   // --- WRITE API & CHANGE EVENTS ---
 
   async registerExperiment(key: string, title: string, description: string, operatorId: string): Promise<TestpoolExperiment> {

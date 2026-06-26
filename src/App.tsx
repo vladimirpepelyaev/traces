@@ -1450,33 +1450,61 @@ export default function App() {
   };
   const handleSelectTheme = async (themeId: string) => {
     if (!currentUser) return;
+    const selectedColor = themeId;
     try {
       // 7. Событие писать отдельно
-      await experimentRepository.trackEvent('profile_theme_selected', currentUser.id, 'profile_theme_selected', { color: themeId });
-      
-      const existingSettings = currentUser.publicSettings || {};
-      const updatedSettings = {
-        ...existingSettings,
-        profile_theme: themeId
+      const trackEvent = async (params: { event: string; payload: { color: string } }) => {
+        await experimentRepository.trackEvent(params.event, currentUser.id, params.event, params.payload);
       };
 
-      // 4. При выборе цвета: сохранить profile.public_settings.profile_theme
-      await profileRepository.saveProfile(currentUser.id, {
-        public_settings: updatedSettings
+      await trackEvent({
+        event: 'profile_theme_selected',
+        payload: {
+          color: selectedColor
+        }
       });
-      
-      // 5. После сохранения: немедленно обновить состояние без F5
-      const updatedUser = {
-        ...currentUser,
-        profileTheme: themeId,
-        publicSettings: updatedSettings
+
+      const currentPublicSettings = currentUser.publicSettings || {};
+      const updatedSettings = {
+        ...currentPublicSettings,
+        profile_theme: selectedColor
       };
 
-      setCurrentUser(updatedUser);
-      setSelectedUserData(updatedUser);
+      // 3. При выборе цвета выполнить сохранение профиля
+      await profileRepository.saveProfile(
+        currentUser.id,
+        {
+          public_settings: updatedSettings
+        }
+      );
+
+      // 4. После успешного UPDATE: обновить состояние без F5
+      const updated = {
+        ...currentUser,
+        profileTheme: selectedColor,
+        publicSettings: updatedSettings,
+        public_settings: updatedSettings
+      };
+
+      setSelectedUserData(updated);
+      setCurrentUser(updated);
       setPublicSettings(updatedSettings);
-      setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
-      
+
+      setUsers(prev =>
+        prev.map(u =>
+          u.id === updated.id
+            ? updated
+            : u
+        )
+      );
+
+      // 8. Добавить диагностику
+      console.log(
+        'PROFILE_THEME_APPLIED',
+        selectedColor,
+        updated.public_settings
+      );
+
       addNotification('Оформление', 'Тема профиля успешно обновлена!');
     } catch (err) {
       console.error('[Theme] Error updating profile theme:', err);
@@ -17737,7 +17765,7 @@ export default function App() {
                 {/* 2x5 Grid for colors */}
                 <div className="grid grid-cols-5 gap-3 pt-2">
                   {Object.entries(PROFILE_THEMES)
-                    .filter(([key]) => key !== 'default')
+                    .filter(([key]) => key.startsWith('pastel_'))
                     .map(([key, config]) => {
                       const isSelected = (currentUser?.publicSettings?.profile_theme || currentUser?.profileTheme || 'default') === key;
                       return (

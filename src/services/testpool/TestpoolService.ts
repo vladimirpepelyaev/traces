@@ -390,6 +390,7 @@ export class TestpoolService {
 }
 
 export const testpoolService = new TestpoolService();
+export const testpool = testpoolService;
 export const isEnabled = (featureKey: string, userId: string | null | undefined): boolean => {
   return testpoolService.isEnabled(featureKey, userId);
 };

@@ -4,6 +4,7 @@ import { MessageSquare, MoreHorizontal, User } from 'lucide-react';
 import { FeedPost } from '../../types';
 import { POST_FORMATS } from '../post-format/postFormatTypes';
 import { formatRelativeTime } from '../notifications/notificationHelpers';
+import { getProfileTheme } from '../../constants/themes';
 
 interface DiscussedNowProps {
   feedPosts: FeedPost[];
@@ -264,12 +265,14 @@ export const DiscussedNow: React.FC<DiscussedNowProps> = ({
             );
 
             const bestComments = getTopComments(post);
+            const cardBgColor = getProfileTheme(authorUser);
 
             return (
               <motion.div
                 key={post.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
+                style={{ background: cardBgColor }}
                 className="bg-white border border-[#e7e8ec] rounded-[12px] p-4 flex flex-col gap-3.5 shadow-none overflow-hidden"
               >
                 {/* Author row */}

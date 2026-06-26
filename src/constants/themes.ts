@@ -120,3 +120,28 @@ export const PROFILE_THEMES: Record<string, ProfileThemeConfig> = {
   ice: { id: 'ice', name: 'Ice', colorHex: '#9BE1E4', cardBg: 'rgba(155, 225, 228, 0.05)', borderLeft: '#9BE1E4', badgeBg: 'rgba(155, 225, 228, 0.15)', badgeText: '#3B8B8E' },
   cream: { id: 'cream', name: 'Cream', colorHex: '#EAD5C3', cardBg: 'rgba(234, 213, 195, 0.05)', borderLeft: '#EAD5C3', badgeBg: 'rgba(234, 213, 195, 0.15)', badgeText: '#8A6848' }
 };
+
+export function getProfileTheme(profile: any): string {
+  if (!profile) return '#FFFFFF';
+  
+  const themeId = profile.publicSettings?.profile_theme || 
+                  profile.public_settings?.profile_theme || 
+                  profile.profileTheme || 
+                  'default';
+
+  const colors: Record<string, string> = {
+    pastel_blue: '#EAF3FF',
+    pastel_green: '#EEF8EE',
+    pastel_pink: '#FFF0F5',
+    pastel_peach: '#FFF1E6',
+    pastel_mint: '#E8FFF7',
+    pastel_lavender: '#F3EDFF',
+    pastel_yellow: '#FFFBE6',
+    pastel_sand: '#F8F4EC',
+    pastel_gray: '#F5F6F8',
+    pastel_violet: '#F6F0FF',
+  };
+
+  return colors[themeId] || '#FFFFFF';
+}
+

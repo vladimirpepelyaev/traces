@@ -64,7 +64,7 @@ import { PlatformNotification } from './features/notifications/notificationTypes
 import { Testpool } from './components/Testpool';
 import { testpoolService, isEnabled } from './services/testpool/TestpoolService';
 import { experimentRepository } from './services/testpool/ExperimentRepository';
-import { PROFILE_THEMES } from './constants/themes';
+import { PROFILE_THEMES, getProfileTheme } from './constants/themes';
 import { 
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
@@ -11599,16 +11599,10 @@ export default function App() {
     const authorTheme = PROFILE_THEMES[authorThemeId] || PROFILE_THEMES.default;
 
     const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
-    const badgeStyle = authorThemeId !== 'default' ? {
-      backgroundColor: authorTheme.badgeBg,
-      borderColor: 'transparent',
-      color: authorTheme.badgeText
-    } : {};
 
     const formatBadgeEl = (
       <span 
-        style={badgeStyle}
-        className={`inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none ${authorThemeId === 'default' ? 'bg-zinc-50 border-zinc-200/80 text-zinc-500' : ''}`}
+        className="inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none bg-zinc-50 border-zinc-200/80 text-zinc-500"
       >
         {formatInfo.label}
       </span>
@@ -11644,11 +11638,9 @@ export default function App() {
       ? topTopicsOnCard.map(pt => `${pt.topic} ${pt.score}%`).join(' · ')
       : '';
 
-    const cardStyle = authorThemeId !== 'default' ? {
-      borderLeftColor: authorTheme.borderLeft,
-      borderLeftWidth: '4px',
-      backgroundColor: authorTheme.cardBg
-    } : {};
+    const cardStyle = {
+      background: getProfileTheme(authorUser)
+    };
 
     return (
       <div 
@@ -16919,13 +16911,9 @@ export default function App() {
           ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
           : getRenderedUser(currentDisplayUser, currentDisplayUser?.publicSettings);
 
-        const userThemeId = renderedUser?.publicSettings?.profile_theme || renderedUser?.profileTheme || 'default';
-        const userTheme = PROFILE_THEMES[userThemeId] || PROFILE_THEMES.default;
-        const profileCardStyle = userThemeId !== 'default' ? {
-          borderLeftColor: userTheme.borderLeft,
-          borderLeftWidth: '4px',
-          backgroundColor: userTheme.cardBg
-        } : {};
+        const profileCardStyle = {
+          background: getProfileTheme(renderedUser)
+        };
 
         const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
         const isProfileBlockedAndNotOwn = !isOwnProfile && renderedUser?.isBlocked;

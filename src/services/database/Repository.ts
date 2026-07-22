@@ -417,7 +417,6 @@ export class PostRepositoryProvider {
     const rawTime = db.created_at || db.timestamp;
     return {
       id: db.id,
-      authorId: db.author_id,
       authorName: db.author_name,
       authorAvatar: db.author_avatar,
       title: undefined,
@@ -461,7 +460,6 @@ export class PostRepositoryProvider {
 
     return {
       id: post.id,
-      author_id: post.authorId || null,
       author_name: post.authorName,
       author_avatar: post.authorAvatar,
       text: post.text || null,

@@ -18,6 +18,7 @@ export interface PermissionService {
   hasRole(user: AppUser | null, role: string): boolean;
   canModerate(user: AppUser | null): boolean;
   isAdmin(user: AppUser | null): boolean;
+  isSuperAdmin(user: AppUser | null): boolean;
 }
 
 class PermissionServiceImpl implements PermissionService {
@@ -39,7 +40,7 @@ class PermissionServiceImpl implements PermissionService {
 
     // Rule 7 computed permissions mapping
     let permissions: string[] = [];
-    if (profileRole === 'super_admin') {
+    if (profileRole === 'super_admin' || profileRole === 'superadmin') {
       permissions = ['admin', 'moderation', 'support'];
     } else if (profileRole === 'admin') {
       permissions = ['admin', 'moderation'];
@@ -51,7 +52,7 @@ class PermissionServiceImpl implements PermissionService {
       permissions = [];
     }
 
-    const isEmployee = ['super_admin', 'admin', 'moderator', 'moderation', 'support'].includes(profileRole);
+    const isEmployee = ['super_admin', 'superadmin', 'admin', 'moderator', 'moderation', 'support'].includes(profileRole);
 
     if (role === SYSTEM_ROLES.ADMIN) {
       return permissions.includes('admin');
@@ -98,7 +99,7 @@ class PermissionServiceImpl implements PermissionService {
   canModerate(user: AppUser | null): boolean {
     if (!user) return false;
     const profileRole = user.role || 'user';
-    return ['super_admin', 'admin', 'moderator', 'moderation'].includes(profileRole);
+    return ['super_admin', 'superadmin', 'admin', 'moderator', 'moderation'].includes(profileRole);
   }
 
   /**
@@ -107,7 +108,16 @@ class PermissionServiceImpl implements PermissionService {
   isAdmin(user: AppUser | null): boolean {
     if (!user) return false;
     const profileRole = user.role || 'user';
-    return ['super_admin', 'admin'].includes(profileRole);
+    return ['super_admin', 'superadmin', 'admin'].includes(profileRole);
+  }
+
+  /**
+   * Checks if the user is a superadmin (for Testpool access and high-level control).
+   */
+  isSuperAdmin(user: AppUser | null): boolean {
+    if (!user) return false;
+    const profileRole = user.role || 'user';
+    return ['super_admin', 'superadmin', 'admin'].includes(profileRole) || user.isSuperAdmin === true;
   }
 }
 

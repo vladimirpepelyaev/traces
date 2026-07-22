@@ -22,6 +22,7 @@ import {
 } from './types';
 import { Wiki } from './components/Wiki';
 import { Statistics } from './components/Statistics';
+import { TestpoolDashboard } from './components/TestpoolDashboard';
 import { Onboarding, getPostTopic } from './components/Onboarding';
 import { FeedModeSelector, FeedMode } from './features/feed-modes/FeedModeSelector';
 import { PostComposer } from './features/post-context/PostComposer';
@@ -61,10 +62,6 @@ import {
   formatRelativeTime,
 } from './features/notifications/notificationHelpers';
 import { PlatformNotification } from './features/notifications/notificationTypes';
-import { Testpool } from './components/Testpool';
-import { testpoolService, isEnabled, testpool } from './services/testpool/TestpoolService';
-import { experimentRepository } from './services/testpool/ExperimentRepository';
-import { PROFILE_THEMES, getProfileTheme } from './constants/themes';
 import { 
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
@@ -94,7 +91,6 @@ import {
   BadgeCheck,
   Check,
   X,
-  Palette,
   ShieldCheck,
   MessageSquare,
   BarChart2,
@@ -160,7 +156,6 @@ import {
   AlertTriangle,
   Flag,
   Flame,
-  Sliders,
 } from 'lucide-react';
 
 import { 
@@ -1170,7 +1165,7 @@ export default function App() {
     'profile', 'feed', 'discussed-now', 'notifications', 'support', 'moderation', 'spam', 'page_moderation', 
     'verification', 'requests', 'users', 'management', 'statistics', 
     'announcements', 'wiki', 'security', 'action-logs', 'monitoring', 
-    'quality-control', 'personnel', 'appeals', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout', 'testpool'
+    'quality-control', 'personnel', 'appeals', 'automoderator', 'tasks', 'internal-mail', 'translations', 'logout'
   ]);
   const [grantedAccess, setGrantedAccess] = useState<string[]>([]);
 
@@ -1399,8 +1394,6 @@ export default function App() {
   const [quietReactionsByUser, setQuietReactionsByUser] = useState<Record<string, 'saved' | 'returned' | 'continued'>>({});
   const [attachmentVisiblePostIds, setAttachmentVisiblePostIds] = useState<Record<string, boolean>>({});
   const [publicSettings, setPublicSettings] = useState<PublicProfileSettings>(DEFAULT_PUBLIC_SETTINGS);
-  const [isCustomColorsEnabled, setIsCustomColorsEnabled] = useState<boolean>(false);
-
   const profileUpdateDebounceTimeoutRef = useRef<any>(null);
   const updateSettingsAndStore = async (newSettings: PublicProfileSettings, overrideDisplayName?: string, overrideStatus?: string) => {
     setPublicSettings(newSettings);
@@ -1435,93 +1428,6 @@ export default function App() {
   };
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState<boolean>(false);
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
-  
-  // Theme modal states & handlers
-  const [isThemeModalOpen, setIsThemeModalOpen] = useState<boolean>(false);
-  const handleOpenThemeModal = async () => {
-    setIsThemeModalOpen(true);
-    if (currentUser) {
-      try {
-        await experimentRepository.trackEvent('profile_theme_modal_open', currentUser.id, 'profile_theme_modal_open');
-      } catch (err) {
-        console.error('[Theme] Error tracking profile_theme_modal_open:', err);
-      }
-    }
-  };
-  const handleSelectTheme = async (themeId: string) => {
-    if (!currentUser) return;
-    const selectedColor = themeId;
-    console.log(
-      'COLOR_SELECTED',
-      selectedColor
-    );
-    try {
-      // 7. Событие писать отдельно
-      const trackEvent = async (params: { event: string; payload: { color: string } }) => {
-        await experimentRepository.trackEvent(params.event, currentUser.id, params.event, params.payload);
-      };
-
-      await trackEvent({
-        event: 'profile_theme_selected',
-        payload: {
-          color: selectedColor
-        }
-      });
-
-      const currentPublicSettings = currentUser.publicSettings || {};
-      const updatedSettings = {
-        ...currentPublicSettings,
-        profile_theme: selectedColor
-      };
-
-      const payload = {
-        public_settings: updatedSettings
-      };
-
-      console.log(
-        'PROFILE_THEME_SAVE',
-        payload
-      );
-
-      // 3. При выборе цвета выполнить сохранение профиля
-      await profileRepository.saveProfile(
-        currentUser.id,
-        payload
-      );
-
-      // 4. После успешного UPDATE: обновить состояние без F5
-      const updated = {
-        ...currentUser,
-        profileTheme: selectedColor,
-        publicSettings: updatedSettings,
-        public_settings: updatedSettings
-      };
-
-      setSelectedUserData(updated);
-      setCurrentUser(updated);
-      setPublicSettings(updatedSettings);
-
-      setUsers(prev =>
-        prev.map(u =>
-          u.id === updated.id
-            ? updated
-            : u
-        )
-      );
-
-      // 8. Добавить диагностику
-      console.log(
-        'PROFILE_THEME_UPDATED',
-        updated.public_settings
-      );
-
-      addNotification('Оформление', 'Тема профиля успешно обновлена!');
-    } catch (err) {
-      console.error('[Theme] Error updating profile theme:', err);
-      addNotification('Ошибка', 'Не удалось сохранить тему в базе данных.');
-    }
-    setIsThemeModalOpen(false);
-  };
   const [userActivity, setUserActivity] = useState<{ writing: number; reading: number; discussing: number }>({
     writing: 30,
     reading: 40,
@@ -2596,7 +2502,7 @@ export default function App() {
       'spam', 'verification', 'tasks', 'support', 'appeals', 
       'requests', 'users', 'management', 'statistics', 'announcements', 'wiki', 
       'security', 'action-logs', 'monitoring', 'translations', 'quality-control', 
-      'personnel', 'page_moderation', 'testpool'
+      'personnel', 'page_moderation'
     ].includes(tabId) || tabId.startsWith('support-category-')) {
       return `/admin/${tabId}`;
     }
@@ -2615,9 +2521,7 @@ export default function App() {
   // Synchronize URL /u/:userId or /user/:userId parameter with selectedUserData state
   useEffect(() => {
     const path = location.pathname;
-    if (path === '/testpool') {
-      navigate('/admin/testpool', { replace: true });
-    } else if ((path.startsWith('/u/') || path.startsWith('/user/')) && userId) {
+    if ((path.startsWith('/u/') || path.startsWith('/user/')) && userId) {
       if (!selectedUserData || selectedUserData.id !== userId) {
         const found = users.find(u => u.id === userId);
         if (found) {
@@ -2630,22 +2534,6 @@ export default function App() {
       }
     }
   }, [location.pathname, userId, users, selectedUserData]);
-
-  useEffect(() => {
-    const loadExperimentAndCheck = async () => {
-      if (activeTab === 'profile' && currentUser) {
-        try {
-          await testpool.loadExperiment('profile_custom_colors_v1');
-          const enabled = await testpool.isEnabled('profile_custom_colors_v1', currentUser.id);
-          setIsCustomColorsEnabled(enabled);
-          console.log('EXPERIMENT_ENABLED', enabled);
-        } catch (err) {
-          console.error('[Experiment] Error loading profile_custom_colors_v1:', err);
-        }
-      }
-    };
-    loadExperimentAndCheck();
-  }, [activeTab, currentUser]);
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
@@ -2990,7 +2878,7 @@ export default function App() {
     { id: 'announcements', icon: Icon16WorkOutline, label: 'Объявления', count: announcements.filter(a => a.isPinned).length, adminOnly: true },
     { id: 'wiki', icon: Icon16WorkOutline, label: 'База знаний', adminOnly: true },
     { id: 'personnel', icon: Icon16WorkOutline, label: 'Сотрудники', count: staffCount, adminOnly: true },
-    { id: 'testpool', icon: Sliders, label: 'Testpool' },
+    { id: 'testpool', icon: Sparkles, label: 'Testpool (A/B)', superAdminOnly: true },
     { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
   ];
 
@@ -3002,15 +2890,15 @@ export default function App() {
     const baseItems: any[] = [];
     
     MENU_ITEMS.filter(item => {
+      if (item.superAdminOnly) {
+        return permissionService.isSuperAdmin(currentUser);
+      }
+
       if (permissionService.isAdmin(currentUser)) return true; // EVERYTHING is visible for admin as requested
       
       // Basic tabs always accessible
       if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy' || item.id === 'discussed-now') {
         return true;
-      }
-
-      if (item.id === 'testpool') {
-        return !!(isAdminMode || currentUser?.isEmployee || isWorker(currentUser));
       }
 
       if (item.adminOnly) {
@@ -11488,7 +11376,6 @@ export default function App() {
     const analyzedTopics = TopicScoreService.analyzePost('', inputText, allTopics);
     const newPost: FeedPost = {
       id: generateUUID(),
-      authorId: currentUser.id,
       authorName: currentUser.name,
       authorAvatar: currentUser.avatar || '',
       text: inputText,
@@ -11605,20 +11492,14 @@ export default function App() {
         ? 'text-[15.5px] font-sans text-zinc-850 bg-teal-50/5 p-3 rounded border border-teal-100/30 font-normal leading-relaxed text-justify'
         : 'text-[14.5px] text-[#2c2d30] font-normal leading-relaxed';
 
-    const authorUser = users.find(u => u.name === post.authorName);
-    const authorThemeId = authorUser?.publicSettings?.profile_theme || authorUser?.profileTheme || 'default';
-    const authorTheme = PROFILE_THEMES[authorThemeId] || PROFILE_THEMES.default;
-
     const formatInfo = POST_FORMATS.find(f => f.id === (post.postFormat || 'OPINION')) || POST_FORMATS[1];
-
     const formatBadgeEl = (
-      <span 
-        className="inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none bg-zinc-50 border-zinc-200/80 text-zinc-500"
-      >
+      <span className="inline-flex items-center justify-center rounded-[5px] text-[9.5px] font-bold uppercase tracking-tight border bg-zinc-50 border-zinc-200/80 text-zinc-500 whitespace-nowrap px-1.5 py-0.5 select-none align-middle mr-1.5 leading-none font-sans select-none">
         {formatInfo.label}
       </span>
     );
 
+    const authorUser = users.find(u => u.name === post.authorName);
     const authorSettings = authorUser?.publicSettings || publicSettings;
     const resolvedAuthor = authorUser 
       ? { name: authorUser.name, avatar: authorUser.avatar } 
@@ -11649,18 +11530,11 @@ export default function App() {
       ? topTopicsOnCard.map(pt => `${pt.topic} ${pt.score}%`).join(' · ')
       : '';
 
-    const postThemeColor = getProfileTheme(authorUser);
-    console.log('POST_CARD_COLOR', postThemeColor);
-    const cardStyle = {
-      background: postThemeColor
-    };
-
     return (
       <div 
         key={post.id} 
         id={`post-${post.id}`}
         onClick={(e) => handlePostCardClickWithAlt(e, post.text)}
-        style={cardStyle}
         className="bg-vk-white rounded-xl border border-zinc-200/60 overflow-hidden shadow-xs hover:border-[#cbcdd4] transition-all duration-200 flex flex-col gap-3.5 text-left font-sans p-4"
       >
         {/* Row 1: Author & Metadata Line (Primary priority at top) */}
@@ -15848,10 +15722,17 @@ export default function App() {
 
     // Role-based route protection
     const path = location.pathname;
-    const isSuperAdmin = roles.includes('super_admin');
+    const isSuperAdmin = roles.includes('super_admin') || permissionService.isSuperAdmin(currentUser);
     const isAdmin = roles.includes('admin') || isSuperAdmin;
     const isModerator = roles.includes('moderator') || isAdmin;
     const isSupport = roles.includes('support') || isModerator;
+
+    // 0. /testpool block (superadmin only)
+    if (path.startsWith('/testpool') || activeTab === 'testpool') {
+      if (!isSuperAdmin) {
+        return renderAccessDenied("Доступ ограничен — Testpool", "Служебный инструмент управления фича-флагами и A/B тестированием доступен исключительно суперадминистраторам системы.");
+      }
+    }
 
     // 1. /admin block
     if (path.startsWith('/admin') || [
@@ -16891,7 +16772,7 @@ export default function App() {
         return renderPageModeration();
       case 'testpool':
         return (
-          <Testpool
+          <TestpoolDashboard
             currentUser={currentUser}
             users={users}
             addNotification={addNotification}
@@ -16902,33 +16783,10 @@ export default function App() {
       default: {
         const currentDisplayUser = selectedUserData || currentUser;
         const isOwnProfile = currentDisplayUser?.id === currentUser?.id;
-
-        const ProfileThemeSeenTracker = () => {
-          useEffect(() => {
-            const trackSeen = async () => {
-              if (isCustomColorsEnabled && currentUser) {
-                try {
-                  await experimentRepository.trackEvent('profile_theme_seen', currentUser.id, 'profile_theme_seen');
-                } catch (err) {
-                  console.error('[Tracking] Error tracking profile_theme_seen:', err);
-                }
-              }
-            };
-            trackSeen();
-          }, [isCustomColorsEnabled]);
-          return null;
-        };
-
         const isViewingServiceProfile = isServiceProfileUser(currentDisplayUser);
         const renderedUser = isOwnProfile
           ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
           : getRenderedUser(currentDisplayUser, currentDisplayUser?.publicSettings);
-
-        const profileThemeColor = getProfileTheme(renderedUser);
-        console.log('PROFILE_CARD_COLOR', profileThemeColor);
-        const profileCardStyle = {
-          background: profileThemeColor
-        };
 
         const isEmployeeUser = isAdminMode || currentUser?.isEmployee || isWorker(currentUser);
         const isProfileBlockedAndNotOwn = !isOwnProfile && renderedUser?.isBlocked;
@@ -17010,7 +16868,6 @@ export default function App() {
 
         return (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-            <ProfileThemeSeenTracker />
             {isOwnProfile && isPreviewMode && !isViewingServiceProfile && (
               <ProfilePreviewStatus 
                 settings={publicSettings} 
@@ -17019,25 +16876,7 @@ export default function App() {
             )}
 
             {/* User Main Profile Info Card */}
-            <div 
-              style={profileCardStyle}
-              className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all relative"
-            >
-              {isCustomColorsEnabled && isOwnProfile && (
-                (() => {
-                  console.log('PALETTE_RENDERED');
-                  return (
-                    <button
-                      id="profile-theme-trigger"
-                      onClick={handleOpenThemeModal}
-                      className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-[#4F7DF3] transition-colors rounded-xl hover:bg-zinc-50 cursor-pointer z-10"
-                      title="Изменить оформление"
-                    >
-                      <Palette size={18} />
-                    </button>
-                  );
-                })()
-              )}
+            <div className="bg-white p-5 border border-zinc-200/60 flex flex-col sm:flex-row gap-5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015),_0_1px_4px_rgba(0,0,0,0.01)] transition-all">
               {!isProfileBlockedHidden && (
                 <div className="relative group w-[104px] h-[104px] shrink-0 overflow-hidden rounded-full border border-zinc-200/60 flex items-center justify-center bg-zinc-50 shadow-inner self-start">
                   <UserAvatar user={renderedUser} avatarUrl={renderedUser?.avatar} className="w-full h-full" forceGrayscale={renderedUser?.isDeleted} />
@@ -17222,29 +17061,6 @@ export default function App() {
                 )}
               </div>
             </div>
-
-            {/* Early Access / Ранний доступ Experiments Block */}
-            {(() => {
-              const activeUserExps = testpoolService.getActiveUserExperiments(currentDisplayUser?.id || '', currentDisplayUser);
-              if (activeUserExps.length === 0) return null;
-              
-              return (
-                <div className="bg-white p-5 border border-zinc-200/60 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-3" id="profile-early-access">
-                  <div className="flex items-center gap-2 border-b border-zinc-100 pb-2.5">
-                    <span className="text-[#5181b8] text-base">✨</span>
-                    <h3 className="font-semibold text-zinc-900 text-sm tracking-tight">Ранний доступ</h3>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" id="early-access-list">
-                    {activeUserExps.map((exp, idx) => (
-                      <div key={idx} className="bg-zinc-50/50 border border-zinc-100 p-3.5 rounded-xl space-y-1" id={`early-access-item-${idx}`}>
-                        <h4 className="font-semibold text-zinc-800 text-xs">{exp.title}</h4>
-                        <p className="text-[11px] text-zinc-500 leading-normal">{exp.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* In-tab dynamic user profile insights dashboard */}
             {!isViewingServiceProfile && (
@@ -17740,77 +17556,6 @@ export default function App() {
               }}
               onClose={() => setIsPrivacyModalOpen(false)}
             />
-          )}
-        </AnimatePresence>
-
-        {/* Custom Theme Colors Modal */}
-        <AnimatePresence>
-          {isThemeModalOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }} 
-                exit={{ opacity: 0 }} 
-                className="absolute inset-0 bg-black/50" 
-                onClick={() => setIsThemeModalOpen(false)} 
-              />
-              <motion.div 
-                initial={{ scale: 0.95, opacity: 0 }} 
-                animate={{ scale: 1, opacity: 1 }} 
-                exit={{ scale: 0.95, opacity: 0 }} 
-                className="bg-white w-full max-w-md rounded-2xl overflow-hidden relative z-10 shadow-2xl border border-zinc-200/80 flex flex-col p-6 space-y-4"
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-zinc-900 tracking-tight">Изменить оформление</h3>
-                  <button 
-                    onClick={() => setIsThemeModalOpen(false)}
-                    className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                
-                {/* 2x5 Grid for colors */}
-                <div className="grid grid-cols-5 gap-3 pt-2">
-                  {Object.entries(PROFILE_THEMES)
-                    .filter(([key]) => key.startsWith('pastel_'))
-                    .map(([key, config]) => {
-                      const isSelected = (currentUser?.publicSettings?.profile_theme || currentUser?.profileTheme || 'default') === key;
-                      return (
-                        <button
-                          key={key}
-                          onClick={() => handleSelectTheme(key)}
-                          className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all duration-200 hover:scale-105 cursor-pointer ${
-                            isSelected 
-                              ? 'border-[#4F7DF3] bg-blue-50/20 shadow-xs' 
-                              : 'border-zinc-200/60 hover:bg-zinc-50'
-                          }`}
-                        >
-                          <span 
-                            className="w-8 h-8 rounded-full border border-black/5 shadow-inner shrink-0 flex items-center justify-center text-white"
-                            style={{ backgroundColor: config.colorHex }}
-                          >
-                            {isSelected && <Check size={14} className="stroke-[3px]" />}
-                          </span>
-                          <span className="text-[10px] font-semibold text-zinc-500 capitalize">{config.name}</span>
-                        </button>
-                      );
-                    })}
-                </div>
-
-                {/* Reset to standard theme button */}
-                <button
-                  onClick={() => handleSelectTheme('default')}
-                  className={`w-full py-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                    (currentUser?.publicSettings?.profile_theme || currentUser?.profileTheme || 'default') === 'default'
-                      ? 'bg-zinc-100 text-zinc-800 border-zinc-300'
-                      : 'bg-white hover:bg-zinc-50 text-zinc-600 border-zinc-200 hover:text-zinc-800'
-                  }`}
-                >
-                  Стандартное оформление
-                </button>
-              </motion.div>
-            </div>
           )}
         </AnimatePresence>
 

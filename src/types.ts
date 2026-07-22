@@ -56,7 +56,6 @@ export interface Ticket {
 
 export interface FeedPost {
   id: string;
-  authorId?: string;
   authorName: string;
   authorAvatar: string;
   title?: string;
@@ -114,7 +113,6 @@ export interface AppUser {
   isVerified: boolean;
   isBlocked: boolean;
   regDate: string;
-  profileTheme?: string;
   isDeleted?: boolean;
   originalName?: string;
   isPornMarked?: boolean;
@@ -144,6 +142,7 @@ export interface AppUser {
   role?: string;
   roleList?: string[];
   isEmployee?: boolean;
+  isSuperAdmin?: boolean;
   /** Служебный профиль платформы для официального взаимодействия с пользователями */
   isServiceProfile?: boolean;
   /** Показывать кнопку «Написать сообщение» на служебном профиле */
@@ -251,44 +250,4 @@ export interface DialogComplaint {
 export function getDisplayName(profile?: { display_name?: string; username?: string }) {
   if (!profile) return 'Пользователь';
   return profile.display_name?.trim() || profile.username || 'Пользователь';
-}
-
-export type ExperimentStatus = 'draft' | 'partial' | 'new_users' | 'released' | 'disabled';
-
-export interface TestpoolExperiment {
-  id: string;
-  key: string;
-  title: string;
-  description?: string;
-  status: ExperimentStatus;
-  enabled: boolean;
-  created_by: string;
-  updated_by: string;
-  created_at: string;
-  updated_at: string;
-  rollout_percent: number;
-  include_new_users: boolean;
-  released_at: string | null;
-  expires_at: string | null;
-  rollout_all?: boolean;
-  rollout_new_users?: boolean;
-}
-
-export interface TestpoolAssignment {
-  id: string;
-  experiment_id: string;
-  user_id: string;
-  source: string; // 'manual', 'rollout'
-  enabled: boolean;
-  created_at: string;
-  removed_at?: string | null;
-}
-
-export interface TestpoolEvent {
-  id: string;
-  experiment_id: string;
-  operator_id: string;
-  action: string;
-  payload: any;
-  created_at: string;
 }

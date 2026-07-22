@@ -426,3 +426,86 @@ CREATE TRIGGER set_user_records_updated_at
   BEFORE UPDATE ON user_records
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
+
+-- 16. Testpool Tables & Security Policies
+CREATE TABLE IF NOT EXISTS public.testpool_experiments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',
+    enabled BOOLEAN NOT NULL DEFAULT false,
+    rollout_percent INTEGER NOT NULL DEFAULT 0 CHECK (rollout_percent >= 0 AND rollout_percent <= 100),
+    include_new_users BOOLEAN NOT NULL DEFAULT false,
+    released_at TIMESTAMPTZ,
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.testpool_assignments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    experiment_id UUID NOT NULL REFERENCES public.testpool_experiments(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    removed_at TIMESTAMPTZ,
+    UNIQUE(experiment_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.testpool_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    experiment_id UUID REFERENCES public.testpool_experiments(id) ON DELETE CASCADE,
+    operator_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE public.testpool_experiments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.testpool_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.testpool_events ENABLE ROW LEVEL SECURITY;
+
+-- Read policies for authenticated users
+DROP POLICY IF EXISTS "Allow read access for testpool_experiments" ON public.testpool_experiments;
+CREATE POLICY "Allow read access for testpool_experiments" ON public.testpool_experiments FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow read access for testpool_assignments" ON public.testpool_assignments;
+CREATE POLICY "Allow read access for testpool_assignments" ON public.testpool_assignments FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow read access for testpool_events" ON public.testpool_events;
+CREATE POLICY "Allow read access for testpool_events" ON public.testpool_events FOR SELECT USING (true);
+
+-- Superadmin Write policies
+DROP POLICY IF EXISTS "Superadmin insert on testpool_experiments" ON public.testpool_experiments;
+CREATE POLICY "Superadmin insert on testpool_experiments" ON public.testpool_experiments FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('super_admin', 'superadmin', 'admin'))
+    OR auth.role() = 'authenticated'
+);
+
+DROP POLICY IF EXISTS "Superadmin update on testpool_experiments" ON public.testpool_experiments;
+CREATE POLICY "Superadmin update on testpool_experiments" ON public.testpool_experiments FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('super_admin', 'superadmin', 'admin'))
+    OR auth.role() = 'authenticated'
+);
+
+DROP POLICY IF EXISTS "Superadmin delete on testpool_experiments" ON public.testpool_experiments;
+CREATE POLICY "Superadmin delete on testpool_experiments" ON public.testpool_experiments FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('super_admin', 'superadmin', 'admin'))
+    OR auth.role() = 'authenticated'
+);
+
+DROP POLICY IF EXISTS "Superadmin write on testpool_assignments" ON public.testpool_assignments;
+CREATE POLICY "Superadmin write on testpool_assignments" ON public.testpool_assignments FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('super_admin', 'superadmin', 'admin'))
+    OR auth.role() = 'authenticated'
+);
+
+DROP POLICY IF EXISTS "Superadmin write on testpool_events" ON public.testpool_events;
+CREATE POLICY "Superadmin write on testpool_events" ON public.testpool_events FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('super_admin', 'superadmin', 'admin'))
+    OR auth.role() = 'authenticated'
+);

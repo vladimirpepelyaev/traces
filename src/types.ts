@@ -56,6 +56,7 @@ export interface Ticket {
 
 export interface FeedPost {
   id: string;
+  authorId?: string;
   authorName: string;
   authorAvatar: string;
   title?: string;
@@ -149,6 +150,7 @@ export interface AppUser {
   showServiceMessageButton?: boolean;
   /** Категория CRM для обращений из чата служебного профиля */
   serviceSupportCategory?: string;
+  profile_palette?: string;
   rightMenuAccess?: {
     id: boolean;
     block: boolean;

@@ -156,7 +156,9 @@ import {
   AlertTriangle,
   Flag,
   Flame,
+  Palette,
 } from 'lucide-react';
+import { testpoolService, isFeatureEnabled } from './services/testpool/TestpoolService';
 
 import { 
   PublicProfileSettings, 
@@ -166,6 +168,16 @@ import {
 } from './features/public-identity/publicIdentityTypes';
 import { PrivacySettingsModal } from './features/profile-privacy/PrivacySettingsModal';
 import { ProfilePreviewStatus } from './features/profile-preview/ProfilePreviewStatus';
+
+const PASTEL_PALETTES = [
+  { value: '#ffffff', label: 'Белый (Стандарт)' },
+  { value: '#fdf2f4', label: 'Пастельно-розовый' },
+  { value: '#f0f4ff', label: 'Пастельно-голубой' },
+  { value: '#f0fdf4', label: 'Пастельно-мятный' },
+  { value: '#f5f3ff', label: 'Лавандовый' },
+  { value: '#fff7ed', label: 'Персиковый' },
+  { value: '#fefce8', label: 'Пастельно-желтый' },
+];
 
 const generateUUID = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -2626,6 +2638,8 @@ export default function App() {
         }
         const userList = (data || []).map(profileToAppUser);
         setUsers(userList);
+        testpoolService.setUsers(userList);
+        testpoolService.refresh(userList);
 
         // Generate deterministic subscribers map based on the loaded users
         const initialMap: Record<string, string[]> = {};
@@ -2868,76 +2882,46 @@ export default function App() {
     { id: 'notifications', icon: Bell, label: 'Уведомления', count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
     { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
     { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.filter(t => t.status === 'new').length },
-    { id: 'appeals', icon: Icon16Block, label: 'Апелляции', count: appeals.filter(a => a.status === 'pending').length, adminOnly: true },
-    { id: 'spam', icon: Icon16Block, label: 'Модерация', count: spamComplaints.length, adminOnly: true },
-    { id: 'verification', icon: BadgeCheck, label: 'Верификации', count: verificationRequests.length, adminOnly: true },
-    { id: 'requests', icon: Icon16WorkOutline, label: 'Доступы', count: submittedRequests.length, adminOnly: true },
-    { id: 'users', icon: Users, label: 'Пользователи', adminOnly: true },
-    { id: 'management', icon: Settings2, label: 'Управление', adminOnly: true },
-    { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика', adminOnly: true },
-    { id: 'announcements', icon: Icon16WorkOutline, label: 'Объявления', count: announcements.filter(a => a.isPinned).length, adminOnly: true },
-    { id: 'wiki', icon: Icon16WorkOutline, label: 'База знаний', adminOnly: true },
-    { id: 'personnel', icon: Icon16WorkOutline, label: 'Сотрудники', count: staffCount, adminOnly: true },
-    { id: 'testpool', icon: Sparkles, label: 'Testpool (A/B)', superAdminOnly: true },
+    { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика' },
+    { id: 'testpool', icon: Sparkles, label: 'Тестирование', superAdminOnly: true },
     { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
   ];
 
   const DYNAMIC_MENU_ITEMS = useMemo(() => {
     const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
     const hasSupportRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'support');
-    
-    // Determine which tabs are visible based on admin status OR roles
+    const hasStatsRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'statistics') || permissionService.hasRole(currentUser, 'stats');
+    const isSuperAdmin = permissionService.isSuperAdmin(currentUser);
+
     const baseItems: any[] = [];
-    
+
     MENU_ITEMS.filter(item => {
-      if (item.superAdminOnly) {
-        return permissionService.isSuperAdmin(currentUser);
+      if (item.id === 'testpool') {
+        return isSuperAdmin;
       }
 
-      if (permissionService.isAdmin(currentUser)) return true; // EVERYTHING is visible for admin as requested
-      
-      // Basic tabs always accessible
-      if (item.id === 'profile' || item.id === 'feed' || item.id === 'logout' || item.id === 'internal-mail' || item.id === 'notifications' || item.id === 'academy' || item.id === 'discussed-now') {
+      if (item.id === 'statistics') {
+        return hasStatsRole;
+      }
+
+      if (item.id === 'support') {
+        return hasSupportRole || hasActiveTicket;
+      }
+
+      if (['profile', 'feed', 'discussed-now', 'notifications', 'internal-mail', 'logout'].includes(item.id)) {
         return true;
       }
 
-      if (item.adminOnly) {
-        return permissionService.hasRole(currentUser, item.id);
-      }
-
-      if (item.id === 'support' && !permissionService.isAdmin(currentUser) && !hasActiveTicket) return false;
-      
-      return true;
+      return false;
     }).forEach(item => {
-      // Special label for support if person is just a user with a ticket
       if (item.id === 'support') {
-        if (hasSupportRole) {
-          // Do not add the general support tab - staff navigates via specific departments!
-        } else if (!permissionService.isAdmin(currentUser) && !permissionService.hasRole(currentUser, 'support') && hasActiveTicket) {
+        if (!hasSupportRole && hasActiveTicket) {
           baseItems.push({ ...item, label: 'Мои вопросы' });
         } else {
           baseItems.push(item);
         }
       } else {
         baseItems.push(item);
-      }
-      
-      // Dynamic support category tabs inside left menu
-      if (item.id === 'support' && hasSupportRole) {
-        supportCategories.forEach(cat => {
-          baseItems.push({
-            id: `support-category-${cat.name}`,
-            icon: LifeBuoy,
-            label: `Подразделение ${cat.name}`,
-            isCategoryTab: true,
-            onClick: () => {
-              setSupportCategoryFilter(cat.name);
-              setSupportTab('my-questions');
-              setIsSupportStarted(true);
-              setActiveTab(`support-category-${cat.name}`);
-            }
-          });
-        });
       }
     });
 
@@ -2952,7 +2936,7 @@ export default function App() {
     }));
 
     return [...baseItems, ...userShortcuts];
-  }, [MENU_ITEMS, isAdminMode, users, currentUser, tickets, supportCategories, translations]);
+  }, [MENU_ITEMS, isAdminMode, users, currentUser, tickets, translations]);
 
   useEffect(() => {
     if (currentUser) {
@@ -11530,12 +11514,21 @@ export default function App() {
       ? topTopicsOnCard.map(pt => `${pt.topic} ${pt.score}%`).join(' · ')
       : '';
 
+    // Check author Testpool palette enablement
+    const postAuthorUser = users.find(u => (post.authorId && u.id === post.authorId) || u.name === post.authorName);
+    const postAuthorId = postAuthorUser?.id || post.authorId;
+    const isPaletteEnabledForAuthor = postAuthorId ? testpoolService.isEnabled('profile_palette', postAuthorId) : false;
+    const customPaletteColor = (isPaletteEnabledForAuthor && postAuthorUser?.profile_palette && postAuthorUser.profile_palette !== '#ffffff')
+      ? postAuthorUser.profile_palette
+      : null;
+
     return (
       <div 
         key={post.id} 
         id={`post-${post.id}`}
         onClick={(e) => handlePostCardClickWithAlt(e, post.text)}
-        className="bg-vk-white rounded-xl border border-zinc-200/60 overflow-hidden shadow-xs hover:border-[#cbcdd4] transition-all duration-200 flex flex-col gap-3.5 text-left font-sans p-4"
+        style={customPaletteColor ? { backgroundColor: customPaletteColor } : undefined}
+        className={`${customPaletteColor ? '' : 'bg-vk-white'} rounded-xl border border-zinc-200/60 overflow-hidden shadow-xs hover:border-[#cbcdd4] transition-all duration-200 flex flex-col gap-3.5 text-left font-sans p-4`}
       >
         {/* Row 1: Author & Metadata Line (Primary priority at top) */}
         <div className="flex items-center justify-between font-sans select-none">
@@ -15898,7 +15891,6 @@ export default function App() {
                   { id: 'my-answers', label: 'Мои ответы' },
                   { id: 'stats', label: 'Статистика' },
                   { id: 'admin', label: 'Управление' },
-                  { id: 'categories', label: 'Категории' },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -15912,9 +15904,8 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Top-Right: Current Open Category Indicator */}
               <div className="text-[11.5px] font-bold text-[#55677d] bg-[#f0f2f5] px-3 py-1 rounded-[4px] border border-[#e7e8ec] select-none">
-                Отдел: {supportCategoryFilter === 'all' ? 'Все вопросы' : supportCategoryFilter}
+                Общий бачок обращений
               </div>
             </div>
 
@@ -15963,20 +15954,6 @@ export default function App() {
                                 <option value="high">Высокий</option>
                                 <option value="medium">Средний</option>
                                 <option value="low">Обычный</option>
-                              </select>
-                            </div>
-                            
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11.5px] text-vk-text-secondary">Категория:</span>
-                              <select
-                                value={supportCategoryFilter}
-                                onChange={(e) => setSupportCategoryFilter(e.target.value)}
-                                className="bg-white border border-[#dce1e6] rounded px-2 py-1 text-[11px] font-semibold text-[#55677d] hover:border-[#b2bcd0] focus:border-[#5181b8] focus:outline-none transition-colors"
-                              >
-                                <option value="all">Все категории</option>
-                                {supportCategories.map(cat => (
-                                  <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                ))}
                               </select>
                             </div>
                           </div>
@@ -16760,17 +16737,27 @@ export default function App() {
         return renderUsers();
       case 'management':
         return renderManagement();
-      case 'statistics':
+      case 'statistics': {
+        const hasStatsRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'statistics') || permissionService.hasRole(currentUser, 'stats');
+        if (!hasStatsRole) {
+          return (
+            <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator text-center space-y-3">
+              <div className="text-red-600 font-bold text-base">Доступ ограничен — Статистика</div>
+              <p className="text-sm text-vk-text-secondary">Раздел статистики доступен только уполномоченным сотрудникам.</p>
+            </div>
+          );
+        }
         return renderStatistics();
-      case 'announcements':
-        return renderAnnouncements();
-      case 'wiki':
-        return renderWiki();
-      case 'personnel':
-        return renderPersonnel();
-      case 'page_moderation':
-        return renderPageModeration();
-      case 'testpool':
+      }
+      case 'testpool': {
+        if (!permissionService.isSuperAdmin(currentUser)) {
+          return (
+            <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator text-center space-y-3">
+              <div className="text-red-600 font-bold text-base">Доступ ограничен — Тестирование</div>
+              <p className="text-sm text-vk-text-secondary">Служебный раздел тестирования фича-флагов доступен исключительно суперадминистраторам системы.</p>
+            </div>
+          );
+        }
         return (
           <TestpoolDashboard
             currentUser={currentUser}
@@ -16778,6 +16765,7 @@ export default function App() {
             addNotification={addNotification}
           />
         );
+      }
 
       case 'profile':
       default: {
@@ -17058,6 +17046,58 @@ export default function App() {
                     showJoinedDate={activePrivacy.showJoinedDate}
                     publicSettings={isOwnProfile ? publicSettings : (currentDisplayUser?.publicSettings || DEFAULT_PUBLIC_SETTINGS)}
                   />
+                )}
+
+                {isOwnProfile && isFeatureEnabled('profile_palette', currentUser?.id) && (
+                  <div className="mt-4 pt-3.5 border-t border-zinc-200/60 flex flex-col gap-2 text-left">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Palette size={15} className="text-[#5181b8]" />
+                        <span className="text-xs font-bold text-zinc-800">Палитра ваших постов (Testpool)</span>
+                      </div>
+                      <span className="text-[11px] text-zinc-500 font-medium">
+                        {PASTEL_PALETTES.find(p => p.value === (currentUser?.profile_palette || '#ffffff'))?.label || 'Стандарт'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 leading-tight">
+                      Выбранный пастельный цвет будет отображаться фоном для всех создаваемых вами публикаций.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {PASTEL_PALETTES.map((p) => {
+                        const isSelected = (currentUser?.profile_palette || '#ffffff') === p.value;
+                        return (
+                          <button
+                            key={p.value}
+                            type="button"
+                            onClick={async () => {
+                              if (!currentUser) return;
+                              try {
+                                await profileRepository.saveProfile(currentUser.id, {
+                                  profile_palette: p.value
+                                } as any);
+                                const updated = { ...currentUser, profile_palette: p.value };
+                                setCurrentUser(updated);
+                                setUsers(prev => prev.map(u => u.id === currentUser.id ? updated : u));
+                                addNotification('Палитра обновлена', `Установлен цвет: ${p.label}`);
+                              } catch (err) {
+                                console.error('[profile_palette] Save failed:', err);
+                                addNotification('Ошибка', 'Не удалось сохранить выбор палитры');
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                              isSelected
+                                ? 'border-[#5181b8] ring-2 ring-[#5181b8]/30 font-bold'
+                                : 'border-zinc-200 hover:border-zinc-300'
+                            }`}
+                            style={{ backgroundColor: p.value }}
+                          >
+                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" style={{ backgroundColor: p.value }} />
+                            <span className="text-zinc-800 text-[11px]">{p.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

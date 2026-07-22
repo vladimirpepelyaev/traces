@@ -95,7 +95,8 @@ export function profileToAppUser(profile: any): AppUser {
     blockReason: blockReason,
     moderatorComment: moderatorComment,
     profileBlockInfo: profileBlockInfo,
-    attentionBalance: profile.attention_balance || 0
+    attentionBalance: profile.attention_balance || 0,
+    profile_palette: profile.profile_palette || profile.public_settings?.profile_palette || null
   };
 
   // Log permissions and roles

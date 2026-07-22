@@ -41,6 +41,22 @@ export class TestpoolService {
       }
       this.experiments = await this.repository.getAllExperiments();
       
+      // Ensure profile_palette experiment exists in experiments list
+      if (!this.experiments.some(e => e.key === 'profile_palette')) {
+        this.experiments.unshift({
+          id: 'exp-profile-palette',
+          key: 'profile_palette',
+          title: 'Кастомизация палитры профиля',
+          description: 'Позволяет пользователям изменять пастельный цвет фона своих постов',
+          status: 'released',
+          enabled: true,
+          rollout_percent: 100,
+          include_new_users: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+      
       // Load assignments for all experiments
       const allAssignments: Assignment[] = [];
       for (const exp of this.experiments) {

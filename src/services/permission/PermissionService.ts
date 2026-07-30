@@ -17,9 +17,23 @@ export const SYSTEM_ROLES = {
 };
 
 export const EMPLOYEE_PERMISSIONS = {
+  MODERATION: 'moderation',
   SUPPORT: 'support',
   STATISTICS: 'statistics',
-  TESTPOOL: 'testpool'
+  VERIFICATION: 'verification',
+  APPEALS: 'appeals',
+  REQUESTS: 'requests',
+  USERS: 'users',
+  MANAGEMENT: 'management',
+  ANNOUNCEMENTS: 'announcements',
+  WIKI: 'wiki',
+  PERSONNEL: 'personnel',
+  QUALITY_CONTROL: 'quality-control',
+  SECURITY: 'security',
+  ACTION_LOGS: 'action-logs',
+  MONITORING: 'monitoring',
+  TESTPOOL: 'testpool',
+  ADMIN: 'admin'
 };
 
 export interface PermissionService {
@@ -123,7 +137,7 @@ class PermissionServiceImpl implements PermissionService {
       return true;
     }
 
-    if (profileRole === 'admin') {
+    if (['admin', 'administrator', 'moderator', 'support'].includes(profileRole) || user.isEmployee) {
       if (user.employeePermissions && user.employeePermissions[permissionKey] !== undefined) {
         return !!user.employeePermissions[permissionKey];
       }
@@ -132,6 +146,12 @@ class PermissionServiceImpl implements PermissionService {
       }
       if (user.roles && typeof user.roles === 'object' && user.roles[permissionKey] !== undefined) {
         return !!user.roles[permissionKey];
+      }
+      if (profileRole === 'moderator' && ['moderation', 'spam', 'appeals'].includes(permissionKey)) {
+        return true;
+      }
+      if (profileRole === 'support' && permissionKey === 'support') {
+        return true;
       }
     }
 
@@ -145,7 +165,7 @@ class PermissionServiceImpl implements PermissionService {
     if (!user) return false;
     const profileRole = user.role || 'user';
 
-    if (profileRole === 'user') {
+    if (profileRole === 'user' && !user.isEmployee) {
       return false;
     }
 
@@ -153,7 +173,7 @@ class PermissionServiceImpl implements PermissionService {
       return true;
     }
 
-    if (profileRole === 'admin') {
+    if (['admin', 'administrator', 'moderator', 'support'].includes(profileRole) || user.isEmployee) {
       return this.hasPermission(user, permissionKey);
     }
 
@@ -165,7 +185,7 @@ class PermissionServiceImpl implements PermissionService {
    */
   getAvailableEmployeeSections(user: AppUser | null): string[] {
     if (!user) return [];
-    const sections = ['support', 'statistics', 'testpool'];
+    const sections = Object.values(EMPLOYEE_PERMISSIONS);
     return sections.filter(sec => this.canAccessSection(user, sec));
   }
 

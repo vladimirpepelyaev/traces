@@ -98,6 +98,10 @@ import {
   HelpCircle,
   Play,
   Send,
+  Scale,
+  ClipboardList,
+  Award,
+  UserCheck,
   History,
   AlertCircle,
   Trophy,
@@ -2564,7 +2568,7 @@ export default function App() {
       'discussed-now', 'notifications', 'academy', 'appeals', 'requests', 'users', 
       'management', 'statistics', 'announcements', 'wiki', 'security', 'action-logs', 
       'monitoring', 'translations', 'quality-control', 'personnel', 'page_moderation',
-      'spam', 'verification', 'tasks', 'internal-mail', 'support', 'testpool'
+      'spam', 'moderation', 'verification', 'tasks', 'internal-mail', 'support', 'testpool'
     ].includes(tabName)) {
       return true;
     }
@@ -2893,46 +2897,54 @@ export default function App() {
     { id: 'discussed-now', icon: Flame, label: 'Это обсуждают' },
     { id: 'notifications', icon: Bell, label: 'Уведомления', count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
     { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
+    
+    // Service Sections
+    { id: 'moderation', icon: Shield, label: 'Модерация' },
     { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.filter(t => t.status === 'new').length },
     { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика' },
-    { id: 'testpool', icon: Sparkles, label: 'Тестирование', superAdminOnly: true },
+    { id: 'verification', icon: BadgeCheck, label: 'Верификация' },
+    { id: 'appeals', icon: Scale, label: 'Апелляции' },
+    { id: 'requests', icon: ClipboardList, label: 'Заявки' },
+    { id: 'users', icon: Users, label: 'Пользователи' },
+    { id: 'management', icon: Settings, label: 'Управление' },
+    { id: 'announcements', icon: Megaphone, label: 'Объявления' },
+    { id: 'wiki', icon: BookOpen, label: 'База знаний' },
+    { id: 'personnel', icon: UserCheck, label: 'Сотрудники' },
+    { id: 'quality-control', icon: Award, label: 'Отдел качества' },
+    { id: 'security', icon: Lock, label: 'Безопасность' },
+    { id: 'action-logs', icon: History, label: 'Логи действий' },
+    { id: 'monitoring', icon: Activity, label: 'Мониторинг' },
+    { id: 'testpool', icon: Sparkles, label: 'Тестирование' },
+    { id: 'admin', icon: ShieldAlert, label: 'Панель управления' },
+
     { id: 'logout', icon: LogOut, label: translations.btn_logout || 'Выйти' },
   ];
 
   const DYNAMIC_MENU_ITEMS = useMemo(() => {
     const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
     const canAccessSupport = permissionService.canAccessSection(currentUser, 'support');
-    const canAccessStats = permissionService.canAccessSection(currentUser, 'statistics');
-    const canAccessTestpool = permissionService.canAccessSection(currentUser, 'testpool');
 
     const baseItems: any[] = [];
 
-    MENU_ITEMS.filter(item => {
-      if (item.id === 'testpool') {
-        return canAccessTestpool;
-      }
-
-      if (item.id === 'statistics') {
-        return canAccessStats;
-      }
-
-      if (item.id === 'support') {
-        return canAccessSupport || hasActiveTicket;
-      }
-
+    MENU_ITEMS.forEach(item => {
+      // Base user navigation items
       if (['profile', 'feed', 'discussed-now', 'notifications', 'internal-mail', 'logout'].includes(item.id)) {
-        return true;
+        baseItems.push(item);
+        return;
       }
 
-      return false;
-    }).forEach(item => {
+      // Special handling for support ticket view vs support agent panel
       if (item.id === 'support') {
-        if (!canAccessSupport && hasActiveTicket) {
-          baseItems.push({ ...item, label: 'Мои вопросы' });
-        } else {
+        if (canAccessSupport) {
           baseItems.push(item);
+        } else if (hasActiveTicket) {
+          baseItems.push({ ...item, label: 'Мои вопросы' });
         }
-      } else {
+        return;
+      }
+
+      // Check employee_permissions for all service sections
+      if (permissionService.canAccessSection(currentUser, item.id)) {
         baseItems.push(item);
       }
     });
@@ -2948,7 +2960,7 @@ export default function App() {
     }));
 
     return [...baseItems, ...userShortcuts];
-  }, [MENU_ITEMS, isAdminMode, users, currentUser, tickets, translations]);
+  }, [MENU_ITEMS, users, currentUser, tickets, translations, navigate]);
 
   useEffect(() => {
     if (currentUser) {
@@ -9651,7 +9663,7 @@ export default function App() {
     );
   };
 
-  const old_renderSecurity = () => {
+  const renderSecurity = () => {
     const filteredLogs = securityLogs.filter(l => 
       l.user.toLowerCase().includes(securitySearchQuery.toLowerCase()) || 
       l.ip.includes(securitySearchQuery) ||
@@ -9940,9 +9952,7 @@ export default function App() {
     );
   };
 
-  const renderActionLogs = () => null;
-
-  const old_renderActionLogs = () => (
+  const renderActionLogs = () => (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
       <div className="bg-vk-white p-6 rounded-[4px] border border-vk-separator shadow-sm">
         <div className="flex items-center justify-between border-b pb-4 mb-6">
@@ -10006,11 +10016,9 @@ export default function App() {
     </motion.div>
   );
 
-  const renderMonitoring = () => null;
-
   const renderTranslations = () => null;
 
-  const old_renderMonitoring = () => {
+  const renderMonitoring = () => {
     const chartData = [
       { time: '10:00', cpu: 20, ram: 40, api: 120 },
       { time: '10:05', cpu: 25, ram: 42, api: 135 },
@@ -12166,18 +12174,28 @@ export default function App() {
       );
     }
 
-    const adminTabsList = [
-      { id: 'spam', label: 'Антиспам база', desc: 'Управление заблокированными подсетями и жалобами на контент' },
+    const allAdminTabsList = [
+      { id: 'moderation', label: 'Модерация (Антиспам)', desc: 'Управление заблокированными подсетями и жалобами на контент' },
       { id: 'support', label: 'Поддержка', desc: 'Просмотр и распределение тикетов от пользователей' },
-      { id: 'appeals', label: 'Апелляции на баны', desc: 'Рассмотрение заявок на разблокировку аккаунтов' },
+      { id: 'statistics', label: 'Статистика', desc: 'Аналитика и метрики платформы' },
       { id: 'verification', label: 'Верификация', desc: 'Анализ заявок на получение синей галочки для авторов' },
+      { id: 'appeals', label: 'Апелляции на баны', desc: 'Рассмотрение заявок на разблокировку аккаунтов' },
+      { id: 'requests', label: 'Заявки', desc: 'Управление входящими пользовательскими заявками' },
+      { id: 'users', label: 'Пользователи', desc: 'Управление аккаунтами пользователей, блокировками и профилями' },
+      { id: 'management', label: 'Управление', desc: 'Глобальное управление настройками системы' },
       { id: 'announcements', label: 'Объявления', desc: 'Публикация регламентов и новостей для сотрудников' },
       { id: 'wiki', label: 'База знаний Wiki', desc: 'Инструкции и методические рекомендации администрации' },
+      { id: 'personnel', label: 'Сотрудники', desc: 'Управление штатом сотрудников, ролями и индивидуальными доступами' },
+      { id: 'quality-control', label: 'Отдел качества', desc: 'Контроль и оценка качества ответов агентов поддержки' },
       { id: 'security', label: 'Безопасность', desc: 'Защита от фишинга, контроль подозрительных IP-сетей и сессий' },
       { id: 'action-logs', label: 'Логи действий', desc: 'Абсолютный аудит всех решений персонала компании' },
       { id: 'monitoring', label: 'Тех. мониторинг', desc: 'Здоровье СУБД, нагрузка API и пинг сервисов доставки' },
-      { id: 'personnel', label: 'Сотрудники', desc: 'Управление штатом модераторов, ролями и активностями' },
+      { id: 'testpool', label: 'Тестирование (Testpool)', desc: 'Панель управления фича-флагами и A/B экспериментами' },
     ];
+
+    const adminTabsList = allAdminTabsList.filter(tab => 
+      permissionService.canAccessSection(currentUser, tab.id)
+    );
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left font-sans">
@@ -15725,50 +15743,42 @@ export default function App() {
       return render404Page();
     }
 
-    // Role-based route protection
-    const path = location.pathname;
-    const isSuperAdmin = roles.includes('super_admin') || permissionService.isSuperAdmin(currentUser);
-    const isAdmin = roles.includes('admin') || isSuperAdmin;
-    const isModerator = roles.includes('moderator') || isAdmin;
-    const isSupport = roles.includes('support') || isModerator;
+    // Role-based & Individual Permission Route Protection
+    const sectionPermissionMap: Record<string, string> = {
+      'testpool': 'testpool',
+      'statistics': 'statistics',
+      'moderation': 'moderation',
+      'spam': 'moderation',
+      'page_moderation': 'moderation',
+      'verification': 'verification',
+      'appeals': 'appeals',
+      'requests': 'requests',
+      'users': 'users',
+      'management': 'management',
+      'announcements': 'announcements',
+      'wiki': 'wiki',
+      'personnel': 'personnel',
+      'quality-control': 'quality-control',
+      'security': 'security',
+      'action-logs': 'action-logs',
+      'monitoring': 'monitoring',
+      'admin': 'admin'
+    };
 
-    // 0. /testpool block
-    if (path.startsWith('/testpool') || activeTab === 'testpool') {
-      if (!permissionService.canAccessSection(currentUser, 'testpool')) {
-        return renderAccessDenied("Доступ ограничен — Testpool", "Служебный инструмент тестирования доступен только уполномоченным сотрудникам.");
+    const currentPermKey = sectionPermissionMap[activeTab];
+    if (currentPermKey) {
+      if (!permissionService.canAccessSection(currentUser, currentPermKey)) {
+        return renderAccessDenied(
+          `Доступ ограничен`,
+          `Служебный раздел "${currentPermKey}" доступен только уполномоченным сотрудникам с соответствующим правом доступа.`
+        );
       }
     }
 
-    // 1. /statistics block
-    if (path.startsWith('/statistics') || activeTab === 'statistics') {
-      if (!permissionService.canAccessSection(currentUser, 'statistics')) {
-        return renderAccessDenied("Доступ ограничен — Статистика", "Раздел статистики доступен только для уполномоченных сотрудников.");
-      }
-    }
-
-    // 2. /admin block
-    if (path.startsWith('/admin') || [
-      'admin', 'security', 'personnel', 'action-logs', 'monitoring', 'translations', 'quality-control', 'tasks'
-    ].includes(activeTab)) {
-      if (!isAdmin) {
-        return renderAccessDenied("Доступ ограничен — Администрация", "Раздел администрирования доступен только для главных администраторов и администраторов.");
-      }
-    }
-
-    // 3. /moderation block
-    if (path.startsWith('/moderation') || [
-      'moderation', 'appeals', 'spam', 'page_moderation'
-    ].includes(activeTab)) {
-      if (!isModerator) {
-        return renderAccessDenied("Доступ ограничен — Модерация", "Раздел модерации доступен только для модераторов системы.");
-      }
-    }
-
-    // 4. /support block
-    if (path.startsWith('/support') || activeTab === 'support' || activeTab.startsWith('support-category-')) {
+    if (activeTab === 'support' || activeTab.startsWith('support-category-')) {
       const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
       if (!permissionService.canAccessSection(currentUser, 'support') && !hasActiveTicket) {
-        return renderAccessDenied("Доступ ограничен — Служба поддержки", "Обращения поддержки доступны только для уполномоченных агентов поддержки.");
+        return renderAccessDenied("Доступ ограничен — Служба поддержки", "Обращения поддержки доступны только для уполномоченных агентов поддержки или пользователей с активными тикетами.");
       }
     }
 
@@ -16749,6 +16759,20 @@ export default function App() {
             onMarkAllRead={handleMarkAllNotificationsRead}
           />
         );
+      case 'announcements':
+        return renderAnnouncements();
+      case 'wiki':
+        return renderWiki();
+      case 'personnel':
+        return renderPersonnel();
+      case 'quality-control':
+        return renderQualityControl();
+      case 'security':
+        return renderSecurity();
+      case 'action-logs':
+        return renderActionLogs();
+      case 'monitoring':
+        return renderMonitoring();
       case 'appeals':
         return renderAppeals();
       case 'requests':
@@ -16757,27 +16781,9 @@ export default function App() {
         return renderUsers();
       case 'management':
         return renderManagement();
-      case 'statistics': {
-        const hasStatsRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'statistics') || permissionService.hasRole(currentUser, 'stats');
-        if (!hasStatsRole) {
-          return (
-            <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator text-center space-y-3">
-              <div className="text-red-600 font-bold text-base">Доступ ограничен — Статистика</div>
-              <p className="text-sm text-vk-text-secondary">Раздел статистики доступен только уполномоченным сотрудникам.</p>
-            </div>
-          );
-        }
+      case 'statistics':
         return renderStatistics();
-      }
-      case 'testpool': {
-        if (!permissionService.isSuperAdmin(currentUser)) {
-          return (
-            <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator text-center space-y-3">
-              <div className="text-red-600 font-bold text-base">Доступ ограничен — Тестирование</div>
-              <p className="text-sm text-vk-text-secondary">Служебный раздел тестирования фича-флагов доступен исключительно суперадминистраторам системы.</p>
-            </div>
-          );
-        }
+      case 'testpool':
         return (
           <TestpoolDashboard
             currentUser={currentUser}
@@ -16785,7 +16791,6 @@ export default function App() {
             addNotification={addNotification}
           />
         );
-      }
 
       case 'profile':
       default: {
@@ -18923,9 +18928,23 @@ export default function App() {
                 <div>
                   <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mb-2 border-b pb-1.5 border-[#e7e8ec]">Индивидуальные доступы (employee_permissions)</div>
                   {[
+                    { id: 'moderation', label: 'Модерация (Антиспам)' },
                     { id: 'support', label: 'Поддержка' },
                     { id: 'statistics', label: 'Статистика' },
-                    { id: 'testpool', label: 'Тестирование' }
+                    { id: 'verification', label: 'Верификация' },
+                    { id: 'appeals', label: 'Апелляции на баны' },
+                    { id: 'requests', label: 'Заявки' },
+                    { id: 'users', label: 'Пользователи' },
+                    { id: 'management', label: 'Управление' },
+                    { id: 'announcements', label: 'Объявления' },
+                    { id: 'wiki', label: 'База знаний (Wiki)' },
+                    { id: 'personnel', label: 'Сотрудники' },
+                    { id: 'quality-control', label: 'Отдел качества' },
+                    { id: 'security', label: 'Безопасность' },
+                    { id: 'action-logs', label: 'Логи действий' },
+                    { id: 'monitoring', label: 'Мониторинг' },
+                    { id: 'testpool', label: 'Тестирование (Testpool)' },
+                    { id: 'admin', label: 'Панель администрирования' }
                   ].map((item) => {
                     const isSuper = rolesModalUser.role === 'super_admin';
                     const isEnabled = isSuper || (rolesModalUser.employeePermissions?.[item.id] === true);

@@ -142,6 +142,7 @@ export interface AppUser {
   roles?: any;
   role?: string;
   roleList?: string[];
+  employeePermissions?: Record<string, boolean>;
   isEmployee?: boolean;
   isSuperAdmin?: boolean;
   /** Служебный профиль платформы для официального взаимодействия с пользователями */

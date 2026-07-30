@@ -2636,10 +2636,22 @@ export default function App() {
           setUsers([]);
           return;
         }
-        const userList = (data || []).map(profileToAppUser);
+        const allEmployeePermissions = await permissionService.fetchAllEmployeePermissions();
+        const userList = (data || []).map(profile => {
+          const user = profileToAppUser(profile);
+          user.employeePermissions = allEmployeePermissions[profile.id] || {};
+          return user;
+        });
         setUsers(userList);
         testpoolService.setUsers(userList);
         testpoolService.refresh(userList);
+
+        if (currentUser) {
+          const updatedCurrent = userList.find(u => u.id === currentUser.id);
+          if (updatedCurrent) {
+            setCurrentUser(updatedCurrent);
+          }
+        }
 
         // Generate deterministic subscribers map based on the loaded users
         const initialMap: Record<string, string[]> = {};
@@ -2889,23 +2901,23 @@ export default function App() {
 
   const DYNAMIC_MENU_ITEMS = useMemo(() => {
     const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
-    const hasSupportRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'support');
-    const hasStatsRole = permissionService.isAdmin(currentUser) || permissionService.hasRole(currentUser, 'statistics') || permissionService.hasRole(currentUser, 'stats');
-    const isSuperAdmin = permissionService.isSuperAdmin(currentUser);
+    const canAccessSupport = permissionService.canAccessSection(currentUser, 'support');
+    const canAccessStats = permissionService.canAccessSection(currentUser, 'statistics');
+    const canAccessTestpool = permissionService.canAccessSection(currentUser, 'testpool');
 
     const baseItems: any[] = [];
 
     MENU_ITEMS.filter(item => {
       if (item.id === 'testpool') {
-        return isSuperAdmin;
+        return canAccessTestpool;
       }
 
       if (item.id === 'statistics') {
-        return hasStatsRole;
+        return canAccessStats;
       }
 
       if (item.id === 'support') {
-        return hasSupportRole || hasActiveTicket;
+        return canAccessSupport || hasActiveTicket;
       }
 
       if (['profile', 'feed', 'discussed-now', 'notifications', 'internal-mail', 'logout'].includes(item.id)) {
@@ -2915,7 +2927,7 @@ export default function App() {
       return false;
     }).forEach(item => {
       if (item.id === 'support') {
-        if (!hasSupportRole && hasActiveTicket) {
+        if (!canAccessSupport && hasActiveTicket) {
           baseItems.push({ ...item, label: 'Мои вопросы' });
         } else {
           baseItems.push(item);
@@ -15720,14 +15732,21 @@ export default function App() {
     const isModerator = roles.includes('moderator') || isAdmin;
     const isSupport = roles.includes('support') || isModerator;
 
-    // 0. /testpool block (superadmin only)
+    // 0. /testpool block
     if (path.startsWith('/testpool') || activeTab === 'testpool') {
-      if (!isSuperAdmin) {
-        return renderAccessDenied("Доступ ограничен — Testpool", "Служебный инструмент управления фича-флагами и A/B тестированием доступен исключительно суперадминистраторам системы.");
+      if (!permissionService.canAccessSection(currentUser, 'testpool')) {
+        return renderAccessDenied("Доступ ограничен — Testpool", "Служебный инструмент тестирования доступен только уполномоченным сотрудникам.");
       }
     }
 
-    // 1. /admin block
+    // 1. /statistics block
+    if (path.startsWith('/statistics') || activeTab === 'statistics') {
+      if (!permissionService.canAccessSection(currentUser, 'statistics')) {
+        return renderAccessDenied("Доступ ограничен — Статистика", "Раздел статистики доступен только для уполномоченных сотрудников.");
+      }
+    }
+
+    // 2. /admin block
     if (path.startsWith('/admin') || [
       'admin', 'security', 'personnel', 'action-logs', 'monitoring', 'translations', 'quality-control', 'tasks'
     ].includes(activeTab)) {
@@ -15736,7 +15755,7 @@ export default function App() {
       }
     }
 
-    // 2. /moderation block
+    // 3. /moderation block
     if (path.startsWith('/moderation') || [
       'moderation', 'appeals', 'spam', 'page_moderation'
     ].includes(activeTab)) {
@@ -15745,9 +15764,10 @@ export default function App() {
       }
     }
 
-    // 3. /support block
+    // 4. /support block
     if (path.startsWith('/support') || activeTab === 'support' || activeTab.startsWith('support-category-')) {
-      if (!isSupport) {
+      const hasActiveTicket = tickets.some(t => t.userId === currentUser?.id);
+      if (!permissionService.canAccessSection(currentUser, 'support') && !hasActiveTicket) {
         return renderAccessDenied("Доступ ограничен — Служба поддержки", "Обращения поддержки доступны только для уполномоченных агентов поддержки.");
       }
     }
@@ -18852,168 +18872,120 @@ export default function App() {
                 <h3 className="text-[15px] font-bold text-[#285473]">Роли и доступы: {rolesModalUser.name}</h3>
                 <button onClick={() => setIsRolesModalOpen(false)} className="text-vk-text-secondary hover:text-vk-text"><X size={20} /></button>
               </div>
-              <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto no-scrollbar">
-                <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mb-2 border-b pb-1.5 border-[#e7e8ec]">Настройка доступных разделов</div>
-                {[
-                  { id: 'support', label: 'Поддержка' },
-                  { id: 'spam', label: 'Спам' },
-                  { id: 'pro', label: 'Про' },
-                  { id: 'verification', label: 'Верификации' },
-                  { id: 'requests', label: 'Заявки' },
-                  { id: 'users', label: 'Пользователи' },
-                  { id: 'management', label: 'Управление' },
-                  { id: 'statistics', label: 'Статистика' },
-                  { id: 'announcements', label: 'Объявления' },
-                  { id: 'wiki', label: 'База знаний' },
-                  { id: 'security', label: 'Безопасность' },
-                  { id: 'action-logs', label: 'Логи действий' },
-                  { id: 'monitoring', label: 'Мониторинг' },
-                  { id: 'quality-control', label: 'Отдел качества' },
-                  { id: 'personnel', label: 'Сотрудники' },
-                  { id: 'appeals', label: 'Апелляции' },
-                  { id: 'feed_moderator', label: 'Модератор ленты' }
-                ].map((role) => (
-                  <div key={role.id} className="flex items-center justify-between py-1 border-b border-vk-separator/30 last:border-0 pb-1.5">
-                    <span className="text-[13px] text-vk-text font-medium">{role.label}</span>
-                    <button 
-                      onClick={() => {
-                        const newRoles = { 
-                          ...(rolesModalUser.roles || {}),
-                          [role.id]: !(rolesModalUser.roles?.[role.id] || false)
-                        };
-                        const hasAnyRole = Object.values(newRoles).some(val => val === true);
-                        const isEmployee = hasAnyRole ? true : rolesModalUser.isEmployee;
-                        const determinedRole = (role.id === 'management' && newRoles[role.id]) ? 'admin' : (isEmployee ? 'moderator' : 'user');
-                        const defaultAccess = rolesModalUser.rightMenuAccess || {
-                          id: true,
-                          block: true,
-                          card: true,
-                          verify: true,
-                          info: true,
-                          complaints: true,
-                          delete: true,
-                          mark: true
-                        };
-                        setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { 
-                          ...u, 
-                          roles: newRoles,
-                          role: determinedRole,
-                          isEmployee: isEmployee,
-                          rightMenuAccess: defaultAccess
-                        } : u));
-                        setRolesModalUser({ 
-                          ...rolesModalUser, 
-                          roles: newRoles,
-                          role: determinedRole,
-                          isEmployee: isEmployee,
-                          rightMenuAccess: defaultAccess
-                        });
-                        if (currentUser && currentUser.id === rolesModalUser.id) {
-                          setCurrentUser(prev => prev ? { 
-                            ...prev, 
-                            roles: newRoles,
-                            role: determinedRole,
-                            isEmployee: isEmployee,
-                            rightMenuAccess: defaultAccess
-                          } : null);
-                        }
-                      }}
-                      className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${rolesModalUser.roles?.[role.id] ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'}`}
-                    >
-                      <motion.div 
-                        animate={{ x: rolesModalUser.roles?.[role.id] ? 20 : 2 }}
-                        className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" 
-                      />
-                    </button>
-                  </div>
-                ))}
-
-                <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mt-5 mb-2 border-b pb-1.5 border-[#e7e8ec]">Права сотрудника (Правое меню)</div>
-                <div className="flex items-center justify-between py-1 border-b border-vk-separator/30 pb-1.5">
-                  <span className="text-[13px] text-vk-text font-bold">Сделать сотрудником</span>
-                  <button 
-                    onClick={() => {
-                      const newIsEmployee = !rolesModalUser.isEmployee;
-                      const determinedRole = newIsEmployee ? (rolesModalUser.login === 'admin' ? 'admin' : 'moderator') : 'user';
-                      const defaultAccess = rolesModalUser.rightMenuAccess || {
-                        id: true,
-                        block: true,
-                        card: true,
-                        verify: true,
-                        info: true,
-                        complaints: true,
-                        delete: true,
-                        mark: true
-                      };
-                      setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { ...u, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess } : u));
-                      setRolesModalUser({ ...rolesModalUser, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess });
-                      if (currentUser && currentUser.id === rolesModalUser.id) {
-                        setCurrentUser(prev => prev ? { ...prev, isEmployee: newIsEmployee, role: determinedRole, rightMenuAccess: defaultAccess } : null);
-                      }
-                    }}
-                    className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${rolesModalUser.isEmployee ? 'bg-[#4bb34b]' : 'bg-[#dce1e6]'}`}
-                  >
-                    <motion.div 
-                      animate={{ x: rolesModalUser.isEmployee ? 20 : 2 }}
-                      className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" 
-                    />
-                  </button>
-                </div>
-
-                {rolesModalUser.isEmployee && (
-                  <div className="pl-4 space-y-2 pt-2 bg-[#f4f5f7] p-3 rounded-md border border-vk-separator/40">
-                    <div className="text-[10px] text-vk-text-secondary font-bold uppercase tracking-wider mb-1">Выбор отображаемых кнопок:</div>
+              <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto no-scrollbar">
+                
+                {/* Base Role Selector (profiles.role) */}
+                <div>
+                  <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mb-2 border-b pb-1.5 border-[#e7e8ec]">Базовая роль (profiles.role)</div>
+                  <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: 'id', label: 'ID пользователя' },
-                      { id: 'block', label: 'Кнопка «Заблокировать»' },
-                      { id: 'card', label: 'Кнопка «Карточка»' },
-                      { id: 'verify', label: 'Кнопка «Верифицировать»' },
-                      { id: 'info', label: 'Кнопка «Информация»' },
-                      { id: 'complaints', label: 'Кнопка «Жалобы»' },
-                      { id: 'delete', label: 'Кнопка «Удалить профиль»' },
-                      { id: 'mark', label: 'Кнопка «Пометить»' }
-                    ].map((btn) => {
-                      const currentAccess = rolesModalUser.rightMenuAccess || {
-                        id: true,
-                        block: true,
-                        card: true,
-                        verify: true,
-                        info: true,
-                        complaints: true,
-                        delete: true,
-                        mark: true
-                      };
-                      const val = (currentAccess as any)[btn.id] !== false;
+                      { id: 'user', label: 'Пользователь' },
+                      { id: 'admin', label: 'Админ' },
+                      { id: 'super_admin', label: 'Суперадмин' }
+                    ].map(r => {
+                      const isCurrentRole = (rolesModalUser.role || 'user') === r.id;
                       return (
-                        <div key={btn.id} className="flex items-center justify-between py-1">
-                          <span className="text-[12px] text-vk-text">{btn.label}</span>
-                          <button 
-                            onClick={() => {
-                              const updatedAccess = {
-                                ...currentAccess,
-                                [btn.id]: !val
-                              };
-                              setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? { ...u, rightMenuAccess: updatedAccess } : u));
-                              setRolesModalUser({ ...rolesModalUser, rightMenuAccess: updatedAccess });
-                              if (currentUser && currentUser.id === rolesModalUser.id) {
-                                setCurrentUser(prev => prev ? { ...prev, rightMenuAccess: updatedAccess } : null);
-                              }
-                            }}
-                            className={`w-8 h-4 rounded-full transition-all relative shrink-0 ${val ? 'bg-[#5181b8]' : 'bg-[#dce1e6]'}`}
-                          >
-                            <motion.div 
-                              animate={{ x: val ? 14 : 2 }}
-                              className="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow-sm" 
-                            />
-                          </button>
-                        </div>
+                        <button
+                          key={r.id}
+                          onClick={async () => {
+                            await permissionService.updateUserRole(rolesModalUser.id, r.id);
+                            const updatedUser = {
+                              ...rolesModalUser,
+                              role: r.id,
+                              isEmployee: r.id !== 'user'
+                            };
+                            setRolesModalUser(updatedUser);
+                            setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? updatedUser : u));
+                            if (currentUser?.id === rolesModalUser.id) {
+                              setCurrentUser(updatedUser);
+                            }
+                          }}
+                          className={`py-1.5 px-2 rounded text-[12px] font-medium border text-center transition-all ${
+                            isCurrentRole 
+                              ? 'bg-[#5181b8] text-white border-[#5181b8]' 
+                              : 'bg-white text-[#55677d] border-[#dce1e6] hover:bg-[#f2f4f7]'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
                       );
                     })}
                   </div>
+                </div>
+
+                {rolesModalUser.role === 'super_admin' && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded text-[12px] text-amber-800">
+                    Суперадминистратор имеет автоматический полный доступ ко всем служебным разделам без необходимости индивидуальных разрешений.
+                  </div>
                 )}
+
+                {/* Individual Employee Permissions (public.employee_permissions) */}
+                <div>
+                  <div className="text-[11px] text-vk-text-secondary uppercase font-bold tracking-wider mb-2 border-b pb-1.5 border-[#e7e8ec]">Индивидуальные доступы (employee_permissions)</div>
+                  {[
+                    { id: 'support', label: 'Поддержка' },
+                    { id: 'statistics', label: 'Статистика' },
+                    { id: 'testpool', label: 'Тестирование' }
+                  ].map((item) => {
+                    const isSuper = rolesModalUser.role === 'super_admin';
+                    const isEnabled = isSuper || (rolesModalUser.employeePermissions?.[item.id] === true);
+
+                    return (
+                      <div key={item.id} className="flex items-center justify-between py-1.5 border-b border-vk-separator/30 last:border-0">
+                        <div>
+                          <span className="text-[13px] text-vk-text font-medium block">{item.label}</span>
+                        </div>
+                        <button 
+                          disabled={isSuper}
+                          onClick={async () => {
+                            if (isSuper) return;
+                            const newVal = !rolesModalUser.employeePermissions?.[item.id];
+                            await permissionService.setEmployeePermission(rolesModalUser.id, item.id, newVal);
+                            
+                            let targetRole = rolesModalUser.role || 'user';
+                            if (newVal && targetRole === 'user') {
+                              targetRole = 'admin';
+                              await permissionService.updateUserRole(rolesModalUser.id, 'admin');
+                            }
+
+                            const updatedPerms = {
+                              ...(rolesModalUser.employeePermissions || {}),
+                              [item.id]: newVal
+                            };
+
+                            const updatedUser = {
+                              ...rolesModalUser,
+                              role: targetRole,
+                              employeePermissions: updatedPerms,
+                              roles: {
+                                ...(rolesModalUser.roles || {}),
+                                [item.id]: newVal
+                              }
+                            };
+
+                            setRolesModalUser(updatedUser);
+                            setUsers(prev => prev.map(u => u.id === rolesModalUser.id ? updatedUser : u));
+                            if (currentUser?.id === rolesModalUser.id) {
+                              setCurrentUser(updatedUser);
+                            }
+                          }}
+                          className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${
+                            isSuper ? 'opacity-60 cursor-not-allowed bg-[#5181b8]' : (isEnabled ? 'bg-[#5181b8]' : 'bg-[#dce1e6]')
+                          }`}
+                        >
+                          <motion.div 
+                            animate={{ x: isEnabled ? 20 : 2 }}
+                            className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" 
+                          />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
               </div>
               <div className="p-4 bg-[#f7f8fa] border-t border-vk-separator flex justify-end">
-                <button onClick={() => setIsRolesModalOpen(false)} className="px-6 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[2px] text-[12.5px] font-medium transition-colors">Сохранить доступы</button>
+                <button onClick={() => setIsRolesModalOpen(false)} className="px-6 py-1.5 bg-[#5181b8] hover:bg-[#5b88bd] text-white rounded-[2px] text-[12.5px] font-medium transition-colors">Сохранить и закрыть</button>
               </div>
             </motion.div>
           </div>

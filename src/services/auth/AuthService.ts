@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured, ensureProfileExists } from '../../lib/supabase';
 import { AppUser } from '../../types';
+import { permissionService } from '../permission/PermissionService';
 
 export interface AuthService {
   signUp(login: string, password?: string, name?: string, status?: string): Promise<AppUser>;
@@ -261,10 +262,12 @@ class AuthServiceImpl implements AuthService {
       };
     }
 
-    // Fetch roles
+    // Fetch roles & employee permissions
     const roles = await this.getRoles(data.user.id);
-
-    return mapProfileAndRolesToAppUser(profile, roles);
+    const appUser = mapProfileAndRolesToAppUser(profile, roles);
+    const perms = await permissionService.fetchEmployeePermissions(data.user.id);
+    appUser.employeePermissions = perms;
+    return appUser;
   }
 
   async signOut(): Promise<void> {
@@ -334,10 +337,12 @@ class AuthServiceImpl implements AuthService {
       };
     }
 
-    // Fetch roles
+    // Fetch roles & employee permissions
     const roles = await this.getRoles(user.id);
-
-    return mapProfileAndRolesToAppUser(profile, roles);
+    const appUser = mapProfileAndRolesToAppUser(profile, roles);
+    const perms = await permissionService.fetchEmployeePermissions(user.id);
+    appUser.employeePermissions = perms;
+    return appUser;
   }
 
   async getRoles(userId: string): Promise<string[]> {

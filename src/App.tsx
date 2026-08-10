@@ -1128,6 +1128,21 @@ export default function App() {
   };
   
   const [tickets, _setTicketsOriginal] = useState<Ticket[]>([]);
+  
+  // Moderation Redesign States
+  const [moderationTab, setModerationTab] = useState<'feed' | 'actions'>('feed');
+  const [moderationStarted, setModerationStarted] = useState<boolean>(() => {
+    return localStorage.getItem('vk_mod_started') === 'true';
+  });
+  const [showThemeSelection, setShowThemeSelection] = useState<boolean>(false);
+  const [moderationThemes, setModerationThemes] = useState<{ content: boolean; dialogs: boolean; pages: boolean }>({
+    content: true,
+    dialogs: true,
+    pages: true
+  });
+  const [spambanTab, setSpambanTab] = useState<'search' | 'decisions' | 'triggers' | 'settings' | 'actions'>('search');
+  const [cardBlockReasons, setCardBlockReasons] = useState<Record<string, string>>({});
+  const [cardBlockChecked, setCardBlockChecked] = useState<Record<string, boolean>>({});
   const setTickets = (updateValue: any) => {
     _setTicketsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -2513,9 +2528,12 @@ export default function App() {
     if (tabId === 'settings') return '/settings';
     if (tabId === 'admin') return '/admin';
     if (tabId === 'internal-mail') return '/messages';
+    if (tabId === 'moderation') return '/admin/spam';
+    if (tabId === 'spam') return '/admin/spam';
+    if (tabId === 'spamban') return '/admin/spamban';
     
     if ([
-      'spam', 'verification', 'tasks', 'support', 'appeals', 
+      'spam', 'spamban', 'verification', 'tasks', 'support', 'appeals', 
       'requests', 'users', 'management', 'statistics', 'announcements', 'wiki', 
       'security', 'action-logs', 'monitoring', 'translations', 'quality-control', 
       'personnel', 'page_moderation'
@@ -2533,6 +2551,13 @@ export default function App() {
       navigate(getPathForTab(tab));
     }
   };
+
+  // Redirect legacy /moderation or /admin/moderation paths to /admin/spam
+  useEffect(() => {
+    if (location.pathname === '/moderation' || location.pathname === '/admin/moderation') {
+      navigate('/admin/spam', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   // Synchronize URL /u/:userId or /user/:userId parameter with selectedUserData state
   useEffect(() => {
@@ -2568,7 +2593,7 @@ export default function App() {
       'discussed-now', 'notifications', 'academy', 'appeals', 'requests', 'users', 
       'management', 'statistics', 'announcements', 'wiki', 'security', 'action-logs', 
       'monitoring', 'translations', 'quality-control', 'personnel', 'page_moderation',
-      'spam', 'moderation', 'verification', 'tasks', 'internal-mail', 'support', 'testpool'
+      'spam', 'spamban', 'moderation', 'verification', 'tasks', 'internal-mail', 'support', 'testpool'
     ].includes(tabName)) {
       return true;
     }
@@ -2899,7 +2924,8 @@ export default function App() {
     { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
     
     // Service Sections
-    { id: 'moderation', icon: Shield, label: 'Модерация' },
+    { id: 'spam', icon: Shield, label: 'Модерация' },
+    { id: 'spamban', icon: Shield, label: 'Spamban' },
     { id: 'support', icon: LifeBuoy, label: 'Поддержка', count: tickets.filter(t => t.status === 'new').length },
     { id: 'statistics', icon: Icon16WorkOutline, label: 'Статистика' },
     { id: 'verification', icon: BadgeCheck, label: 'Верификация' },
@@ -15737,6 +15763,687 @@ export default function App() {
 
 
 
+  // Evaluate Risk Badges for a target user
+  const getUserRiskBadges = (targetUserId: string, targetUserName: string) => {
+    const contentCount = complaints.filter(c => c.userId === targetUserId || c.userName === targetUserName).length;
+    const dialogCount = dialogComplaints.filter(d => d.offenderId === targetUserId || d.offenderName === targetUserName).length;
+    const pageCount = pageComplaints.filter(p => p.userId === targetUserId || p.userName === targetUserName).length;
+    const spamCount = spamComplaints.filter(s => s.userId === targetUserId || s.userName === targetUserName).length;
+    
+    const targetUserObj = users.find(u => u.id === targetUserId || u.name === targetUserName);
+    const historyCount = targetUserObj?.complaintHistory?.length || 0;
+    
+    const totalComplaintsCount = contentCount + dialogCount + pageCount + spamCount + historyCount;
+    const hasManyComplaints = totalComplaintsCount >= 5;
+
+    const isBannedBefore = !!(
+      targetUserObj?.isBlocked ||
+      targetUserObj?.blockReason ||
+      targetUserObj?.profileBlockInfo ||
+      moderatorHistory.some(m => (m.targetId === targetUserId || m.targetName === targetUserName) && (m.action?.toLowerCase().includes('блок') || m.details?.toLowerCase().includes('блок'))) ||
+      dialogComplaints.some(d => (d.offenderId === targetUserId || d.offenderName === targetUserName) && (d.violationHistory?.blocksCount || 0) > 0)
+    );
+
+    const isSuspiciousIp = securityLogs.some(l => 
+      (l.user.includes(targetUserName) || l.user.includes(targetUserId)) && 
+      (l.status === 'warning' || l.status === 'error' || l.status === 'critical')
+    );
+
+    return {
+      hasManyComplaints,
+      totalComplaintsCount,
+      isBannedBefore,
+      isSuspiciousIp
+    };
+  };
+
+  // Card Action Handler for Redesigned Moderation Feed (AGREE / IGNORE)
+  const handleFeedCardAction = async (
+    item: { id: string; category: string; userId: string; userName: string; content: string; reason: string; rawItem: any },
+    actionType: 'AGREE' | 'IGNORE'
+  ) => {
+    const isChecked = !!cardBlockChecked[item.id];
+    const reasonChoice = cardBlockReasons[item.id] || BLOCK_REASONS[0];
+    const currentModName = currentUser?.name || 'Модератор';
+
+    if (actionType === 'IGNORE') {
+      if (item.category === 'content') {
+        setComplaints(prev => prev.filter(c => c.id !== item.id));
+        setSpamComplaints(prev => prev.filter(s => s.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'ignored' }).catch(() => {});
+      } else if (item.category === 'dialogs') {
+        setDialogComplaints(prev => prev.filter(d => d.id !== item.id));
+        await dialogRepository.softDelete(item.id).catch(() => {});
+      } else if (item.category === 'pages') {
+        setPageComplaints(prev => prev.filter(p => p.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'ignored' }).catch(() => {});
+      }
+
+      await moderationRepository.insertAction({
+        type: 'complaint',
+        action: 'resolve',
+        result: 'ignored',
+        moderatorName: currentModName,
+        details: `Жалоба на ${item.userName} проигнорирована`
+      }).catch(() => {});
+
+      logModeratorAction('Отклонение жалобы', `Проигнорирована жалоба на пользователя ${item.userName}`);
+      addNotification('Решение принято', `Жалоба на пользователя ${item.userName} проигнорирована.`);
+      return;
+    }
+
+    // AGREE Action
+    if (isChecked) {
+      // AGREE + Checkbox CHECKED => Permanent Block
+      const blockReasonStr = reasonChoice || 'Нарушение правил платформы';
+      const now = new Date();
+
+      await profileRepository.setBlocked(
+        item.userId,
+        true,
+        blockReasonStr,
+        `Заблокирован в очереди модерации (${blockReasonStr})`,
+        {
+          duration: 'Навсегда',
+          reason: blockReasonStr,
+          comment: 'Блокировка по жалобе в ленте модерации',
+          timestamp: now
+        }
+      ).catch(err => console.error('Error blocking user:', err));
+
+      setUsers(prev => prev.map(u => {
+        if (u.id === item.userId || u.name === item.userName) {
+          return {
+            ...u,
+            isBlocked: true,
+            blockReason: blockReasonStr,
+            profileBlockInfo: {
+              duration: 'Навсегда',
+              reason: blockReasonStr,
+              comment: 'Блокировка по жалобе в ленте модерации',
+              timestamp: now
+            }
+          };
+        }
+        return u;
+      }));
+
+      if (item.category === 'content') {
+        setFeedPosts(prev => prev.filter(p => p.text !== item.content));
+        setComplaints(prev => prev.filter(c => c.id !== item.id));
+        setSpamComplaints(prev => prev.filter(s => s.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'blocked' }).catch(() => {});
+      } else if (item.category === 'dialogs') {
+        setDialogComplaints(prev => prev.filter(d => d.id !== item.id));
+        await dialogRepository.softDelete(item.id).catch(() => {});
+      } else if (item.category === 'pages') {
+        setPageComplaints(prev => prev.filter(p => p.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'blocked' }).catch(() => {});
+      }
+
+      await moderationRepository.insertAction({
+        type: 'complaint',
+        action: 'block',
+        result: 'blocked',
+        moderatorName: currentModName,
+        details: `Пользователь ${item.userName} заблокирован НАВСЕГДА (Причина: ${blockReasonStr})`
+      }).catch(() => {});
+
+      logModeratorAction('Перманентная блокировка', `Заблокирован пользователь ${item.userName} по причине: ${blockReasonStr}`);
+      addNotification('Пользователь заблокирован', `Пользователь ${item.userName} заблокирован навсегда.`);
+    } else {
+      // AGREE + Checkbox UNCHECKED => Delete content, do not block user
+      if (item.category === 'content') {
+        setFeedPosts(prev => prev.filter(p => p.text !== item.content));
+        setComplaints(prev => prev.filter(c => c.id !== item.id));
+        setSpamComplaints(prev => prev.filter(s => s.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'deleted' }).catch(() => {});
+      } else if (item.category === 'dialogs') {
+        setDialogComplaints(prev => prev.filter(d => d.id !== item.id));
+        await dialogRepository.softDelete(item.id).catch(() => {});
+      } else if (item.category === 'pages') {
+        setPageComplaints(prev => prev.filter(p => p.id !== item.id));
+        await reportRepository.update(item.id, { status: 'resolved', resolution: 'deleted' }).catch(() => {});
+      }
+
+      await moderationRepository.insertAction({
+        type: 'complaint',
+        action: 'resolve',
+        result: 'deleted',
+        moderatorName: currentModName,
+        details: `Жалоба на ${item.userName} принята, контент удален без блокировки`
+      }).catch(() => {});
+
+      logModeratorAction('Принятие жалобы', `Контент пользователя ${item.userName} удален, пользователь не заблокирован`);
+      addNotification('Жалоба принята', `Нарушение удалено. Пользователь ${item.userName} не заблокирован.`);
+    }
+  };
+
+  // Render Redesigned Moderation View (/admin/spam)
+  const renderNewModerationSection = () => {
+    // Build unified feed list according to active subscriptions
+    const unifiedFeedList: Array<{
+      id: string;
+      category: 'content' | 'dialogs' | 'pages';
+      badgeLabel: string;
+      badgeClass: string;
+      userId: string;
+      userName: string;
+      userAvatar: string;
+      content: string;
+      reason: string;
+      timestamp: Date | string;
+      rawItem: any;
+    }> = [];
+
+    if (moderationThemes.content) {
+      complaints.filter(c => c.status !== 'resolved' && c.status !== 'closed').forEach(c => {
+        unifiedFeedList.push({
+          id: c.id,
+          category: 'content',
+          badgeLabel: 'ПОСТ',
+          badgeClass: 'bg-[#e5effa] text-[#2a5885] border-[#b2c1d4]',
+          userId: c.userId || 'unknown',
+          userName: c.userName || 'Неизвестный',
+          userAvatar: c.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200&auto=format&fit=crop',
+          content: c.content || c.reason || 'Жалоба на публикацию в ленте',
+          reason: c.reason || 'Нарушение правил сообщества',
+          timestamp: c.timestamp || new Date(),
+          rawItem: c
+        });
+      });
+      spamComplaints.filter(s => s.status !== 'resolved' && s.status !== 'closed').forEach(s => {
+        unifiedFeedList.push({
+          id: s.id,
+          category: 'content',
+          badgeLabel: 'ПОСТ',
+          badgeClass: 'bg-[#e5effa] text-[#2a5885] border-[#b2c1d4]',
+          userId: s.userId || 'unknown',
+          userName: s.userName || 'Неизвестный',
+          userAvatar: s.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200&auto=format&fit=crop',
+          content: s.content || s.reason || 'Спам в публикации',
+          reason: s.reason || 'Спам',
+          timestamp: s.timestamp || new Date(),
+          rawItem: s
+        });
+      });
+    }
+
+    if (moderationThemes.dialogs) {
+      dialogComplaints.forEach(d => {
+        const previewText = d.previewMessages?.map(m => m.text).join(' ') || d.fullDialogueMessages?.filter(m => m.isViolation).map(m => m.text).join(' ') || d.violationType;
+        unifiedFeedList.push({
+          id: d.id,
+          category: 'dialogs',
+          badgeLabel: 'ДИАЛОГ',
+          badgeClass: 'bg-[#f3e8ff] text-[#6b21a8] border-[#d8b4fe]',
+          userId: d.offenderId || 'unknown',
+          userName: d.offenderName || 'Неизвестный',
+          userAvatar: d.offenderAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop',
+          content: previewText,
+          reason: d.violationType || 'Сообщение в ЛС',
+          timestamp: new Date(),
+          rawItem: d
+        });
+      });
+    }
+
+    if (moderationThemes.pages) {
+      pageComplaints.filter(p => p.status !== 'resolved' && p.status !== 'closed').forEach(p => {
+        unifiedFeedList.push({
+          id: p.id,
+          category: 'pages',
+          badgeLabel: 'СТРАНИЦА',
+          badgeClass: 'bg-[#e6fffa] text-[#0d9488] border-[#99f6e4]',
+          userId: p.userId || 'unknown',
+          userName: p.userName || 'Неизвестный',
+          userAvatar: p.userAvatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=200&auto=format&fit=crop',
+          content: p.content || p.reason || 'Жалоба на страницу пользователя',
+          reason: p.reason || 'Нарушение правил оформления страницы',
+          timestamp: p.timestamp || new Date(),
+          rawItem: p
+        });
+      });
+    }
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left">
+        {/* Top Header Tabs Bar */}
+        <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-1 flex justify-between items-center flex-wrap shadow-sm gap-2">
+          <div className="flex overflow-x-auto no-scrollbar">
+            {[
+              { id: 'feed', label: 'Лента модерации' },
+              { id: 'actions', label: 'Действия' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setModerationTab(tab.id as any)}
+                className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium transition-all relative shrink-0 whitespace-nowrap cursor-pointer hover:bg-[#eaeef2]/40 rounded-[3px] ${
+                  moderationTab === tab.id ? 'text-[#2a5885] border-b-[3px] border-[#5181b8] font-bold bg-[#f4f7fa]' : 'text-[#656565]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab 2: Actions */}
+        {moderationTab === 'actions' && renderComplaintActions()}
+
+        {/* Tab 1: Feed */}
+        {moderationTab === 'feed' && (
+          <div className="space-y-4">
+            {/* Starter Onboarding Screen if not started */}
+            {!moderationStarted ? (
+              <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-10 text-center shadow-sm max-w-2xl mx-auto my-8 space-y-6">
+                {!showThemeSelection ? (
+                  <div className="flex flex-col items-center gap-4 py-6">
+                    <div className="w-16 h-16 rounded-full bg-[#f0f4f9] flex items-center justify-center text-[#5181b8]">
+                      <Shield size={36} />
+                    </div>
+                    <div className="space-y-2">
+                      <h2 className="text-[20px] font-bold text-[#2c2d2e]">Модерация</h2>
+                      <p className="text-[13.5px] text-[#656565] max-w-md mx-auto leading-relaxed">
+                        Начните работу с очередью модерации. Система объединяет жалобы на контент, личные диалоги и страницы пользователей в единую ленту.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowThemeSelection(true)}
+                      className="mt-4 px-8 py-3 bg-[#5181b8] hover:bg-[#4a76a8] text-white text-[14px] font-medium rounded-[4px] shadow-sm transition-all cursor-pointer flex items-center gap-2"
+                    >
+                      <Sparkles size={18} />
+                      Начать работу
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-5 py-4 text-left w-full">
+                    <div className="w-full border-b border-[#f0f2f5] pb-3 text-center">
+                      <h2 className="text-[18px] font-bold text-[#2c2d2e]">Подпишитесь на тематики</h2>
+                      <p className="text-[12.5px] text-[#656565] mt-1">
+                        Выберите категории очередей для обработки в ленте
+                      </p>
+                    </div>
+
+                    <div className="w-full space-y-3 max-w-lg mx-auto py-2">
+                      <label className={`flex items-center justify-between p-4 rounded-[6px] border transition-all cursor-pointer ${moderationThemes.content ? 'border-[#5181b8] bg-[#f4f7fa]' : 'border-[#e7e8ec] bg-white'}`}>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={moderationThemes.content}
+                            onChange={(e) => setModerationThemes(prev => ({ ...prev, content: e.target.checked }))}
+                            className="w-4 h-4 text-[#5181b8] rounded border-gray-300 focus:ring-[#5181b8] cursor-pointer"
+                          />
+                          <div>
+                            <div className="text-[13.5px] font-bold text-[#2c2d2e]">Контент</div>
+                            <div className="text-[11.5px] text-[#656565]">Жалобы на публикации и посты в ленте</div>
+                          </div>
+                        </div>
+                        <span className="text-[11.5px] font-semibold bg-[#e5effa] text-[#2a5885] px-2.5 py-1 rounded-[3px]">
+                          {complaints.filter(c => c.status !== 'resolved').length + spamComplaints.filter(s => s.status !== 'resolved').length}
+                        </span>
+                      </label>
+
+                      <label className={`flex items-center justify-between p-4 rounded-[6px] border transition-all cursor-pointer ${moderationThemes.dialogs ? 'border-[#5181b8] bg-[#f4f7fa]' : 'border-[#e7e8ec] bg-white'}`}>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={moderationThemes.dialogs}
+                            onChange={(e) => setModerationThemes(prev => ({ ...prev, dialogs: e.target.checked }))}
+                            className="w-4 h-4 text-[#5181b8] rounded border-gray-300 focus:ring-[#5181b8] cursor-pointer"
+                          />
+                          <div>
+                            <div className="text-[13.5px] font-bold text-[#2c2d2e]">Диалоги</div>
+                            <div className="text-[11.5px] text-[#656565]">Жалобы на нарушения в личных сообщениях</div>
+                          </div>
+                        </div>
+                        <span className="text-[11.5px] font-semibold bg-[#f3e8ff] text-[#6b21a8] px-2.5 py-1 rounded-[3px]">
+                          {dialogComplaints.length}
+                        </span>
+                      </label>
+
+                      <label className={`flex items-center justify-between p-4 rounded-[6px] border transition-all cursor-pointer ${moderationThemes.pages ? 'border-[#5181b8] bg-[#f4f7fa]' : 'border-[#e7e8ec] bg-white'}`}>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={moderationThemes.pages}
+                            onChange={(e) => setModerationThemes(prev => ({ ...prev, pages: e.target.checked }))}
+                            className="w-4 h-4 text-[#5181b8] rounded border-gray-300 focus:ring-[#5181b8] cursor-pointer"
+                          />
+                          <div>
+                            <div className="text-[13.5px] font-bold text-[#2c2d2e]">Страницы</div>
+                            <div className="text-[11.5px] text-[#656565]">Жалобы на профили и страницы пользователей</div>
+                          </div>
+                        </div>
+                        <span className="text-[11.5px] font-semibold bg-[#e6fffa] text-[#0d9488] px-2.5 py-1 rounded-[3px]">
+                          {pageComplaints.filter(p => p.status !== 'resolved').length}
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex gap-3 pt-4 w-full justify-center">
+                      <button
+                        onClick={() => {
+                          if (!moderationThemes.content && !moderationThemes.dialogs && !moderationThemes.pages) {
+                            addNotification('Выберите тематику', 'Необходимо выбрать хотя бы одну тематику модерации');
+                            return;
+                          }
+                          setModerationStarted(true);
+                          setShowThemeSelection(false);
+                          localStorage.setItem('vk_mod_started', 'true');
+                        }}
+                        className="px-8 py-2.5 bg-[#5181b8] hover:bg-[#4a76a8] text-white text-[13.5px] font-medium rounded-[4px] shadow-sm transition-all cursor-pointer"
+                      >
+                        Начать работу
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Active Moderation Feed View */
+              <div className="space-y-4">
+                {/* Active Subscriptions Bar */}
+                <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-3 flex items-center justify-between flex-wrap gap-2 text-left">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[12px] font-bold text-[#656565] uppercase tracking-wider mr-1">
+                      Тематики:
+                    </span>
+                    <button
+                      onClick={() => setModerationThemes(prev => ({ ...prev, content: !prev.content }))}
+                      className={`text-[12px] px-3 py-1 rounded-[3px] border font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                        moderationThemes.content ? 'bg-[#e5effa] border-[#b2c1d4] text-[#2a5885]' : 'bg-gray-50 border-gray-200 text-gray-400 opacity-60'
+                      }`}
+                    >
+                      {moderationThemes.content && <Check size={12} />}
+                      Контент
+                    </button>
+                    <button
+                      onClick={() => setModerationThemes(prev => ({ ...prev, dialogs: !prev.dialogs }))}
+                      className={`text-[12px] px-3 py-1 rounded-[3px] border font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                        moderationThemes.dialogs ? 'bg-[#f3e8ff] border-[#d8b4fe] text-[#6b21a8]' : 'bg-gray-50 border-gray-200 text-gray-400 opacity-60'
+                      }`}
+                    >
+                      {moderationThemes.dialogs && <Check size={12} />}
+                      Диалоги
+                    </button>
+                    <button
+                      onClick={() => setModerationThemes(prev => ({ ...prev, pages: !prev.pages }))}
+                      className={`text-[12px] px-3 py-1 rounded-[3px] border font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                        moderationThemes.pages ? 'bg-[#e6fffa] border-[#99f6e4] text-[#0d9488]' : 'bg-gray-50 border-gray-200 text-gray-400 opacity-60'
+                      }`}
+                    >
+                      {moderationThemes.pages && <Check size={12} />}
+                      Страницы
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-[12px] text-[#656565]">
+                      В очереди: <strong className="text-[#2c2d2e]">{unifiedFeedList.length}</strong>
+                    </span>
+                    <button
+                      onClick={() => setShowThemeSelection(true)}
+                      className="text-[12px] text-[#5181b8] hover:underline font-medium cursor-pointer"
+                    >
+                      Изменить подписки
+                    </button>
+                  </div>
+                </div>
+
+                {/* Cards Feed */}
+                {unifiedFeedList.length === 0 ? (
+                  <div className="bg-white p-16 rounded-[4px] border border-[#e7e8ec] text-center flex flex-col items-center gap-3 shadow-sm">
+                    <CheckCircle size={48} className="text-[#4bb34b]" />
+                    <h3 className="text-[15px] font-bold text-[#2c2d2e]">Все жалобы обработаны!</h3>
+                    <p className="text-[#656565] text-[12.5px] max-w-sm">
+                      В выбранных тематиках больше нет необработанных жалоб.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {unifiedFeedList.map((item) => {
+                      const riskBadges = getUserRiskBadges(item.userId, item.userName);
+                      const currentReason = cardBlockReasons[item.id] || BLOCK_REASONS[0];
+                      const isBlockChecked = !!cardBlockChecked[item.id];
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-white border border-[#e7e8ec] rounded-[4px] p-4 shadow-sm hover:border-[#b2c1d4] transition-all flex flex-col sm:flex-row gap-4 items-start justify-between text-left"
+                        >
+                          {/* Left: User Avatar, Info, Content */}
+                          <div className="grow space-y-3 max-w-2xl">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <img
+                                src={item.userAvatar}
+                                alt={item.userName}
+                                className="w-10 h-10 rounded-full object-cover border border-[#e7e8ec]"
+                              />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[13.5px] font-bold text-[#2c2d2e] hover:underline cursor-pointer" onClick={() => navigate('/user/' + item.userId)}>
+                                    {item.userName}
+                                  </span>
+                                  <span className="text-[11px] text-[#818c99]">ID: {item.userId}</span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-[3px] border uppercase tracking-wider ${item.badgeClass}`}>
+                                    {item.badgeLabel}
+                                  </span>
+                                  <span className="text-[11.5px] text-[#818c99]">
+                                    Причина: <strong className="text-[#55677d]">{item.reason}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Violation Content snippet */}
+                            <div className="bg-[#f9fafb] p-3 rounded-[4px] border border-[#f0f2f5] text-[13px] text-[#2c2d2e] leading-relaxed font-sans whitespace-pre-wrap">
+                              {item.content}
+                            </div>
+                          </div>
+
+                          {/* Right: Risk Badges + Actions */}
+                          <div className="shrink-0 w-full sm:w-[220px] space-y-3 border-t sm:border-t-0 sm:border-l border-[#f0f2f5] pt-3 sm:pt-0 sm:pl-4">
+                            {/* Square Risk Badges in Top Right */}
+                            <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                              {riskBadges.hasManyComplaints && (
+                                <div
+                                  title={`Много жалоб (${riskBadges.totalComplaintsCount} фиксаций)`}
+                                  className="w-7 h-7 rounded-[4px] bg-[#fff2f2] border border-[#ffcdd2] text-[#e64646] flex items-center justify-center cursor-help shrink-0"
+                                >
+                                  <Flame size={15} />
+                                </div>
+                              )}
+                              {riskBadges.isBannedBefore && (
+                                <div
+                                  title="Бывалый — пользователь ранее уже блокировался"
+                                  className="w-7 h-7 rounded-[4px] bg-[#fff8e1] border border-[#ffe082] text-[#d97706] flex items-center justify-center cursor-help shrink-0"
+                                >
+                                  <Lock size={15} />
+                                </div>
+                              )}
+                              {riskBadges.isSuspiciousIp && (
+                                <div
+                                  title="Похоже на взлом — зафиксированы подозрительные смены IP/авторизаций"
+                                  className="w-7 h-7 rounded-[4px] bg-[#f3e8ff] border border-[#e9d5ff] text-[#7c3aed] flex items-center justify-center cursor-help shrink-0"
+                                >
+                                  <Zap size={15} />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Block Reason Select & Checkbox */}
+                            <div className="space-y-2 pt-1">
+                              <div>
+                                <label className="text-[11px] font-semibold text-[#656565] block mb-1">
+                                  Причина блокировки:
+                                </label>
+                                <select
+                                  value={currentReason}
+                                  onChange={(e) => setCardBlockReasons(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] text-[12px] font-medium text-[#2c2d2e] p-1.5 rounded-[4px] border border-transparent focus:border-[#5181b8] outline-none cursor-pointer"
+                                >
+                                  {BLOCK_REASONS.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <label className="flex items-center gap-2 cursor-pointer pt-0.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isBlockChecked}
+                                  onChange={(e) => setCardBlockChecked(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                                  className="w-3.5 h-3.5 text-[#e64646] rounded border-gray-300 focus:ring-[#e64646] cursor-pointer"
+                                />
+                                <span className={`text-[12px] font-semibold ${isBlockChecked ? 'text-[#e64646]' : 'text-[#656565]'}`}>
+                                  Заблокировать
+                                </span>
+                              </label>
+                            </div>
+
+                            {/* Action Buttons: AGREE / IGNORE */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <button
+                                onClick={() => handleFeedCardAction(item, 'AGREE')}
+                                className="px-3 py-2 bg-[#5181b8] hover:bg-[#4a76a8] active:bg-[#3d6593] text-white text-[12px] font-bold rounded-[4px] transition-all shadow-sm cursor-pointer text-center"
+                              >
+                                AGREE
+                              </button>
+                              <button
+                                onClick={() => handleFeedCardAction(item, 'IGNORE')}
+                                className="px-3 py-2 bg-[#f0f2f5] hover:bg-[#e4e8ee] active:bg-[#d5dbe3] text-[#55677d] text-[12px] font-bold rounded-[4px] transition-all cursor-pointer text-center"
+                              >
+                                IGNORE
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  // Render Spamban Section (/admin/spamban)
+  const renderSpambanSection = () => {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 text-left">
+        {/* Top Header Tabs Bar for Spamban */}
+        <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-1 flex justify-between items-center flex-wrap shadow-sm gap-2">
+          <div className="flex overflow-x-auto no-scrollbar">
+            {[
+              { id: 'search', label: 'Поиск спама' },
+              { id: 'decisions', label: 'База спама' },
+              { id: 'triggers', label: 'Срабатывания авто-фильтра' },
+              { id: 'settings', label: 'Настройки антиспама' },
+              { id: 'actions', label: 'Действия' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setSpambanTab(tab.id as any)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-[12.5px] font-medium transition-all relative shrink-0 whitespace-nowrap cursor-pointer hover:bg-[#eaeef2]/40 rounded-[3px] ${
+                  spambanTab === tab.id ? 'text-[#2a5885] border-b-[3px] border-[#5181b8] font-bold bg-[#f4f7fa]' : 'text-[#656565]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div className="min-h-[450px]">
+          {spambanTab === 'search' && renderSpamSearch()}
+          {spambanTab === 'decisions' && (
+            <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-4 space-y-4 text-left">
+              <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
+                <h3 className="text-[12.5px] font-bold text-[#2a5885] uppercase tracking-wider">
+                  База спам-экземпляров
+                </h3>
+                <span className="text-[11.5px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-bold font-mono">
+                  {spamDecisions.length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  placeholder="Поиск по спам-экземплярам..."
+                  value={exemplarSearchQuery}
+                  onChange={(e) => setExemplarSearchQuery(e.target.value)}
+                  className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[13px] transition-colors outline-none"
+                />
+                {exemplarSearchQuery && (
+                  <button
+                    onClick={() => setExemplarSearchQuery('')}
+                    className="text-[#818c99] hover:text-black text-[12px] px-2 font-medium"
+                  >
+                    Сбросить
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {(() => {
+                  const filtered = spamDecisions.filter(decision => 
+                    decision.postText.toLowerCase().includes(exemplarSearchQuery.toLowerCase())
+                  );
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="bg-white p-12 border border-[#e7e8ec] rounded-[4px] text-center flex flex-col items-center justify-center gap-2">
+                        <HistoryIcon size={40} className="text-[#d3d9de]" />
+                        <p className="text-[#818c99] text-[13px]">
+                          {spamDecisions.length === 0 ? 'База спам-экземпляров пуста' : 'Не найдено совпадений'}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return filtered.map((decision) => (
+                    <div 
+                      key={decision.id} 
+                      onClick={(e) => handlePostCardClickWithAlt(e, decision.postText)}
+                      className="bg-white p-4 border border-[#e7e8ec] rounded-[4px] transition-all hover:border-[#b2c1d4] text-left cursor-pointer space-y-3"
+                    >
+                      <div className="text-[13px] text-black whitespace-pre-wrap leading-relaxed font-sans">
+                        {decision.postText}
+                      </div>
+                      <div className="text-[11.5px] text-[#818c99] flex gap-1.5 items-center justify-between pt-2.5 border-t border-[#f0f2f5]">
+                        <div>
+                          Добавил сотрудник <span className="font-medium text-black">{decision.moderatorName}</span>
+                        </div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSpamDecisions(prev => prev.filter(d => d.id !== decision.id));
+                            addNotification('Решение отменено', 'Принятый вердикт по спаму успешно аннулирован');
+                          }}
+                          className="text-[11.5px] text-[#e64646] hover:underline font-medium cursor-pointer"
+                        >
+                          Удалить экземпляр
+                        </button>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
+          {spambanTab === 'triggers' && renderSpamTriggers()}
+          {spambanTab === 'settings' && renderSpamSettings()}
+          {spambanTab === 'actions' && renderComplaintActions()}
+        </div>
+      </motion.div>
+    );
+  };
+
   const renderContent = () => {
     // 404 validation check
     if (!isPathValid(location.pathname)) {
@@ -15792,119 +16499,10 @@ export default function App() {
     const mainTabContent = (() => {
       switch (normalizedTab) {
         case 'spam':
-          return (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-              {/* VK Style Sub-tabs bar at the top */}
-              <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-1 flex justify-between items-center flex-wrap shadow-sm gap-2">
-                <div className="flex overflow-x-auto no-scrollbar">
-                  {[
-                    { id: 'content-complaints', label: 'Жалобы на контент' },
-                    { id: 'dialog-complaints', label: 'Жалобы на диалоги' },
-                    { id: 'profile-complaints', label: 'Жалобы на страницы' },
-                    { id: 'actions', label: 'Действия' },
-                    { id: 'search', label: 'Поиск спама' },
-                    { id: 'decisions', label: 'База спама' },
-                    { id: 'triggers', label: 'Срабатывания авто-фильтра' },
-                    { id: 'settings', label: 'Настройки антиспама' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setSpamActiveSubTab(tab.id as any)}
-                      className={`flex items-center gap-2 px-4 py-2.5 text-[12.5px] font-medium transition-all relative shrink-0 whitespace-nowrap cursor-pointer hover:bg-[#eaeef2]/30 ${
-                        spamActiveSubTab === tab.id ? 'text-[#2a5885] border-b-[3px] border-[#5181b8] font-semibold' : 'text-[#656565]'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tab Content Area */}
-              <div className="min-h-[450px]">
-                {spamActiveSubTab === 'content-complaints' && renderContentModeration()}
-                {spamActiveSubTab === 'dialog-complaints' && renderDialogModeration()}
-                {spamActiveSubTab === 'profile-complaints' && renderPageModeration()}
-                {spamActiveSubTab === 'actions' && renderComplaintActions()}
-                {spamActiveSubTab === 'search' && renderSpamSearch()}
-                {spamActiveSubTab === 'decisions' && (
-                  <div className="bg-white border border-[#e7e8ec] rounded-[4px] p-4 space-y-4 text-left">
-                    <div className="flex justify-between items-center border-b border-[#f0f2f5] pb-2.5">
-                      <h3 className="text-[12.5px] font-bold text-[#2a5885] uppercase tracking-wider">
-                        База спам-экземпляров
-                      </h3>
-                      <span className="text-[11.5px] text-[#818c99] bg-[#f0f2f5] px-2 py-0.5 rounded-[3px] font-bold font-mono">
-                        {spamDecisions.length}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        placeholder="Поиск по спам-экземплярам..."
-                        value={exemplarSearchQuery}
-                        onChange={(e) => setExemplarSearchQuery(e.target.value)}
-                        className="w-full bg-[#f0f2f5] hover:bg-[#e7e8eb] focus:bg-white px-3 py-1.5 rounded-[4px] border border-transparent focus:border-[#4a76a8] text-[13px] transition-colors outline-none"
-                      />
-                      {exemplarSearchQuery && (
-                        <button
-                          onClick={() => setExemplarSearchQuery('')}
-                          className="text-[#818c99] hover:text-black text-[12px] px-2 font-medium"
-                        >
-                          Сбросить
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="space-y-3">
-                      {(() => {
-                        const filtered = spamDecisions.filter(decision => 
-                          decision.postText.toLowerCase().includes(exemplarSearchQuery.toLowerCase())
-                        );
-                        if (filtered.length === 0) {
-                          return (
-                            <div className="bg-white p-12 border border-[#e7e8ec] rounded-[4px] text-center flex flex-col items-center justify-center gap-2">
-                              <History size={40} className="text-[#d3d9de]" />
-                              <p className="text-[#818c99] text-[13px]">
-                                {spamDecisions.length === 0 ? 'База спам-экземпляров пуста' : 'Не найдено совпадений'}
-                              </p>
-                            </div>
-                          );
-                        }
-                        return filtered.map((decision) => (
-                          <div 
-                            key={decision.id} 
-                            onClick={(e) => handlePostCardClickWithAlt(e, decision.postText)}
-                            className="bg-white p-4 border border-[#e7e8ec] rounded-[4px] transition-all hover:border-[#b2c1d4] text-left cursor-pointer space-y-3"
-                          >
-                            <div className="text-[13px] text-black whitespace-pre-wrap leading-relaxed font-sans">
-                              {decision.postText}
-                            </div>
-                            <div className="text-[11.5px] text-[#818c99] flex gap-1.5 items-center justify-between pt-2.5 border-t border-[#f0f2f5]">
-                              <div>
-                                Добавил сотрудник <span className="font-medium text-black">{decision.moderatorName}</span>
-                              </div>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSpamDecisions(prev => prev.filter(d => d.id !== decision.id));
-                                  addNotification('Решение отменено', 'Принятый вердикт по спаму успешно аннулирован');
-                                }}
-                                className="text-[11.5px] text-[#e64646] hover:underline font-medium cursor-pointer"
-                              >
-                                Удалить экземпляр
-                              </button>
-                            </div>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                )}
-                {spamActiveSubTab === 'triggers' && renderSpamTriggers()}
-                {spamActiveSubTab === 'settings' && renderSpamSettings()}
-              </div>
-            </motion.div>
-          );
+        case 'moderation':
+          return renderNewModerationSection();
+        case 'spamban':
+          return renderSpambanSection();
       case 'verification':
         return renderVerification();
       case 'internal-mail':
@@ -17510,6 +18108,8 @@ export default function App() {
                    <Route path="/personnel" element={renderContent()} />
                    <Route path="/page_moderation" element={renderContent()} />
                    <Route path="/spam" element={renderContent()} />
+                   <Route path="/moderation" element={renderContent()} />
+                   <Route path="/spamban" element={renderContent()} />
                    <Route path="/verification" element={renderContent()} />
                    <Route path="/tasks" element={renderContent()} />
                    <Route path="/internal-mail" element={renderContent()} />

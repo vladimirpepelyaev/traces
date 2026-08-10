@@ -1,16 +1,21 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawKey = import.meta.env.VITE_SUPABASE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Missing Supabase env");
-}
+export const isSupabaseConfigured = Boolean(
+  rawUrl &&
+  rawKey &&
+  typeof rawUrl === 'string' &&
+  rawUrl.trim() !== '' &&
+  (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'))
+);
+
+const supabaseUrl = isSupabaseConfigured ? rawUrl! : 'https://placeholder-url.supabase.co';
+const supabaseKey = isSupabaseConfigured ? rawKey! : 'placeholder-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
-
-export const isSupabaseConfigured = true;
 
 export async function ensureProfileExists(): Promise<void> {
   if (!isSupabaseConfigured) return;

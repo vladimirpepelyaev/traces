@@ -4,6 +4,8 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. Table profiles
+CREATE SEQUENCE IF NOT EXISTS profiles_public_id_seq START WITH 1;
+
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL,
@@ -14,9 +16,29 @@ CREATE TABLE IF NOT EXISTS profiles (
   blocked BOOLEAN NOT NULL DEFAULT false,
   public_settings JSONB DEFAULT '{}'::jsonb,
   drafts JSONB DEFAULT '{}'::jsonb,
+  public_id BIGINT UNIQUE DEFAULT nextval('profiles_public_id_seq'),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Ensure public_id column exists if profiles table was already created
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS public_id BIGINT UNIQUE DEFAULT nextval('profiles_public_id_seq');
+
+-- Populate existing null public_ids sequentially by created_at ASC, id ASC
+DO $
+BEGIN
+  IF EXISTS (SELECT 1 FROM profiles WHERE public_id IS NULL) THEN
+    WITH ordered_profiles AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) as row_num
+      FROM profiles
+      WHERE public_id IS NULL
+    )
+    UPDATE profiles
+    SET public_id = ordered_profiles.row_num
+    FROM ordered_profiles
+    WHERE profiles.id = ordered_profiles.id;
+  END IF;
+END $;
 
 -- Enable RLS on profiles
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -332,6 +354,418 @@ CREATE POLICY "messenger_delete_policy" ON messenger_messages
       AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
     )
   );
+
+-- 11b. New Full Messenger Architecture Tables
+
+-- Conversations table
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL DEFAULT 'direct', -- 'direct' or 'group'
+  name TEXT,
+  avatar_url TEXT,
+  owner_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Conversation Members table
+CREATE TABLE IF NOT EXISTS conversation_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member'
+  joined_at TIMESTAMPTZ DEFAULT now(),
+  last_read_message_id UUID,
+  UNIQUE(conversation_id, user_id)
+);
+
+-- Messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  sender_name TEXT,
+  sender_avatar TEXT,
+  text TEXT,
+  attachments JSONB DEFAULT '[]'::jsonb,
+  support_ticket_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  edited_at TIMESTAMPTZ DEFAULT NULL,
+  deleted_at TIMESTAMPTZ DEFAULT NULL
+);
+
+-- Message Read Receipts table
+CREATE TABLE IF NOT EXISTS message_read_receipts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(message_id, user_id)
+);
+
+-- Conversation Settings table
+CREATE TABLE IF NOT EXISTS conversation_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  is_muted BOOLEAN DEFAULT false,
+  is_pinned BOOLEAN DEFAULT false,
+  is_archived BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(conversation_id, user_id)
+);
+
+-- Enable RLS on new messenger tables
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_read_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_settings ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for conversations
+DROP POLICY IF EXISTS "Select member conversations" ON conversations;
+CREATE POLICY "Select member conversations" ON conversations FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversations.id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert authenticated conversations" ON conversations;
+CREATE POLICY "Insert authenticated conversations" ON conversations FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Update owner/admin conversations" ON conversations;
+CREATE POLICY "Update owner/admin conversations" ON conversations FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversations.id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for conversation_members
+DROP POLICY IF EXISTS "Select members of own conversations" ON conversation_members;
+CREATE POLICY "Select members of own conversations" ON conversation_members FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert members" ON conversation_members;
+CREATE POLICY "Insert members" ON conversation_members FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Delete members" ON conversation_members;
+CREATE POLICY "Delete members" ON conversation_members FOR DELETE TO authenticated
+  USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for messages
+DROP POLICY IF EXISTS "Select messages in member conversations" ON messages;
+CREATE POLICY "Select messages in member conversations" ON messages FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = messages.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert message as member" ON messages;
+CREATE POLICY "Insert message as member" ON messages FOR INSERT TO authenticated
+  WITH CHECK (
+    sender_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = messages.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Update own message" ON messages;
+CREATE POLICY "Update own message" ON messages FOR UPDATE TO authenticated
+  USING (
+    sender_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for message_read_receipts
+DROP POLICY IF EXISTS "Select receipts" ON message_read_receipts;
+CREATE POLICY "Select receipts" ON message_read_receipts FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = message_read_receipts.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert own receipt" ON message_read_receipts;
+CREATE POLICY "Insert own receipt" ON message_read_receipts FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = message_read_receipts.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+-- RLS Policies for conversation_settings
+DROP POLICY IF EXISTS "Own settings" ON conversation_settings;
+CREATE POLICY "Own settings" ON conversation_settings FOR ALL TO authenticated
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+
+-- 11b. New Full Messenger Architecture Tables
+
+-- Conversations table
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL DEFAULT 'direct', -- 'direct' or 'group'
+  name TEXT,
+  avatar_url TEXT,
+  owner_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Conversation Members table
+CREATE TABLE IF NOT EXISTS conversation_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member'
+  joined_at TIMESTAMPTZ DEFAULT now(),
+  last_read_message_id UUID,
+  UNIQUE(conversation_id, user_id)
+);
+
+-- Messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  sender_name TEXT,
+  sender_avatar TEXT,
+  text TEXT,
+  attachments JSONB DEFAULT '[]'::jsonb,
+  support_ticket_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  edited_at TIMESTAMPTZ DEFAULT NULL,
+  deleted_at TIMESTAMPTZ DEFAULT NULL
+);
+
+-- Message Read Receipts table
+CREATE TABLE IF NOT EXISTS message_read_receipts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(message_id, user_id)
+);
+
+-- Conversation Settings table
+CREATE TABLE IF NOT EXISTS conversation_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  is_muted BOOLEAN DEFAULT false,
+  is_pinned BOOLEAN DEFAULT false,
+  is_archived BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(conversation_id, user_id)
+);
+
+-- Enable RLS on new messenger tables
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_read_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_settings ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for conversations
+DROP POLICY IF EXISTS "Select member conversations" ON conversations;
+CREATE POLICY "Select member conversations" ON conversations FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversations.id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert authenticated conversations" ON conversations;
+CREATE POLICY "Insert authenticated conversations" ON conversations FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Update owner/admin conversations" ON conversations;
+CREATE POLICY "Update owner/admin conversations" ON conversations FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversations.id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for conversation_members
+DROP POLICY IF EXISTS "Select members of own conversations" ON conversation_members;
+CREATE POLICY "Select members of own conversations" ON conversation_members FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert members" ON conversation_members;
+CREATE POLICY "Insert members" ON conversation_members FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Delete members" ON conversation_members;
+CREATE POLICY "Delete members" ON conversation_members FOR DELETE TO authenticated
+  USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = conversation_members.conversation_id
+      AND cm.user_id = auth.uid()
+      AND cm.role IN ('owner', 'admin')
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for messages
+DROP POLICY IF EXISTS "Select messages in member conversations" ON messages;
+CREATE POLICY "Select messages in member conversations" ON messages FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = messages.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert message as member" ON messages;
+CREATE POLICY "Insert message as member" ON messages FOR INSERT TO authenticated
+  WITH CHECK (
+    sender_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = messages.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Update own message" ON messages;
+CREATE POLICY "Update own message" ON messages FOR UPDATE TO authenticated
+  USING (
+    sender_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('support', 'moderator', 'super_admin', 'staff', 'moderation')
+    )
+  );
+
+-- RLS Policies for message_read_receipts
+DROP POLICY IF EXISTS "Select receipts" ON message_read_receipts;
+CREATE POLICY "Select receipts" ON message_read_receipts FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = message_read_receipts.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert own receipt" ON message_read_receipts;
+CREATE POLICY "Insert own receipt" ON message_read_receipts FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM conversation_members cm
+      WHERE cm.conversation_id = message_read_receipts.conversation_id
+      AND cm.user_id = auth.uid()
+    )
+  );
+
+-- RLS Policies for conversation_settings
+DROP POLICY IF EXISTS "Own settings" ON conversation_settings;
+CREATE POLICY "Own settings" ON conversation_settings FOR ALL TO authenticated
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
 
 -- 12. Table complaints
 CREATE TABLE IF NOT EXISTS complaints (

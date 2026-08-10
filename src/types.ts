@@ -108,6 +108,7 @@ export interface ComplaintHistoryItem {
 
 export interface AppUser {
   id: string;
+  public_id?: number;
   name: string;
   avatar: string;
   trustLevel: number;

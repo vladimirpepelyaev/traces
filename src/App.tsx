@@ -33,6 +33,7 @@ import { AboutUserBlock } from './features/profile-contribution/AboutUserBlock';
 import { ContributionDataSources } from './features/profile-contribution/contributionTypes';
 import { NotificationCenter } from './features/notifications/NotificationCenter';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
+import { MessengerPage } from './features/messenger/MessengerPage';
 import { NotificationService } from './features/notifications/NotificationService';
 import { isServiceProfileUser, SERVICE_PROFILE_DISCLAIMER, shouldShowServiceMessageButton } from './features/service-profile/serviceProfileHelpers';
 import { PostFormatBadge } from './features/post-format/PostFormatBadge';
@@ -251,7 +252,7 @@ const UserAvatar = ({
   const finalUrl = avatarUrl || user?.avatar || user?.avatar_url || user?.avatarUrl;
 
   if (!finalUrl) {
-    return (
+    const _UnusedLegacyUI = () => (
       <div 
         className={`bg-zinc-100 text-zinc-400 flex items-center justify-center shrink-0 border border-zinc-200/60 rounded-full ${className}`}
         style={{ borderRadius: '50%' }}
@@ -4829,6 +4830,7 @@ export default function App() {
         </div>
       </motion.div>
     );
+  // legacy end
   };
 
   const renderUserInfo = (user: AppUser) => {
@@ -13318,169 +13320,48 @@ export default function App() {
   };
 
   const renderInternalMail = () => {
-    // Determine active partners having chats
-    const allMsg = messengerMessages || [];
-    const activePartnersMap = new Map<string, any>();
-    
-    allMsg.forEach(m => {
-      if (currentUser?.id) {
-        if (m.senderId === currentUser.id) {
-          activePartnersMap.set(m.receiverId, m.receiverId);
-        } else if (m.receiverId === currentUser.id) {
-          activePartnersMap.set(m.senderId, m.senderId);
-        }
-      }
-    });
-    
-    if (activeChatPartnerId) {
-      activePartnersMap.set(activeChatPartnerId, activeChatPartnerId);
-    }
-    
-    const activeChatPartners = Array.from(activePartnersMap.keys()).map(partnerId => {
-      const u = users.find(user => user.id === partnerId);
-      if (u) return u;
-      return {
-        id: partnerId,
-        name: partnerId === '2' ? 'Агент Поддержки' : partnerId === '3' ? 'Ольга Модератор' : `Пользователь #${partnerId}`,
-        avatar: partnerId === '2' ? 'dog2.jpeg' : partnerId === '3' ? 'images.png' : '',
-        status: 'Был в сети недавно',
-        isVerified: partnerId === '2'
-      };
-    });
+    if (!currentUser) return null;
+    return <MessengerPage currentUser={currentUser} />;
+  };
 
-    const getLastMessage = (partnerId: string) => {
-      const partnerMsgs = allMsg.filter(m => 
-        (m.senderId === currentUser?.id && m.receiverId === partnerId) || 
-        (m.senderId === partnerId && m.receiverId === currentUser?.id)
-      );
-      if (partnerMsgs.length === 0) return null;
-      return partnerMsgs[partnerMsgs.length - 1];
-    };
+  const _UnusedLegacyMessengerUI = () => {
+    return null;
+  };
 
-    const getUnreadCount = (partnerId: string) => {
-      return allMsg.filter(m => m.senderId === partnerId && m.receiverId === currentUser?.id && m.unread).length;
-    };
-
-    // Users search matching messengerSearchQuery:
-    const searchResults = messengerSearchQuery.trim()
-      ? users.filter(u => 
-          u.id !== currentUser?.id && 
-          u.name.toLowerCase().includes(messengerSearchQuery.toLowerCase())
-        )
-      : [];
-
-    const activePartner = activeChatPartnerId 
-      ? activeChatPartners.find(p => p.id === activeChatPartnerId) || users.find(u => u.id === activeChatPartnerId)
-      : null;
-
-    const chatMessages = activeChatPartnerId
-      ? allMsg.filter(m => 
-          (m.senderId === currentUser?.id && m.receiverId === activeChatPartnerId) || 
-          (m.senderId === activeChatPartnerId && m.receiverId === currentUser?.id)
-        )
-      : [];
-
-    const handleSendMessage = () => {
-      if (!newMessageInput.trim() || !activeChatPartnerId || !currentUser) return;
-      if (currentUser?.isBlocked) {
-        addNotification('Ограничение', 'Отправка сообщений заблокирована. Ваш аккаунт ограничен модератором.');
-        return;
-      }
-      const msgText = newMessageInput.trim();
-      const now = new Date();
-      const currentFormattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const chatPartner = users.find(u => u.id === activeChatPartnerId);
-      const isServiceProfileChat = isServiceProfileUser(chatPartner);
-
-      let linkedTicketId: string | undefined;
-      if (isServiceProfileChat && chatPartner) {
-        const existingTicket = findServiceProfileChatTicket(
-          tickets,
-          currentUser.id,
-          chatPartner.id
-        );
-        if (existingTicket) {
-          const updatedTicket = appendUserMessageToServiceTicket(existingTicket, msgText);
-          linkedTicketId = updatedTicket.id;
-          setTickets(prev => prev.map(t => (t.id === updatedTicket.id ? updatedTicket : t)));
-          addNotification('Обращение обновлено', 'Сообщение добавлено в тикет поддержки');
-        } else {
-          const newTicket = createServiceProfileChatTicket(currentUser, chatPartner, msgText);
-          linkedTicketId = newTicket.id;
-          setTickets(prev => [newTicket, ...prev]);
-          addModeratorLog({
-            type: 'support',
-            action: 'Новое обращение из чата',
-            message: `Пользователь ${currentUser.name} начал переписку со служебным профилем ${chatPartner.name}`,
-            targetId: currentUser.id,
-            targetName: currentUser.name,
-          });
-          addNotification('Обращение создано', 'Ваш вопрос передан в поддержку. Ответ придёт в этот чат.');
-        }
-      }
-      
-      const newMsg: MessengerMessage = {
-        id: `mm-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        senderId: currentUser.id,
-        senderName: currentUser.name,
-        senderAvatar: currentUser.avatar,
-        receiverId: activeChatPartnerId,
-        text: msgText,
-        timestamp: currentFormattedTime,
-        unread: true,
-        supportTicketId: linkedTicketId,
-      };
-      
-      setMessengerMessages(prev => [...prev, newMsg]);
-      setNewMessageInput('');
-
-      if (!isServiceProfileChat) {
-        pushPlatformNotifications(
-          buildDirectMessageNotification(
-            activeChatPartnerId,
-            {
-              id: currentUser.id,
-              name: currentUser.name,
-              avatar: currentUser.avatar || '',
-            },
-            newMsg.id,
-            msgText
-          ),
-          ...buildMentionNotifications(msgText, users, {
-            id: currentUser.id,
-            name: currentUser.name,
-            avatar: currentUser.avatar || '',
-          }, newMsg.id, newMsg.id).map(p => ({
-            ...p,
-            link: { tab: 'internal-mail', partnerId: currentUser.id, messageId: newMsg.id },
-          }))
-        );
-      }
-    };
-
-    const handleReportSubmit = (reason: 'Угроза' | 'Домогательство' | 'Спам' | 'Оскорбление' | 'Мошенничество' | 'Доксинг') => {
-      if (!reportingMessage || !currentUser) return;
-      
-      const offenderId = reportingMessage.senderId;
-      const offenderName = reportingMessage.senderName;
-      const offenderAvatar = reportingMessage.senderAvatar || 'dog2.jpeg';
-
-      const prevMsgs = chatMessages
-        .filter(m => m.timestamp <= reportingMessage.timestamp && m.id !== reportingMessage.id)
-        .slice(-3)
-        .map(m => ({
-          id: m.id,
-          senderName: m.senderName,
-          senderAvatar: m.senderAvatar || 'dog2.jpeg',
-          text: m.text,
-          timestamp: m.timestamp
-        }));
-
-      const newDialogComp: DialogComplaint = {
-        id: `dc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+  const _UnusedLegacyMessengerUI2 = () => {
+    if (false as any) {
+      const offenderId = '';
+      const offenderName = '';
+      const offenderAvatar = '';
+      const reason = '' as any;
+      const prevMsgs: any[] = [];
+      const reportingMessage: any = {};
+      const complaintComment = '';
+      const searchQuery = '';
+      const setSearchQuery = (_: any) => {};
+      const searchResults: any[] = [];
+      const setSelectedPartnerId = (_: any) => {};
+      const activeChatPartners: any[] = [];
+      const activePartner: any = null;
+      const getLastMessage = (_: any) => null as any;
+      const getUnreadCount = (_: any) => 0;
+      const onlineUsers: any[] = [];
+      const setViewingUserProfile = (_: any) => {};
+      const chatMessages: any[] = [];
+      const messageText = '';
+      const setMessageText = (_: any) => {};
+      const newMessageInput = '';
+      const setNewMessageInput = (_: any) => {};
+      const pmRestrictions: Record<string, any> = {};
+      const handleSendMessage = (..._args: any[]) => {};
+      const setReportingMessage = (_: any) => {};
+      const setComplaintError = (_: any) => {};
+      const complaintReason = '';
+      const setComplaintReason = (_: any) => {};
+      const complaintError = '';
+      const isSendingComplaint = false;
+      const newDialogComp: any = {
         offenderId: offenderId,
-        offenderName: offenderName,
-        offenderAvatar: offenderAvatar,
         offenderTrust: 0.35,
         offenderRisk: 0.45,
         violationType: reason,
@@ -13537,7 +13418,6 @@ export default function App() {
       setReportedMessageIds(prev => [...prev, reportingMessage.id]);
       addNotification('Жалоба отправлена', `Жалоба на сообщение («${reason}») успешно передана модераторам.`);
       setReportingMessage(null);
-    };
 
     const handleMessageReportSubmit = async (reason: 'Угроза' | 'Домогательство' | 'Спам' | 'Оскорбление' | 'Мошенничество' | 'Доксинг') => {
       if (!reportingMessage || !currentUser) return;
@@ -13651,7 +13531,7 @@ export default function App() {
       }
     };
 
-    return (
+    const _UnusedLegacyUI = () => (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6">
         <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm flex flex-col md:flex-row min-h-[600px] h-[calc(100vh-250px)] max-h-[750px]">
           {/* Chats Sidebar */}
@@ -14025,6 +13905,8 @@ export default function App() {
         )}
       </motion.div>
     );
+    }
+    return null;
   };
 
   const renderPersonnel = () => {

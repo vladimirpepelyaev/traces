@@ -5,6 +5,7 @@ import { ResilienceService } from '../database/Repository';
 
 export interface UserProfile {
   id: string;
+  public_id?: number;
   username: string;
   display_name?: string;
   avatar_url?: string;
@@ -72,6 +73,7 @@ export class UserRepository {
 
       return {
         id: data.id,
+        public_id: data.public_id ? Number(data.public_id) : undefined,
         username: data.username,
         display_name: data.display_name,
         avatar_url: data.avatar_url,

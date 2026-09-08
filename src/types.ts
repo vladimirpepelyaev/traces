@@ -33,6 +33,25 @@ export interface Complaint {
   resolved_at?: string;
   moderation_action_id?: string;
   created_at?: string;
+  wikiArticleId?: string;
+  wikiArticleTitle?: string;
+  wikiRule?: string;
+  ruleCode?: string;
+}
+
+export interface WikiArticle {
+  id: string;
+  title: string;
+  cat: string;
+  count: number;
+  content: string;
+  code?: string;
+  readTime?: string;
+  criteria?: string[];
+  sanctions?: string[];
+  workflow?: string[];
+  violationExamples?: string[];
+  linkedComplaintTypes?: string[];
 }
 
 export interface Ticket {
@@ -249,6 +268,10 @@ export interface DialogComplaint {
   hasCounterComplaint: boolean;
   counterComplaintText?: string;
   selected?: boolean;
+  wikiArticleId?: string;
+  wikiArticleTitle?: string;
+  wikiRule?: string;
+  ruleCode?: string;
 }
 
 export function getDisplayName(profile?: { display_name?: string; username?: string }) {

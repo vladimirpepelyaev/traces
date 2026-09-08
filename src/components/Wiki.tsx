@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   ChevronLeft, FileText, Search, PenLine, Settings, BookOpen, ArrowUpRight, ShieldCheck, FileSearch 
@@ -14,6 +14,7 @@ interface WikiProps {
   addNotification: (title: string, message: string) => void;
   addModeratorLog: (log: Omit<ModeratorAction, 'id' | 'operatorId' | 'operatorName' | 'timestamp'>) => void;
   loadWiki: () => Promise<void>;
+  initialSelectedArticleId?: string | null;
 }
 
 export const Wiki: React.FC<WikiProps> = ({
@@ -24,11 +25,27 @@ export const Wiki: React.FC<WikiProps> = ({
   addNotification,
   addModeratorLog,
   loadWiki,
+  initialSelectedArticleId,
 }) => {
   const [wikiSubTab, setWikiSubTab] = useState<'articles' | 'manage'>('articles');
   const [activeWikiCat, setActiveWikiCat] = useState('Все');
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
-  const [selectedWikiArticle, setSelectedWikiArticle] = useState<typeof wikiArticles[0] | null>(null);
+  const [selectedWikiArticle, setSelectedWikiArticle] = useState<typeof wikiArticles[0] | null>(() => {
+    if (initialSelectedArticleId) {
+      return wikiArticles.find(a => a.id === initialSelectedArticleId) || null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (initialSelectedArticleId) {
+      const art = wikiArticles.find(a => a.id === initialSelectedArticleId);
+      if (art) {
+        setSelectedWikiArticle(art);
+      }
+    }
+  }, [initialSelectedArticleId, wikiArticles]);
+
   const [showAddArticleForm, setShowAddArticleForm] = useState(false);
   const [newWikiCatName, setNewWikiCatName] = useState('');
   

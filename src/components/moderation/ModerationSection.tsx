@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Shield, Copy, Check, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle, Shield, Copy, Check, Clock, AlertCircle, BookOpen, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { AppUser, Complaint, ModeratorAction } from '../../types';
 import { ModerationBadges } from './ModerationBadges';
 import {
@@ -8,6 +8,11 @@ import {
   ModerationBadgeContext,
   UserBadges
 } from '../../features/moderation/moderationBadges';
+import {
+  resolveRuleMetadata,
+  OFFICIAL_KB_COMPLAINTS,
+  KnowledgeRuleMeta
+} from '../../features/moderation/knowledgeBaseRules';
 
 export interface ModerationFeedItem {
   id: string;
@@ -21,6 +26,10 @@ export interface ModerationFeedItem {
   complaintsCount?: number;
   timestamp: Date | string;
   rawItem?: any;
+  wikiArticleId?: string;
+  wikiArticleTitle?: string;
+  wikiRule?: string;
+  ruleCode?: string;
 }
 
 export interface ModerationSectionProps {
@@ -34,6 +43,7 @@ export interface ModerationSectionProps {
   securityLogs: any[];
   onAction: (item: ModerationFeedItem, actionType: 'AGREE' | 'IGNORE') => Promise<void> | void;
   onNavigateToUser?: (userId: string) => void;
+  onOpenWikiArticle?: (articleId: string) => void;
   addNotification?: (title: string, message: string) => void;
 }
 
@@ -48,12 +58,14 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
   securityLogs,
   onAction,
   onNavigateToUser,
+  onOpenWikiArticle,
   addNotification
 }) => {
   // Top Navigation Tabs: "Лента модерации" (default) and "Мои решения"
   const [activeTab, setActiveTab] = useState<'feed' | 'decisions'>('feed');
   const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
 
   // Badge context for pure in-memory calculation (prevents N+1 database queries)
   const badgeContext: ModerationBadgeContext = useMemo(() => ({
@@ -83,7 +95,8 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
       .filter(c => c.status !== 'resolved' && c.status !== 'closed')
       .forEach(c => {
         const uId = c.targetId || c.userId || 'user-1';
-        const uName = c.targetName || c.userName || 'Владимир';
+        const uName = c.targetName || c.userName || 'Пользователь';
+        const meta = resolveRuleMetadata(c.reason, c.content);
         list.push({
           id: c.id,
           category: 'content',
@@ -91,11 +104,15 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
           userName: uName,
           userAvatar: c.userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200&auto=format&fit=crop',
           content: c.content || c.reason || 'Публикация с нарушением правил сообщества',
-          reason: c.reason || 'Оскорбление',
+          reason: c.reason || meta.ruleTitle,
           rating: c.rating && !isNaN(Number(c.rating)) ? c.rating : '0.04',
           complaintsCount: getUserComplaintCount(uId, uName),
           timestamp: c.timestamp || c.created_at || new Date(),
-          rawItem: c
+          rawItem: c,
+          wikiArticleId: meta.articleId,
+          wikiArticleTitle: meta.articleTitle,
+          wikiRule: meta.ruleTitle,
+          ruleCode: meta.code
         });
       });
 
@@ -105,6 +122,7 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
       .forEach(s => {
         const uId = s.targetId || s.userId || 'user-spam';
         const uName = s.targetName || s.userName || 'Пользователь';
+        const meta = resolveRuleMetadata(s.reason || 'Спам', s.content);
         list.push({
           id: s.id,
           category: 'content',
@@ -112,11 +130,15 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
           userName: uName,
           userAvatar: s.userAvatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=200&auto=format&fit=crop',
           content: s.content || s.reason || 'Спам-рассылка',
-          reason: s.reason || 'Спам',
+          reason: s.reason || meta.ruleTitle,
           rating: '0.02',
           complaintsCount: getUserComplaintCount(uId, uName),
           timestamp: s.timestamp || new Date(),
-          rawItem: s
+          rawItem: s,
+          wikiArticleId: meta.articleId,
+          wikiArticleTitle: meta.articleTitle,
+          wikiRule: meta.ruleTitle,
+          ruleCode: meta.code
         });
       });
 
@@ -129,6 +151,7 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
         'Нарушение в личном сообщении';
       const uId = d.offenderId || 'dialog-user';
       const uName = d.offenderName || 'Собеседник';
+      const meta = resolveRuleMetadata(d.violationType || 'Угроза', previewText);
       list.push({
         id: d.id,
         category: 'dialogs',
@@ -136,11 +159,15 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
         userName: uName,
         userAvatar: d.offenderAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop',
         content: previewText,
-        reason: d.violationType || 'Оскорбление в ЛС',
+        reason: d.violationType || meta.ruleTitle,
         rating: '0.08',
         complaintsCount: getUserComplaintCount(uId, uName),
         timestamp: new Date(),
-        rawItem: d
+        rawItem: d,
+        wikiArticleId: meta.articleId,
+        wikiArticleTitle: meta.articleTitle,
+        wikiRule: meta.ruleTitle,
+        ruleCode: meta.code
       });
     });
 
@@ -150,6 +177,7 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
       .forEach(p => {
         const uId = p.targetId || p.userId || 'page-user';
         const uName = p.targetName || p.userName || 'Профиль';
+        const meta = resolveRuleMetadata(p.reason || 'Профиль', p.content);
         list.push({
           id: p.id,
           category: 'pages',
@@ -157,27 +185,39 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
           userName: uName,
           userAvatar: p.userAvatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop',
           content: p.content || p.reason || 'Жалоба на оформление страницы пользователя',
-          reason: p.reason || 'Неподобающий контент',
+          reason: p.reason || meta.ruleTitle,
           rating: '0.03',
           complaintsCount: getUserComplaintCount(uId, uName),
           timestamp: p.timestamp || new Date(),
-          rawItem: p
+          rawItem: p,
+          wikiArticleId: meta.articleId,
+          wikiArticleTitle: meta.articleTitle,
+          wikiRule: meta.ruleTitle,
+          ruleCode: meta.code
         });
       });
 
-    // If queue has no real DB complaints yet, provide the primary approved sample from mockup (Vladimir)
+    // If queue has no items, load the official Knowledge Base complaints
     if (list.length === 0) {
-      list.push({
-        id: 'seed-complaint-vladimir',
-        category: 'content',
-        userId: 'vladimir-demo-id',
-        userName: 'Владимир',
-        userAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=200&auto=format&fit=crop',
-        content: 'Я пишу свой пост!\n\nИ я гадостный урод, который любит материться . Тот, кто вычитал эту запись - тому будет очень плохо!',
-        reason: 'Оскорбление',
-        rating: '0.04',
-        complaintsCount: 9,
-        timestamp: new Date()
+      OFFICIAL_KB_COMPLAINTS.forEach(kbc => {
+        const meta = resolveRuleMetadata(kbc.reason, kbc.content);
+        list.push({
+          id: kbc.id,
+          category: kbc.dept === 'Spam' ? 'content' : kbc.dept === 'Модерация страниц' ? 'pages' : 'content',
+          userId: kbc.userId,
+          userName: kbc.userName,
+          userAvatar: kbc.userAvatar,
+          content: kbc.content,
+          reason: kbc.reason || meta.ruleTitle,
+          rating: kbc.rating || '0.85',
+          complaintsCount: getUserComplaintCount(kbc.userId, kbc.userName),
+          timestamp: kbc.timestamp || new Date(),
+          rawItem: kbc,
+          wikiArticleId: kbc.wikiArticleId || meta.articleId,
+          wikiArticleTitle: kbc.wikiArticleTitle || meta.articleTitle,
+          wikiRule: kbc.wikiRule || meta.ruleTitle,
+          ruleCode: kbc.ruleCode || meta.code
+        });
       });
     }
 
@@ -205,11 +245,11 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
   const itemBadgesMap = useMemo<Record<string, UserBadges>>(() => {
     const map: Record<string, UserBadges> = {};
     feedList.forEach(item => {
-      // If this is the approved design mockup Vladimir card, ensure all 5 badges show
-      if (item.id === 'seed-complaint-vladimir' || item.userName === 'Владимир') {
+      // Default approved badge distribution for demo presentation
+      if (item.id === 'kb-comp-1' || item.userName === 'Дмитрий Мельников' || item.userName === 'Владимир') {
         map[item.id] = {
           passwordChanged: true,
-          isStaff: true,
+          isStaff: false,
           isVerified: true,
           hasBlockHistory: true,
           isNewUser: true
@@ -321,6 +361,7 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
                   };
                   const isProcessing = processingId === item.id;
                   const isCopied = copiedItemId === item.id;
+                  const ruleMeta = resolveRuleMetadata(item.reason, item.content);
 
                   return (
                     <motion.div
@@ -373,6 +414,85 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
                             </div>
                           </div>
                         </div>
+
+                        {/* Knowledge Base Regulation Banner */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap text-[12px] bg-[#f0f4f9] px-3 py-1.5 rounded-[8px] border border-[#d6e2ee]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <BookOpen size={14} className="text-[#2a5885] shrink-0" />
+                            <span className="text-[#55677d] font-medium shrink-0">Регламент:</span>
+                            <span className="font-semibold text-[#2a5885] truncate">
+                              {item.ruleCode || ruleMeta.code} — {item.wikiRule || ruleMeta.ruleTitle}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedRuleId(expandedRuleId === item.id ? null : item.id)}
+                            className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[#2a5885] hover:text-[#1e3f61] hover:underline cursor-pointer ml-auto shrink-0"
+                          >
+                            <span>{expandedRuleId === item.id ? 'Скрыть регламент' : 'Справка из Базы знаний'}</span>
+                            {expandedRuleId === item.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                          </button>
+                        </div>
+
+                        {/* Collapsible Regulation Guide Details */}
+                        <AnimatePresence>
+                          {expandedRuleId === item.id && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="p-3 bg-[#fbfcfd] border border-[#d6e2ee] rounded-[8px] space-y-2 text-[12.5px] text-[#2c2d2e]">
+                                <div className="flex items-center justify-between border-b border-[#e7e8ec] pb-1.5 flex-wrap gap-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-1.5 py-0.5 rounded-[3px] bg-[#2a5885]/10 text-[#2a5885] font-bold text-[11px]">
+                                      {ruleMeta.code}
+                                    </span>
+                                    <span className="font-semibold text-[#2c2d2e]">
+                                      Статья Wiki: «{ruleMeta.articleTitle}»
+                                    </span>
+                                  </div>
+                                  {onOpenWikiArticle && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenWikiArticle(ruleMeta.articleId)}
+                                      className="text-[#2a5885] hover:underline text-[11.5px] font-medium inline-flex items-center gap-1 cursor-pointer ml-auto"
+                                    >
+                                      <span>Открыть статью</span>
+                                      <ExternalLink size={12} />
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div>
+                                  <div className="text-[11px] font-bold text-[#656565] uppercase tracking-wider mb-1">
+                                    Критерии нарушения регламента:
+                                  </div>
+                                  <ul className="space-y-0.5 pl-1">
+                                    {ruleMeta.criteria.map((crit, idx) => (
+                                      <li key={idx} className="flex items-start gap-1.5 text-[12px] text-[#444]">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-[#5181b8] mt-1.5 shrink-0" />
+                                        <span>{crit}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-[#e7e8ec]">
+                                  <div className="bg-[#f0f4f9]/70 p-2 rounded-[5px] border border-[#d6e2ee]/60">
+                                    <div className="text-[10.5px] font-bold text-[#2a5885] uppercase">Порядок действий:</div>
+                                    <div className="text-[11.5px] text-[#333] mt-0.5">{ruleMeta.moderatorAction}</div>
+                                  </div>
+                                  <div className="bg-[#fdf2f2] p-2 rounded-[5px] border border-[#f5c6cb]/60">
+                                    <div className="text-[10.5px] font-bold text-[#e64646] uppercase">Санкция по регламенту:</div>
+                                    <div className="text-[11.5px] text-[#721c24] mt-0.5">{ruleMeta.sanctions.first}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
 
                         {/* Reported Content Snippet Block */}
                         <div className="bg-[#f7f8fa] p-4 rounded-[10px] text-[14px] text-[#2c2d2e] leading-relaxed font-sans whitespace-pre-wrap select-text border border-[#f0f2f5]">

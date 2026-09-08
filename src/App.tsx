@@ -25,6 +25,11 @@ import { Statistics } from './components/Statistics';
 import { TestpoolDashboard } from './components/TestpoolDashboard';
 import { Onboarding, getPostTopic } from './components/Onboarding';
 import { ModerationSection } from './components/moderation/ModerationSection';
+import {
+  OFFICIAL_KNOWLEDGE_BASE_ARTICLES,
+  OFFICIAL_KB_COMPLAINTS,
+  OFFICIAL_KB_DIALOG_COMPLAINTS
+} from './features/moderation/knowledgeBaseRules';
 import { FeedModeSelector, FeedMode } from './features/feed-modes/FeedModeSelector';
 import { PostComposer } from './features/post-context/PostComposer';
 import { QuietReactionsBar } from './features/quiet-reactions/QuietReactionsBar';
@@ -688,7 +693,9 @@ export default function App() {
   }
 
   // State
-  const [complaints, _setComplaintsOriginal] = useState<Complaint[]>([]);
+  const [complaints, _setComplaintsOriginal] = useState<Complaint[]>(() => 
+    OFFICIAL_KB_COMPLAINTS.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц')
+  );
   const setComplaints = (updateValue: any) => {
     _setComplaintsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -729,7 +736,9 @@ export default function App() {
     });
   };
 
-  const [spamComplaints, _setSpamComplaintsOriginal] = useState<Complaint[]>([]);
+  const [spamComplaints, _setSpamComplaintsOriginal] = useState<Complaint[]>(() =>
+    OFFICIAL_KB_COMPLAINTS.filter(c => c.dept === 'Spam')
+  );
   const setSpamComplaints = (updateValue: any) => {
     _setSpamComplaintsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -757,155 +766,7 @@ export default function App() {
     });
   };
 
-  const [dialogComplaints, _setDialogComplaintsOriginal] = useState<DialogComplaint[]>([
-    {
-      id: 'dc-1',
-      offenderId: 'u-volkov',
-      offenderName: 'Сергей Волков',
-      offenderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop',
-      offenderTrust: 0.15,
-      offenderRisk: 0.85,
-      violationType: 'Угроза',
-      source: 'Жалобы пользователя',
-      reporterId: 'u-kravtsov',
-      reporterName: 'Иван Кравцов',
-      reporterAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop',
-      participants: {
-        userA: { name: 'Иван Кравцов', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', isOffender: false },
-        userB: { name: 'Сергей Волков', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', isOffender: true }
-      },
-      previewMessages: [
-        { id: 'm1-1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Привет, ты когда вернешь долг? Сроки вышли еще вчера', timestamp: 'Вчера, 18:20' },
-        { id: 'm1-2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Какой долг? Я тебе ничего не должен. Отъебись', timestamp: 'Вчера, 18:22' },
-        { id: 'm1-3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Мы же договаривались, у меня есть расписка и скрины', timestamp: 'Вчера, 18:24' },
-        { id: 'm1-4', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Мне похуй на твои скрины. Еще раз напишешь — пожалеешь.', timestamp: 'Вчера, 18:25', isViolation: true },
-        { id: 'm1-5', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Я тебя из-под земли достану и найду, понял?', timestamp: 'Вчера, 18:26', isViolation: true }
-      ],
-      contextBeforeMessages: [
-        { id: 'm1-b1', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай завтра спишемся, я занят.', timestamp: 'Вчера, 15:10' },
-        { id: 'm1-b2', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Окей, жду звонка.', timestamp: 'Вчера, 15:15' },
-        { id: 'm1-b3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты тут?', timestamp: 'Вчера, 18:00' }
-      ],
-      contextAfterMessages: [
-        { id: 'm1-a1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты в своем уме? Я пишу заявление в полицию!', timestamp: 'Вчера, 18:30' },
-        { id: 'm1-a2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай пиши, сыкло, тебе никто не поможет.', timestamp: 'Вчера, 18:31' },
-         { id: 'm1-a3', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Дорогу домой лучше оглядывайся.', timestamp: 'Вчера, 18:32' }
-      ],
-      fullDialogueMessages: [
-        { id: 'm1-b1', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай завтра спишемся, я занят.', timestamp: 'Вчера, 15:10' },
-        { id: 'm1-b2', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Окей, жду звонка.', timestamp: 'Вчера, 15:15' },
-        { id: 'm1-b3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты тут?', timestamp: 'Вчера, 18:00' },
-        { id: 'm1-1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Привет, ты когда вернешь долг? Сроки вышли еще вчера', timestamp: 'Вчера, 18:20' },
-        { id: 'm1-2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Какой долг? Я тебе ничего не должен. Отъебись', timestamp: 'Вчера, 18:22' },
-        { id: 'm1-3', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Мы же договаривались, у меня есть расписка и скрины', timestamp: 'Вчера, 18:24' },
-        { id: 'm1-4', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Мне похуй на твои скрины. Еще раз напишешь — пожалеешь.', timestamp: 'Вчера, 18:25', isViolation: true },
-        { id: 'm1-5', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Я тебя из-под земли достану и найду, понял?', timestamp: 'Вчера, 18:26', isViolation: true },
-        { id: 'm1-a1', senderName: 'Иван Кравцов', senderAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=200&auto=format&fit=crop', text: 'Ты в своем уме? Я пишу заявление в полицию!', timestamp: 'Вчера, 18:30' },
-        { id: 'm1-a2', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Давай пиши, сыкло, тебе никто не поможет.', timestamp: 'Вчера, 18:31' },
-        { id: 'm1-a3', senderName: 'Сергей Волков', senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop', text: 'Дорогу домой лучше оглядывайся.', timestamp: 'Вчера, 18:32' }
-      ],
-      aiAnalysis: { threat: 92, toxicity: 81, insult: 44, spam: 0, scam: 5, riskLevel: 'CRITICAL' },
-      violationHistory: { violationsCount: 14, warningsCount: 5, blocksCount: 2, lastViolationDate: '3 дня назад', lastViolationReason: 'Угрозы' },
-      hasCounterComplaint: true,
-      counterComplaintText: 'Домогательство / вымогательство (Иван вымогает долг, угрожая полицией и связями)'
-    },
-    {
-      id: 'dc-2',
-      offenderId: 'u-smirnova',
-      offenderName: 'Елена Смирнова',
-      offenderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop',
-      offenderTrust: 0.42,
-      offenderRisk: 0.65,
-      violationType: 'Домогательство',
-      source: 'Автофлаг',
-      reporterId: 'u-orlov',
-      reporterName: 'Дмитрий Орлов',
-      reporterAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop',
-      participants: {
-        userA: { name: 'Дмитрий Орлов', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', isOffender: false },
-        userB: { name: 'Елена Смирнова', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', isOffender: true }
-      },
-      previewMessages: [
-        { id: 'm2-1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Приветик! Ты свободен сегодня вечером? ;)', timestamp: 'Сегодня, 11:10' },
-        { id: 'm2-2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Привет. Нет, извини, я занят.', timestamp: 'Сегодня, 11:15' },
-        { id: 'm2-3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ну почему ты меня избегаешь? Я же вижу, как ты смотришь.', timestamp: 'Сегодня, 11:20' },
-        { id: 'm2-4', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Давай встретимся, я не принимаю отказов. Будет горячо', timestamp: 'Сегодня, 11:21', isViolation: true },
-        { id: 'm2-5', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Если не придешь, я расскажу всем в офисе твои секреты', timestamp: 'Сегодня, 11:22', isViolation: true }
-      ],
-      contextBeforeMessages: [
-         { id: 'm2-b1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Классная презентация сегодня была!', timestamp: 'Сегодня, 09:30' },
-         { id: 'm2-b2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Спасибо большое.', timestamp: 'Сегодня, 09:35' },
-         { id: 'm2-b3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Обожаю умных парней.', timestamp: 'Сегодня, 09:40' }
-      ],
-      contextAfterMessages: [
-        { id: 'm2-a1', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Пожалуйста, перестань мне писать на личные темы.', timestamp: 'Сегодня, 11:25' },
-        { id: 'm2-a2', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ха-ха, ладно тебе ломаться! Секретики сами себя не расскажут.', timestamp: 'Сегодня, 11:27' }
-      ],
-      fullDialogueMessages: [
-        { id: 'm2-b1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Классная презентация сегодня была!', timestamp: 'Сегодня, 09:30' },
-        { id: 'm2-b2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Спасибо большое.', timestamp: 'Сегодня, 09:35' },
-        { id: 'm2-b3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Обожаю умных парней.', timestamp: 'Сегодня, 09:40' },
-        { id: 'm2-1', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Приветик! Ты свободен сегодня вечером? ;)', timestamp: 'Сегодня, 11:10' },
-        { id: 'm2-2', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Привет. Нет, извини, я занят.', timestamp: 'Сегодня, 11:15' },
-        { id: 'm2-3', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ну почему ты меня избегаешь? Я же вижу, как ты смотришь.', timestamp: 'Сегодня, 11:20' },
-        { id: 'm2-4', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Давай встретимся, я не принимаю отказов. Будет горячо', timestamp: 'Сегодня, 11:21', isViolation: true },
-        { id: 'm2-5', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Если не придешь, я расскажу всем в офисе твои секреты', timestamp: 'Сегодня, 11:22', isViolation: true },
-        { id: 'm2-a1', senderName: 'Дмитрий Орлов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Пожалуйста, перестань мне писать на личные темы.', timestamp: 'Сегодня, 11:25' },
-        { id: 'm2-a2', senderName: 'Елена Смирнова', senderAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=200&auto=format&fit=crop', text: 'Ха-ха, ладно тебе ломаться! Секретики сами себя не расскажут.', timestamp: 'Сегодня, 11:27' }
-      ],
-      aiAnalysis: { threat: 15, toxicity: 58, insult: 20, spam: 10, scam: 40, riskLevel: 'MEDIUM' },
-      violationHistory: { violationsCount: 0, warningsCount: 0, blocksCount: 0, lastViolationDate: 'Вчера', lastViolationReason: 'Предупреждение за флуд' },
-      hasCounterComplaint: false
-    },
-    {
-      id: 'dc-3',
-      offenderId: 'u-kuznetsov',
-      offenderName: 'Николай Кузнецов',
-      offenderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop',
-      offenderTrust: 0.05,
-      offenderRisk: 0.98,
-      violationType: 'Мошенничество',
-      source: 'Автофлаг',
-      reporterId: 'u-alex',
-      reporterName: 'Алексей Петров',
-      reporterAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop',
-      participants: {
-        userA: { name: 'Алексей Петров', avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', isOffender: false },
-        userB: { name: 'Николай Кузнецов', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', isOffender: true }
-      },
-      previewMessages: [
-        { id: 'm3-1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Здравствуйте, я по поводу объявления о продаже видеокарты RTX 4090.', timestamp: 'Вчера, 12:00' },
-        { id: 'm3-2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, еще продаю. Состояние идеальное, новая.', timestamp: 'Вчера, 12:05' },
-        { id: 'm3-3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Можно приехать проверить и забрать?', timestamp: 'Вчера, 12:10' },
-        { id: 'm3-4', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'К сожалению, я сейчас в другом городе. Давайте вы мне скинете предоплату 10 000 руб на карту, а я отправлю доставкой?', timestamp: 'Вчера, 12:15', isViolation: true },
-        { id: 'm3-5', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Вот ссылка на оплату брони: sber-pay-transfers-ref94.ru/pay', timestamp: 'Вчера, 12:16', isViolation: true }
-      ],
-      contextBeforeMessages: [
-         { id: 'm3-b1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Напишите ваш номер телефона пожалуйста.', timestamp: 'Вчера, 11:45' },
-         { id: 'm3-b2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, конечно: +7-999-123-4567.', timestamp: 'Вчера, 11:50' },
-         { id: 'm3-b3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'А коробка осталась?', timestamp: 'Вчера, 11:55' }
-      ],
-      contextAfterMessages: [
-        { id: 'm3-a1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Это странная ссылка, домен не официальный.', timestamp: 'Вчера, 12:20' },
-        { id: 'm3-a2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да вы что, это обычный безопасный шлюз Сбера. Либо оплачиваете сейчас, либо я продаю другому, желающих полно.', timestamp: 'Вчера, 12:22' }
-      ],
-      fullDialogueMessages: [
-        { id: 'm3-b1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Напишите ваш номер телефона пожалуйста.', timestamp: 'Вчера, 11:45' },
-        { id: 'm3-b2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, конечно: +7-999-123-4567.', timestamp: 'Вчера, 11:50' },
-        { id: 'm3-b3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'А коробка осталась?', timestamp: 'Вчера, 11:55' },
-        { id: 'm3-1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Здравствуйте, я по поводу объявления о продаже видеокарты RTX 4090.', timestamp: 'Вчера, 12:00' },
-        { id: 'm3-2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да, еще продаю. Состояние идеальное, новая.', timestamp: 'Вчера, 12:05' },
-        { id: 'm3-3', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Можно приехать проверить и забрать?', timestamp: 'Вчера, 12:10' },
-        { id: 'm3-4', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'К сожалению, я сейчас в другом городе. Давайте вы мне скинете предоплату 10 000 руб на карту, а я отправлю доставкой?', timestamp: 'Вчера, 12:15', isViolation: true },
-        { id: 'm3-5', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Вот ссылка на оплату брони: sber-pay-transfers-ref94.ru/pay', timestamp: 'Вчера, 12:16', isViolation: true },
-        { id: 'm3-a1', senderName: 'Алексей Петров', senderAvatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?q=80&w=200&auto=format&fit=crop', text: 'Это странная ссылка, домен не официальный.', timestamp: 'Вчера, 12:20' },
-        { id: 'm3-a2', senderName: 'Николай Кузнецов', senderAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=200&auto=format&fit=crop', text: 'Да вы что, это обычный безопасный шлюз Сбера. Либо оплачиваете сейчас, либо я продаю другому, желающих полно.', timestamp: 'Вчера, 12:22' }
-      ],
-      aiAnalysis: { threat: 0, toxicity: 5, insult: 0, spam: 65, scam: 98, riskLevel: 'CRITICAL' },
-      violationHistory: { violationsCount: 12, warningsCount: 8, blocksCount: 4, lastViolationDate: '1 день назад', lastViolationReason: 'Подозрительные ссылки' },
-      hasCounterComplaint: false
-    }
-  ]);
+  const [dialogComplaints, _setDialogComplaintsOriginal] = useState<DialogComplaint[]>(() => OFFICIAL_KB_DIALOG_COMPLAINTS);
   const setDialogComplaints = (updateValue: any) => {
     _setDialogComplaintsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -1088,7 +949,9 @@ export default function App() {
   const [isAddingExemplar, setIsAddingExemplar] = useState(false);
   const [exemplarSearchQuery, setExemplarSearchQuery] = useState('');
   const [ruleSearchQuery, setRuleSearchQuery] = useState('');
-  const [pageComplaints, _setPageComplaintsOriginal] = useState<Complaint[]>([]);
+  const [pageComplaints, _setPageComplaintsOriginal] = useState<Complaint[]>(() =>
+    OFFICIAL_KB_COMPLAINTS.filter(c => c.dept === 'Модерация страниц')
+  );
   const setPageComplaints = (updateValue: any) => {
     _setPageComplaintsOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -1763,27 +1626,8 @@ export default function App() {
 
       // Seed if empty
       if (articles.length === 0) {
-        console.log('[Boot] Wiki is empty, seeding default articles to DB');
-        const defaultArticles = [
-          { id: 'wiki-1', title: 'Основы модерации контента', cat: 'Модератор', count: 19, content: 'Базовые правила модерации контента включают в себя проверку на соответствие пользовательскому соглашению. Основные категории нарушений, подлежащих разбору: 1. Оскорбления личности и буллинг, 2. Несанкционированная реклама и спам, 3. Эротическое содержимое и NSFW, 4. Пропаганда ненависти.\n\nКаждый модератор обязан соблюдать строгий нейтралитет и непредвзятость при вынесении вердиктов.' },
-          { id: 'wiki-2', title: 'Работа с жалобами на спам', cat: 'Модератор', count: 24, content: 'Как отличить спам от обычных сообщений? Всегда обращайте внимание на частоту отправки, наличие подозрительных сокращенных ссылок, предложений о мгновенном легком заработке без вложений, а также признаков шаблонного текста.\n\nВ случае выявления массовой спам-атаки от ботнетов, незамедлительно используйте инструмент "Block & Delete" для полной зачистки материалов.' },
-          { id: 'wiki-3', title: 'Модерация нецензурных выражений', cat: 'Модератор', count: 18, content: 'Применение мата на площадке регулируется общим контекстом общения. Прямые личные оскорбления собеседников с использованием мата подлежат безусловным штрафным санкциям и временной блокировке. Эмоциональные выкрики или художественные цитаты без перехода на конкретные личности могут быть проигнорированы или удалены по факту жалобы.' },
-          { id: 'wiki-4', title: 'Борьба с флудом и оффтопом', cat: 'Модератор', count: 11, content: 'Флудом официально считается отправка трех и более одинаковых или схожих по смыслу сообщений подряд. Особый фокус внимания следует направлять на массовое выпрашивание оценок или взаимной подписки в обсуждениях. Такой контент скрывается от показа в ленте автоматически, а нарушителям выносится предупреждение.' },
-          { id: 'wiki-5', title: 'Протокол взаимодействия с Support', cat: 'Поддержка', count: 15, content: 'Регламент взаимодействия со службой технической поддержки определяет порядок эскалации сложных вопросов на старших администраторов. Все обращения пользователей, требующие вмешательства бэкенд-инженеров или исправления записей в базе данных, помечаются маркером "DEV_READY".' },
-          { id: 'wiki-6', title: 'Этика общения в тикетах у поддержки', cat: 'Поддержка', count: 22, content: 'Будьте предельно вежливы и профессиональны в любой ситуации, даже если пользователь идет на прямые провокации, грубит и хамит. Наша ключевая задача — успокоить человека и оперативно решить его затруднение. Придерживайтесь нейтральных словесных конструкций.' },
-          { id: 'wiki-7', title: 'Решение споров и сбоев по платежам', cat: 'Поддержка', count: 14, content: 'Алгоритм обработки тикетов по задержкам оплат:\n1. Запросите у обратившегося чек операции (желательно PDF-версию с деталями банка);\n2. Проверьте ID транзакции в нашей биллинговой системе;\n3. При статусе платежа "В обработке" попросите подождать до 1-2 часов;\n4. При системной ошибке - инициируйте процедуру ручной активации пакета.' },
-          { id: 'wiki-8', title: 'Восстановление взломанных профилей', cat: 'Поддержка', count: 32, content: 'Если пользователь утверждает, что потерял контроль над аккаунтом:\n1. Проанализируйте историю входов, IP-адресов и последние действия.\n2. Попросите пользователя прислать качественное фото на фоне открытого тикета.\n3. Сравните био-данные страницы. При совпадении критериев деактивируйте старое мыло и телефон, выдав ссылку на ввод нового пароля.' },
-          { id: 'wiki-9', title: 'Критерии верификации профилей', cat: 'Безопасность', count: 27, content: 'Базовые требования для прохождения верификации и выдачи галочки:\n1. Полностью заполненные поля профиля, включая имя, фамилию, дату рождения и город.\n2. Наличие качественного реального аватара человека.\n3. Абсолютное отсутствие блокировок и предупреждений за последние 90 дней.\n4. Документальное подтверждение медийности (ссылки на статьи в СМИ, крупные каналы).' },
-          { id: 'wiki-10', title: 'Анализ логов безопасности входа', cat: 'Безопасность', count: 9, content: 'Каждый раз при авторизации пользователя с нового диапазона IP-сетей, система проводит проверку его отпечатков браузера (User-Agent, куки, локаль). При сильном расхождении на аккаунт накладывается временный запрет сброса паролей на 24 часа для защиты от кражи сессии.' },
-          { id: 'wiki-11', title: 'Предотвращение фишинга и кражи сессий', cat: 'Безопасность', count: 16, content: 'Фишинг несёт критическую угрозу безопасности конфиденциальных данных. Модераторы должны незамедлительно вносить в черные списки подсети и редиректы, копирующие интерфейс Следы. Профили, распространяющие подобные ссылки, блокируются перманентно по идентификатору железа.' },
-          { id: 'wiki-12', title: 'Защита конфиденциальных данных (GDPR)', cat: 'Безопасность', count: 12, content: 'Сотрудники администрации обязаны строго соблюдать нормативы конфиденциальности. Разглашение персональных сведений (включая номера телефонов, пароли, адреса IP-авторизаций, банковские карты) посторонним лицам является грубым нарушением и карается увольнением из структуры поддержки.' },
-          { id: 'wiki-13', title: 'Разбор поданных апелляций на бан', cat: 'Регламент', count: 35, content: 'При изучении аргументации в заявках на разблокировку:\n1. Оцените общее количество и частоту прошлых нарушений.\n2. Проверьте архив удаленных постов, послуживших триггером бана.\n3. Если пользователь искренне раскаивается, сменил пароли при взломе и не допускал рецидивов - вечную блокировку допускается заменить временной или снять.' },
-          { id: 'wiki-14', title: 'Действия при аварии на серверах', cat: 'Регламент', count: 8, content: 'В случае выявления масштабных технических неисправностей (отказ СУБД, падение серверов доставки контента):\n1. Модераторам запрещено плодить панику.\n2. Закрепите сверху в ленте сообщение от тех. отдела об идущих работах.\n3. Закрытые тикеты задержите до стабилизации систем, все обращения переводите на регламентный режим ожидания.' },
-          { id: 'wiki-15', title: 'Инструкция по использованию админ-панели', cat: 'Инструкции', count: 41, content: 'Вспомогательный гид по возможностям веб-интерфейса:\n- Левый сайдбар группирует все оперативные queues.\n- В ленте активности зажатая при клике клавиша ALT мгновенно открывает профиль зафиксированного пользователя с возможностью экспресс-блокировки.\n- Фильтры поиска поддерживают детекцию стоп-слов, спам-шаблонов.' },
-          { id: 'wiki-16', title: 'Стандарты оценки качества персонала', cat: 'Инструкции', count: 11, content: 'Ключевые KPI эффективность сотрудников поддержки и модерации:\n- Показатель ART (Average Response Time) — среднее время ответа на тикет.\n- Доля успешных аудитов от отдела качества (минимум 90% корректных решений в выборке).\n- Количество повторных жалоб от пользователей, спровоцированных некорректными трактовками правил.' }
-        ];
-
-        for (const art of defaultArticles) {
+        console.log('[Boot] Wiki is empty, seeding official knowledge base articles to DB');
+        for (const art of OFFICIAL_KNOWLEDGE_BASE_ARTICLES) {
           await alertRepository.insert({
             id: art.id,
             title: `${art.title} [count:${art.count}]`,
@@ -1792,7 +1636,7 @@ export default function App() {
             timestamp: new Date().toISOString()
           });
         }
-        setWikiArticles(defaultArticles);
+        setWikiArticles(OFFICIAL_KNOWLEDGE_BASE_ARTICLES);
       } else {
         setWikiArticles(articles);
       }
@@ -2288,24 +2132,8 @@ export default function App() {
     { id: '3', tag: 'Событие', title: 'Еженедельный созвон модераторов', text: 'Традиционное обсуждение итогов недели и разбор сложных кейсов пройдет в Discord (канал #staff-hangout) в 19:00. Присутствие обязательно для всех, кто не на смене.', date: '12 мая, 14:00', author: 'Мария (Lead Mod)', isPinned: false },
     { id: '4', tag: 'Техническое', title: 'Новый инструмент: Массовая склейка профилей', text: 'В раздел Management добавлен инструмент для объединения дублирующихся аккаунтов. Используйте с осторожностью, действие необратимо.', date: '10 мая, 11:15', author: 'Admin (System)', isPinned: false }
   ]);
-  const [wikiArticles, setWikiArticles] = useState([
-    { id: '1', title: 'Основы модерации контента', cat: 'Модератор', count: 19, content: 'Базовые правила модерации контента включают в себя проверку на соответствие пользовательскому соглашению. Основные категории нарушений, подлежащих разбору: 1. Оскорбления личности и буллинг, 2. Несанкционированная реклама и спам, 3. Эротическое содержимое и NSFW, 4. Пропаганда ненависти.\n\nКаждый модератор обязан соблюдать строгий нейтралитет и непредвзятость при вынесении вердиктов.' },
-    { id: '2', title: 'Работа с жалобами на спам', cat: 'Модератор', count: 24, content: 'Как отличить спам от обычных сообщений? Всегда обращайте внимание на частоту отправки, наличие подозрительных сокращенных ссылок, предложений о мгновенном легком заработке без вложений, а также признаков шаблонного текста.\n\nВ случае выявления массовой спам-атаки от ботнетов, незамедлительно используйте инструмент "Block & Delete" для полной зачистки материалов.' },
-    { id: '3', title: 'Модерация нецензурных выражений', cat: 'Модератор', count: 18, content: 'Применение мата на площадке регулируется общим контекстом общения. Прямые личные оскорбления собеседников с использованием мата подлежат безусловным штрафным санкциям и временной блокировке. Эмоциональные выкрики или художественные цитаты без перехода на конкретные личности могут быть проигнорированы или удалены по факту жалобы.' },
-    { id: '4', title: 'Борьба с флудом и оффтопом', cat: 'Модератор', count: 11, content: 'Флудом официально считается отправка трех и более одинаковых или схожих по смыслу сообщений подряд. Особый фокус внимания следует направлять на массовое выпрашивание оценок или взаимной подписки в обсуждениях. Такой контент скрывается от показа в ленте автоматически, а нарушителям выносится предупреждение.' },
-    { id: '5', title: 'Протокол взаимодействия с Support', cat: 'Поддержка', count: 15, content: 'Регламент взаимодействия со службой технической поддержки определяет порядок эскалации сложных вопросов на старших администраторов. Все обращения пользователей, требующие вмешательства бэкенд-инженеров или исправления записей в базе данных, помечаются маркером "DEV_READY".' },
-    { id: '6', title: 'Этика общения в тикетах у поддержки', cat: 'Поддержка', count: 22, content: 'Будьте предельно вежливы и профессиональны в любой ситуации, даже если пользователь идет на прямые провокации, грубит и хамит. Наша ключевая задача — успокоить человека и оперативно решить его затруднение. Придерживайтесь нейтральных словесных конструкций.' },
-    { id: '7', title: 'Решение споров и сбоев по платежам', cat: 'Поддержка', count: 14, content: 'Алгоритм обработки тикетов по задержкам оплат:\n1. Запросите у обратившегося чек операции (желательно PDF-версию с деталями банка);\n2. Проверьте ID транзакции в нашей биллинговой системе;\n3. При статусе платежа "В обработке" попросите подождать до 1-2 часов;\n4. При системной ошибке - инициируйте процедуру ручной активации пакета.' },
-    { id: '8', title: 'Восстановление взломанных профилей', cat: 'Поддержка', count: 32, content: 'Если пользователь утверждает, что потерял контроль над аккаунтом:\n1. Проанализируйте историю входов, IP-адресов и последние действия.\n2. Попросите пользователя прислать качественное фото на фоне открытого тикета.\n3. Сравните био-данные страницы. При совпадении критериев деактивируйте старое мыло и телефон, выдав ссылку на ввод нового пароля.' },
-    { id: '9', title: 'Критерии верификации профилей', cat: 'Безопасность', count: 27, content: 'Базовые требования для прохождения верификации и выдачи галочки:\n1. Полностью заполненные поля профиля, включая имя, фамилию, дату рождения и город.\n2. Наличие качественного реального аватара человека.\n3. Абсолютное отсутствие блокировок и предупреждений за последние 90 дней.\n4. Документальное подтверждение медийности (ссылки на статьи в СМИ, крупные каналы).' },
-    { id: '10', title: 'Анализ логов безопасности входа', cat: 'Безопасность', count: 9, content: 'Каждый раз при авторизации пользователя с нового диапазона IP-сетей, система проводит проверку его отпечатков браузера (User-Agent, куки, локаль). При сильном расхождении на аккаунт накладывается временный запрет сброса паролей на 24 часа для защиты от кражи сессии.' },
-    { id: '11', title: 'Предотвращение фишинга и кражи сессий', cat: 'Безопасность', count: 16, content: 'Фишинг несёт критическую угрозу безопасности конфиденциальных данных. Модераторы должны незамедлительно вносить в черные списки подсети и редиректы, копирующие интерфейс Следы. Профили, распространяющие подобные ссылки, блокируются перманентно по идентификатору железа.' },
-    { id: '12', title: 'Защита конфиденциальных данных (GDPR)', cat: 'Безопасность', count: 12, content: 'Сотрудники администрации обязаны строго соблюдать нормативы конфиденциальности. Разглашение персональных сведений (включая номера телефонов, пароли, адреса IP-авторизаций, банковские карты) посторонним лицам является грубым нарушением и карается увольнением из структуры поддержки.' },
-    { id: '13', title: 'Разбор поданных апелляций на бан', cat: 'Регламент', count: 35, content: 'При изучении аргументации в заявках на разблокировку:\n1. Оцените общее количество и частоту прошлых нарушений.\n2. Проверьте архив удаленных постов, послуживших триггером бана.\n3. Если пользователь искренне раскаивается, сменил пароли при взломе и не допускал рецидивов - вечную блокировку допускается заменить временной или снять.' },
-    { id: '14', title: 'Действия при аварии на серверах', cat: 'Регламент', count: 8, content: 'В случае выявления масштабных технических неисправностей (отказ СУБД, падение серверов доставки контента):\n1. Модераторам запрещено плодить панику.\n2. Закрепите сверху в ленте сообщение от тех. отдела об идущих работах.\n3. Закрытые тикеты задержите до стабилизации систем, все обращения переводите на регламентный режим ожидания.' },
-    { id: '15', title: 'Инструкция по использованию админ-панели', cat: 'Инструкции', count: 41, content: 'Вспомогательный гид по возможностям веб-интерфейса:\n- Левый сайдбар группирует все оперативные queues.\n- В ленте активности зажатая при клике клавиша ALT мгновенно открывает профиль зафиксированного пользователя с возможностью экспресс-блокировки.\n- Фильтры поиска поддерживают детекцию стоп-слов, спам-шаблонов.' },
-    { id: '16', title: 'Стандарты оценки качества персонала', cat: 'Инструкции', count: 11, content: 'Ключевые KPI эффективность сотрудников поддержки и модерации:\n- Показатель ART (Average Response Time) — среднее время ответа на тикет.\n- Доля успешных аудитов от отдела качества (минимум 90% корректных решений в выборке).\n- Количество повторных жалоб от пользователей, спровоцированных некорректными трактовками правил.' }
-  ]);
+  const [wikiArticles, setWikiArticles] = useState(OFFICIAL_KNOWLEDGE_BASE_ARTICLES);
+  const [selectedWikiArticleId, setSelectedWikiArticleId] = useState<string | null>(null);
   const [securityLogs, setSecurityLogs] = useState([
     { id: '1', event: 'Вход в панель', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:45:12', status: 'success', device: 'Chrome / Windows 11' },
     { id: '2', event: 'Массовая блокировка', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:30:05', status: 'warning', device: 'Chrome / Windows 11' },
@@ -9279,6 +9107,7 @@ export default function App() {
         addNotification={addNotification}
         addModeratorLog={addModeratorLog}
         loadWiki={loadWiki}
+        initialSelectedArticleId={selectedWikiArticleId}
       />
     );
   };
@@ -15818,6 +15647,10 @@ export default function App() {
           await handleFeedCardAction(item as any, actionType);
         }}
         onNavigateToUser={(uId) => navigate("/user/" + uId)}
+        onOpenWikiArticle={(articleId) => {
+          setSelectedWikiArticleId(articleId);
+          setActiveTab('wiki');
+        }}
         addNotification={addNotification}
       />
     );

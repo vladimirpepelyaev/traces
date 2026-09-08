@@ -278,3 +278,17 @@ export function getDisplayName(profile?: { display_name?: string; username?: str
   if (!profile) return 'Пользователь';
   return profile.display_name?.trim() || profile.username || 'Пользователь';
 }
+
+export function getUserReadableId(user?: AppUser | null): string {
+  if (!user) return '';
+  if (user.public_id !== undefined && user.public_id !== null) {
+    return String(user.public_id);
+  }
+  if (/^\d+$/.test(user.id)) return user.id;
+  let hash = 0;
+  for (let i = 0; i < user.id.length; i++) {
+    hash = ((hash << 5) - hash) + user.id.charCodeAt(i);
+    hash |= 0;
+  }
+  return String(Math.abs(hash % 90000) + 10000);
+}

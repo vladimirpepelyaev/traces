@@ -10,7 +10,6 @@ import {
 } from '../../features/moderation/moderationBadges';
 import {
   resolveRuleMetadata,
-  OFFICIAL_KB_COMPLAINTS,
   KnowledgeRuleMeta
 } from '../../features/moderation/knowledgeBaseRules';
 
@@ -196,30 +195,6 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
           ruleCode: meta.code
         });
       });
-
-    // If queue has no items, load the official Knowledge Base complaints
-    if (list.length === 0) {
-      OFFICIAL_KB_COMPLAINTS.forEach(kbc => {
-        const meta = resolveRuleMetadata(kbc.reason, kbc.content);
-        list.push({
-          id: kbc.id,
-          category: kbc.dept === 'Spam' ? 'content' : kbc.dept === 'Модерация страниц' ? 'pages' : 'content',
-          userId: kbc.userId,
-          userName: kbc.userName,
-          userAvatar: kbc.userAvatar,
-          content: kbc.content,
-          reason: kbc.reason || meta.ruleTitle,
-          rating: kbc.rating || '0.85',
-          complaintsCount: getUserComplaintCount(kbc.userId, kbc.userName),
-          timestamp: kbc.timestamp || new Date(),
-          rawItem: kbc,
-          wikiArticleId: kbc.wikiArticleId || meta.articleId,
-          wikiArticleTitle: kbc.wikiArticleTitle || meta.articleTitle,
-          wikiRule: kbc.wikiRule || meta.ruleTitle,
-          ruleCode: kbc.ruleCode || meta.code
-        });
-      });
-    }
 
     return list;
   }, [complaints, spamComplaints, dialogComplaints, pageComplaints]);

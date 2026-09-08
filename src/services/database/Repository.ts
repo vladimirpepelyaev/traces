@@ -773,17 +773,25 @@ export class ModerationRepositoryProvider {
 export class ReportRepositoryProvider {
   async getAll(): Promise<Complaint[]> {
     if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('complaints')
-      .select('*')
-      .is('deleted_at', null)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('[ReportRepository] Error fetching complaints:', error);
+    try {
+      const { data, error } = await supabase
+        .from('complaints')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('[ReportRepository] Error fetching complaints:', error);
+        return [];
+      }
+      const unreviewed = (data || []).filter(c => {
+        const s = (c.status || '').toLowerCase().trim();
+        return s === 'pending' || s === 'на рассмотрении' || s === '' || s === 'new' || (!c.moderated_by && !c.resolved_at && s !== 'resolved' && s !== 'dismissed' && s !== 'approved');
+      });
+      return unreviewed.map(c => this.mapDbToComplaint(c));
+    } catch (e) {
+      console.error('[ReportRepository] getAll exception:', e);
       return [];
     }
-    return (data || []).map(c => this.mapDbToComplaint(c));
   }
 
   async insert(complaint: Complaint): Promise<Complaint> {

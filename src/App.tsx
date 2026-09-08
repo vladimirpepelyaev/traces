@@ -2282,7 +2282,9 @@ export default function App() {
     if (path === '/feed') return 'feed';
     if (path === '/messages') return 'internal-mail';
     if (path === '/settings') return 'settings';
+    if (path === '/wiki' || path === '/wiki_new' || path === '/wiki_edit' || path.startsWith('/wiki-') || path.startsWith('/wiki/')) return 'wiki';
     if (path === '/admin') return 'admin';
+    if (path.startsWith('/admin/wiki')) return 'wiki';
     if (path.startsWith('/admin/')) {
       return path.replace('/admin/', '');
     }
@@ -2478,6 +2480,7 @@ export default function App() {
     if (cleanPath.startsWith('/u/')) return true;
     if (cleanPath.startsWith('/user/')) return true;
     if (cleanPath.startsWith('/post/')) return true;
+    if (cleanPath === '/wiki_new' || cleanPath === '/wiki_edit' || cleanPath.startsWith('/wiki-') || cleanPath.startsWith('/wiki/')) return true;
     if (cleanPath === '/settings') return true;
     if (cleanPath === '/admin') return true;
     if (cleanPath.startsWith('/admin/')) return true;

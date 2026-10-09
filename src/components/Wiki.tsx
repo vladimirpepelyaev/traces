@@ -1,24 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { 
-  ChevronLeft, FileText, Search, Pencil, Trash2, Settings, X, Plus, Check, ArrowLeft
+  ChevronLeft, FileText, Search, PenLine, Settings, BookOpen, ArrowUpRight, ShieldCheck, FileSearch 
 } from 'lucide-react';
-import { ModeratorAction } from '../types';
+import { ToastNotification, ModeratorAction } from '../types';
 import { alertRepository } from '../services/database/Repository';
 
-export interface WikiArticleItem {
-  id: string;
-  title: string;
-  cat: string;
-  count: number;
-  content: string;
-}
-
 interface WikiProps {
-  wikiArticles: WikiArticleItem[];
+  wikiArticles: { id: string; title: string; cat: string; count: number; content: string }[];
   wikiCategories: string[];
-  wikiRules?: string[];
+  wikiRules: string[];
   isStaff: boolean;
   addNotification: (title: string, message: string) => void;
   addModeratorLog: (log: Omit<ModeratorAction, 'id' | 'operatorId' | 'operatorName' | 'timestamp'>) => void;
@@ -29,820 +20,463 @@ interface WikiProps {
 export const Wiki: React.FC<WikiProps> = ({
   wikiArticles,
   wikiCategories,
+  wikiRules,
+  isStaff,
   addNotification,
   addModeratorLog,
   loadWiki,
   initialSelectedArticleId,
 }) => {
-  const navigate = useNavigate();
-  const location = useLocation();
-
+  const [wikiSubTab, setWikiSubTab] = useState<'articles' | 'manage'>('articles');
   const [activeWikiCat, setActiveWikiCat] = useState('Все');
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
-
-  // Editing state for article view
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [editCat, setEditCat] = useState('');
-  const [editContent, setEditContent] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // New Article Form state (/wiki_new)
-  const [newTitle, setNewTitle] = useState('');
-  const [newCat, setNewCat] = useState('Общее');
-  const [customBadge, setCustomBadge] = useState('');
-  const [isCustomBadge, setIsCustomBadge] = useState(false);
-  const [newContent, setNewContent] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-
-  // Category management state (/wiki_edit)
-  const [newCatInput, setNewCatInput] = useState('');
-  const [isUpdatingCats, setIsUpdatingCats] = useState(false);
-
-  // Determine current route state
-  const currentPath = location.pathname;
-  const isNewModalOpen = currentPath === '/wiki_new';
-  const isEditCategoriesModalOpen = currentPath === '/wiki_edit';
-
-  // Match article ID from URL (e.g. /wiki-1, /wiki-123)
-  const articleIdFromPath = useMemo(() => {
-    if (currentPath.startsWith('/wiki-')) {
-      return currentPath.slice(1); // "wiki-1"
+  const [selectedWikiArticle, setSelectedWikiArticle] = useState<typeof wikiArticles[0] | null>(() => {
+    if (initialSelectedArticleId) {
+      return wikiArticles.find(a => a.id === initialSelectedArticleId) || null;
     }
     return null;
-  }, [currentPath]);
+  });
 
-  // Find article matching either route or initialSelectedArticleId
-  const selectedArticle = useMemo(() => {
-    const targetId = articleIdFromPath || initialSelectedArticleId;
-    if (!targetId) return null;
-    return wikiArticles.find(
-      a => a.id === targetId || 
-           a.id === targetId.replace(/^wiki-/, '') || 
-           `wiki-${a.id}` === targetId
-    ) || null;
-  }, [articleIdFromPath, initialSelectedArticleId, wikiArticles]);
-
-  // Synchronize edit fields when selectedArticle changes or editing begins
   useEffect(() => {
-    if (selectedArticle) {
-      setEditTitle(selectedArticle.title);
-      setEditCat(selectedArticle.cat);
-      setEditContent(selectedArticle.content);
-      setIsEditing(false);
-    }
-  }, [selectedArticle]);
-
-  // Available categories list
-  const availableCategories = useMemo(() => {
-    const list = wikiCategories.filter(c => c !== 'Все');
-    if (!list.includes('Общее')) {
-      return ['Общее', ...list];
-    }
-    return list;
-  }, [wikiCategories]);
-
-  // Filtered articles list for main view
-  const filteredArticles = useMemo(() => {
-    return wikiArticles.filter(a => {
-      const q = wikiSearchQuery.toLowerCase().trim();
-      const matchesQuery = !q || a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q);
-      const matchesCat = activeWikiCat === 'Все' || a.cat === activeWikiCat;
-      return matchesQuery && matchesCat;
-    });
-  }, [wikiArticles, wikiSearchQuery, activeWikiCat]);
-
-  // Open article
-  const handleOpenArticle = (article: WikiArticleItem) => {
-    const routeId = article.id.startsWith('wiki-') ? article.id : `wiki-${article.id}`;
-    navigate(`/${routeId}`);
-  };
-
-  // Save changes to current article
-  const handleSaveArticle = async () => {
-    if (!selectedArticle) return;
-    if (!editTitle.trim()) {
-      addNotification('Ошибка', 'Введите название статьи');
-      return;
-    }
-    if (!editContent.trim()) {
-      addNotification('Ошибка', 'Текст статьи не может быть пустым');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const updatedArticle = {
-        id: selectedArticle.id,
-        title: editTitle.trim(),
-        text: editContent.trim(),
-        tag: editCat.trim() || 'Общее',
-        timestamp: new Date().toISOString()
-      };
-
-      await alertRepository.insert(updatedArticle);
-      await loadWiki();
-      setIsEditing(false);
-      addNotification('Сохранено', 'Статья успешно обновлена в базе данных');
-      addModeratorLog({
-        type: 'wiki',
-        action: 'Редактирование статьи Wiki',
-        message: `Обновлена статья Wiki: "${updatedArticle.title}" (ID: ${updatedArticle.id})`,
-        targetId: updatedArticle.id,
-        targetName: updatedArticle.title
-      });
-    } catch (e) {
-      console.error('Failed to update wiki article:', e);
-      addNotification('Ошибка', 'Не удалось сохранить изменения в базе данных');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Cancel edit mode
-  const handleCancelEdit = () => {
-    if (selectedArticle) {
-      setEditTitle(selectedArticle.title);
-      setEditCat(selectedArticle.cat);
-      setEditContent(selectedArticle.content);
-    }
-    setIsEditing(false);
-  };
-
-  // Delete article from database
-  const handleDeleteArticle = async () => {
-    if (!selectedArticle) return;
-    if (!window.confirm(`Вы действительно хотите удалить статью "${selectedArticle.title}" из базы данных?`)) {
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      await alertRepository.delete(selectedArticle.id);
-      await loadWiki();
-      addNotification('Удалено', `Статья "${selectedArticle.title}" успешно удалена`);
-      addModeratorLog({
-        type: 'wiki',
-        action: 'Удаление статьи Wiki',
-        message: `Удалена статья Wiki: "${selectedArticle.title}" (ID: ${selectedArticle.id})`,
-        targetId: selectedArticle.id,
-        targetName: selectedArticle.title
-      });
-      navigate('/wiki');
-    } catch (e) {
-      console.error('Failed to delete wiki article:', e);
-      addNotification('Ошибка', 'Не удалось удалить статью');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  // Create new article
-  const handleCreateNewArticle = async () => {
-    if (!newTitle.trim()) {
-      addNotification('Ошибка', 'Укажите название статьи');
-      return;
-    }
-    if (!newContent.trim()) {
-      addNotification('Ошибка', 'Заполните содержание статьи');
-      return;
-    }
-
-    const assignedBadge = isCustomBadge ? customBadge.trim() : newCat.trim();
-    if (!assignedBadge) {
-      addNotification('Ошибка', 'Укажите бейдж или категорию статьи');
-      return;
-    }
-
-    setIsCreating(true);
-    try {
-      // Find maximum numeric suffix or timestamp for unique ID
-      const existingIds = wikiArticles
-        .map(a => {
-          const match = a.id.match(/^wiki-(\d+)$/);
-          return match ? parseInt(match[1], 10) : 0;
-        })
-        .filter(n => n > 0);
-      const nextNum = existingIds.length > 0 ? Math.max(...existingIds) + 1 : wikiArticles.length + 1;
-      const articleId = `wiki-${nextNum}`;
-
-      const newRecord = {
-        id: articleId,
-        title: newTitle.trim(),
-        text: newContent.trim(),
-        tag: assignedBadge,
-        timestamp: new Date().toISOString()
-      };
-
-      await alertRepository.insert(newRecord);
-      await loadWiki();
-
-      // Reset form
-      setNewTitle('');
-      setNewContent('');
-      setCustomBadge('');
-      setIsCustomBadge(false);
-      setIsCreating(false);
-
-      addNotification('Успех', 'Новая статья успешно добавлена в базу данных');
-      addModeratorLog({
-        type: 'wiki',
-        action: 'Создание статьи Wiki',
-        message: `Создана новая корпоративная статья: "${newRecord.title}" с бейджем "${assignedBadge}"`,
-        targetId: newRecord.id,
-        targetName: newRecord.title
-      });
-
-      // Navigate to newly created article
-      navigate(`/${articleId}`);
-    } catch (e) {
-      console.error('Failed to create wiki article:', e);
-      addNotification('Ошибка', 'Не удалось сохранить статью в базу данных');
-      setIsCreating(false);
-    }
-  };
-
-  // Add category in admin panel
-  const handleAddCategory = async () => {
-    const trimmed = newCatInput.trim();
-    if (!trimmed) return;
-    if (wikiCategories.includes(trimmed)) {
-      addNotification('Внимание', 'Такая категория уже существует');
-      return;
-    }
-
-    setIsUpdatingCats(true);
-    try {
-      const updated = [...wikiCategories, trimmed];
-      await alertRepository.insert({
-        id: 'wiki_categories',
-        title: 'Wiki Categories Configuration',
-        text: JSON.stringify(updated),
-        tag: 'System',
-        timestamp: new Date().toISOString()
-      });
-      await loadWiki();
-      setNewCatInput('');
-      addNotification('Добавлено', `Категория "${trimmed}" успешно добавлена`);
-    } catch (e) {
-      console.error('Failed to add category:', e);
-      addNotification('Ошибка', 'Не удалось сохранить категорию');
-    } finally {
-      setIsUpdatingCats(false);
-    }
-  };
-
-  // Delete category in admin panel
-  const handleDeleteCategory = async (catToDelete: string) => {
-    if (catToDelete === 'Все' || catToDelete === 'Общее') {
-      addNotification('Внимание', 'Системную категорию нельзя удалить');
-      return;
-    }
-
-    setIsUpdatingCats(true);
-    try {
-      const updated = wikiCategories.filter(c => c !== catToDelete);
-      await alertRepository.insert({
-        id: 'wiki_categories',
-        title: 'Wiki Categories Configuration',
-        text: JSON.stringify(updated),
-        tag: 'System',
-        timestamp: new Date().toISOString()
-      });
-      await loadWiki();
-      if (activeWikiCat === catToDelete) {
-        setActiveWikiCat('Все');
+    if (initialSelectedArticleId) {
+      const art = wikiArticles.find(a => a.id === initialSelectedArticleId);
+      if (art) {
+        setSelectedWikiArticle(art);
       }
-      addNotification('Удалено', `Категория "${catToDelete}" удалена`);
-    } catch (e) {
-      console.error('Failed to delete category:', e);
-      addNotification('Ошибка', 'Не удалось удалить категорию');
-    } finally {
-      setIsUpdatingCats(false);
     }
+  }, [initialSelectedArticleId, wikiArticles]);
+
+  const [showAddArticleForm, setShowAddArticleForm] = useState(false);
+  const [newWikiCatName, setNewWikiCatName] = useState('');
+  
+  const [newWikiArticle, setNewWikiArticle] = useState({
+    title: '',
+    cat: 'Модератор',
+    content: '',
+    pageCount: 1
+  });
+
+  const filteredArticles = wikiArticles.filter(a => {
+    const matchesQuery = a.title.toLowerCase().includes(wikiSearchQuery.toLowerCase()) || 
+                          a.content.toLowerCase().includes(wikiSearchQuery.toLowerCase());
+    const matchesCat = activeWikiCat === 'Все' || a.cat === activeWikiCat;
+    return matchesQuery && matchesCat;
+  });
+
+  const categories = wikiCategories;
+
+  const handleCreateArticle = async () => {
+    if (!newWikiArticle.title || !newWikiArticle.content) {
+      addNotification('Ошибка', 'Заполните все поля статьи!');
+      return;
+    }
+    const createdItem = {
+      id: `wiki-${Date.now()}`,
+      title: `${newWikiArticle.title} [count:${newWikiArticle.pageCount || 1}]`,
+      text: newWikiArticle.content,
+      tag: newWikiArticle.cat,
+      timestamp: new Date().toISOString()
+    };
+    await alertRepository.insert(createdItem);
+    await loadWiki();
+    setNewWikiArticle({ title: '', cat: 'Модератор', content: '', pageCount: 1 });
+    setShowAddArticleForm(false);
+    addNotification('Успех', 'Новая статья успешно добавлена в базу знаний');
+    addModeratorLog({
+      type: 'wiki',
+      action: 'Создание статьи Wiki',
+      message: `Создана новая корпоративная статья: "${newWikiArticle.title}" в разделе "${newWikiArticle.cat}"`,
+      targetId: createdItem.id,
+      targetName: newWikiArticle.title
+    });
   };
 
-  // =========================================================================
-  // VIEW: SINGLE ARTICLE
-  // =========================================================================
-  if (selectedArticle || articleIdFromPath) {
-    if (!selectedArticle) {
-      return (
-        <div className="bg-white p-8 rounded-[4px] border border-vk-separator text-left space-y-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => navigate('/wiki')}
-              className="p-1.5 hover:bg-[#f0f2f5] rounded-full text-[#2a5885] transition-colors cursor-pointer"
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <h2 className="text-[17px] font-bold text-vk-text">Статья не найдена</h2>
-          </div>
-          <p className="text-[13px] text-vk-text-secondary">
-            Статья с указанным идентификатором отсутствует в базе данных или была удалена.
-          </p>
-          <button 
-            onClick={() => navigate('/wiki')}
-            className="px-4 py-1.5 bg-[#5181b8] text-white text-[13px] font-medium rounded-[4px] hover:bg-[#4672a3] cursor-pointer"
-          >
-            Вернуться в Базу знаний
-          </button>
-        </div>
-      );
+  const handleAddCategory = async () => {
+    if (!newWikiCatName.trim()) return;
+    if (wikiCategories.includes(newWikiCatName.trim())) {
+      addNotification('Ошибка', 'Категория уже существует');
+      return;
     }
+    const updatedCategories = [...wikiCategories, newWikiCatName.trim()];
+    await alertRepository.insert({
+      id: 'wiki_categories',
+      title: 'Wiki Categories Configuration',
+      text: JSON.stringify(updatedCategories),
+      tag: 'System',
+      timestamp: new Date().toISOString()
+    });
+    await loadWiki();
+    addNotification('Добавлено', `Категория "${newWikiCatName.trim()}" успешно добавлена`);
+    addModeratorLog({
+      type: 'wiki',
+      action: 'Добавление категории Wiki',
+      message: `Добавлена новая категория статей в базу знаний: "${newWikiCatName.trim()}"`,
+      targetName: newWikiCatName.trim()
+    });
+    setNewWikiCatName('');
+  };
 
+  const handleDeleteCategory = async (catToDelete: string) => {
+    if (catToDelete === 'Все') return;
+    const updatedCategories = wikiCategories.filter(c => c !== catToDelete);
+    await alertRepository.insert({
+      id: 'wiki_categories',
+      title: 'Wiki Categories Configuration',
+      text: JSON.stringify(updatedCategories),
+      tag: 'System',
+      timestamp: new Date().toISOString()
+    });
+    await loadWiki();
+    if (activeWikiCat === catToDelete) setActiveWikiCat('Все');
+    addNotification('Удалено', `Категория "${catToDelete}" удалена`);
+    addModeratorLog({
+      type: 'wiki',
+      action: 'Удаление категории Wiki',
+      message: `Удалена категория Wiki: "${catToDelete}"`,
+      targetName: catToDelete
+    });
+  };
+
+  const handleDeleteArticle = async (id: string, title: string) => {
+    await alertRepository.delete(id);
+    await loadWiki();
+    addNotification('Удалено', `Статья "${title}" успешно удалена`);
+    addModeratorLog({
+      type: 'wiki',
+      action: 'Удаление статьи Wiki',
+      message: `Удалена статья Wiki: "${title}" (ID: ${id})`,
+      targetId: id,
+      targetName: title
+    });
+  };
+
+  if (selectedWikiArticle) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6 text-left">
-        <div className="bg-white p-6 md:p-8 rounded-[4px] border border-vk-separator shadow-xs">
-          
-          {/* Top Bar with Navigation & Actions */}
-          <div className="flex items-center justify-between border-b border-vk-separator pb-4 mb-6">
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={() => navigate('/wiki')} 
-                title="Назад в Базу знаний"
-                className="p-1.5 hover:bg-[#f0f2f5] rounded-full text-[#2a5885] transition-colors cursor-pointer"
-              >
-                <ChevronLeft size={22} />
-              </button>
-              <div className="flex items-center gap-2">
-                <span className="bg-[#5181b8]/15 text-[#2a5885] text-[11px] font-bold uppercase px-2 py-0.5 rounded-[3px] border border-[#5181b8]/20">
-                  {selectedArticle.cat}
-                </span>
-                <span className="text-[12px] text-vk-text-secondary">
-                  База знаний • {selectedArticle.id}
-                </span>
+        <div className="bg-vk-white p-8 rounded-[4px] border border-vk-separator shadow-sm">
+          <div className="flex items-center gap-4 border-b border-vk-separator pb-6 mb-8">
+            <button 
+              onClick={() => setSelectedWikiArticle(null)} 
+              className="p-2 hover:bg-[#f0f2f5] rounded-full text-[#2a5885] transition-colors cursor-pointer"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="bg-[#5181b8]/15 text-[#2a5885] text-[10px] font-bold uppercase px-2 py-0.5 rounded-[4px] border border-[#5181b8]/20">{selectedWikiArticle.cat}</span>
+                <span className="text-vk-text-secondary text-[11px]">База знаний • Информационная статья</span>
               </div>
-            </div>
-
-            {/* Action Buttons: Edit / Delete or Save / Cancel */}
-            <div className="flex items-center gap-2">
-              {!isEditing ? (
-                <>
-                  <button 
-                    onClick={() => setIsEditing(true)}
-                    title="Редактировать статью"
-                    className="p-2 text-[#2a5885] hover:bg-[#f0f2f5] rounded-[4px] transition-colors cursor-pointer border border-vk-separator/80 flex items-center gap-1 text-[12.5px] font-medium"
-                  >
-                    <Pencil size={15} />
-                    <span className="hidden sm:inline">Редактировать</span>
-                  </button>
-                  <button 
-                    onClick={handleDeleteArticle}
-                    disabled={isDeleting}
-                    title="Удалить статью"
-                    className="p-2 text-[#e64646] hover:bg-[#fde8e8] rounded-[4px] transition-colors cursor-pointer border border-vk-separator/80 flex items-center justify-center disabled:opacity-50"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button 
-                    onClick={handleCancelEdit}
-                    disabled={isSaving}
-                    className="px-3.5 py-1.5 text-[12.5px] font-medium text-vk-text-secondary hover:text-vk-text bg-[#f0f2f5] hover:bg-[#e4e6eb] rounded-[4px] transition-colors cursor-pointer"
-                  >
-                    Отменить
-                  </button>
-                  <button 
-                    onClick={handleSaveArticle}
-                    disabled={isSaving}
-                    className="px-4 py-1.5 text-[12.5px] font-bold text-white bg-[#4bb34b] hover:bg-[#43a143] rounded-[4px] transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
-                  >
-                    <Check size={15} />
-                    <span>{isSaving ? 'Сохранение...' : 'Сохранить'}</span>
-                  </button>
-                </>
-              )}
+              <h1 className="text-[22px] font-bold text-vk-text leading-tight">{selectedWikiArticle.title}</h1>
             </div>
           </div>
-
-          {/* Article Content: View or Edit Mode */}
-          {!isEditing ? (
-            <div className="space-y-4">
-              <h1 className="text-[22px] font-bold text-vk-text leading-tight">
-                {selectedArticle.title}
-              </h1>
-              <div className="text-[15px] text-vk-text leading-[1.65] whitespace-pre-line pt-2">
-                {selectedArticle.content}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 pt-1">
-              {/* Title Field */}
-              <div className="space-y-1">
-                <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                  Заголовок статьи
-                </label>
-                <input 
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  placeholder="Введите название..."
-                  className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3.5 py-2 text-[15px] font-semibold text-vk-text focus:outline-none focus:border-[#5181b8]"
-                />
-              </div>
-
-              {/* Category / Badge Field */}
-              <div className="space-y-1">
-                <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                  Категория / Бейдж
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={editCat}
-                    onChange={(e) => setEditCat(e.target.value)}
-                    className="w-full sm:w-64 bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[13px] text-vk-text focus:outline-none focus:border-[#5181b8]"
+          <div className="text-[15px] text-vk-text leading-[1.6] space-y-4 whitespace-pre-line">
+            {selectedWikiArticle.content}
+            
+            <div className="p-6 bg-[#f5f7f8] border-l-4 border-[#5181b8] rounded-[4px] mt-10 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between pb-2 border-b border-vk-separator/50">
+                <h4 className="text-[13px] font-bold text-[#285473] uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck size={18} /> Регламент взаимодействия:
+                </h4>
+                {isStaff && (
+                  <button 
+                    onClick={async () => {
+                      const newRule1 = prompt("Пункт 1 Регламента:", wikiRules[0]) || wikiRules[0];
+                      const newRule2 = prompt("Пункт 2 Регламента:", wikiRules[1]) || wikiRules[1];
+                      const newRule3 = prompt("Пункт 3 Регламента:", wikiRules[2]) || wikiRules[2];
+                      const updatedRules = [newRule1, newRule2, newRule3];
+                      await alertRepository.insert({
+                        id: 'wiki_rules',
+                        title: 'Wiki Rules Configuration',
+                        text: JSON.stringify(updatedRules),
+                        tag: 'System',
+                        timestamp: new Date().toISOString()
+                      });
+                      await loadWiki();
+                      addNotification('Успех', 'Регламент взаимодействия успешно сохранен');
+                    }}
+                    className="text-[11.5px] text-[#2a5885] font-semibold hover:underline cursor-pointer"
                   >
-                    {availableCategories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
+                    Редактировать регламент
+                  </button>
+                )}
               </div>
-
-              {/* Content Textarea */}
-              <div className="space-y-1 pt-2">
-                <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                  Содержание статьи
-                </label>
-                <textarea 
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  placeholder="Введите текст статьи..."
-                  rows={14}
-                  className="w-full bg-white border border-[#dce1e6] rounded-[4px] p-3.5 text-[14.5px] leading-relaxed text-vk-text focus:outline-none focus:border-[#5181b8] resize-y"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-vk-separator">
-                <button 
-                  onClick={handleCancelEdit}
-                  disabled={isSaving}
-                  className="px-4 py-2 text-[13px] font-medium text-vk-text-secondary hover:text-vk-text bg-[#f0f2f5] hover:bg-[#e4e6eb] rounded-[4px] transition-colors cursor-pointer"
-                >
-                  Отменить
-                </button>
-                <button 
-                  onClick={handleSaveArticle}
-                  disabled={isSaving}
-                  className="px-5 py-2 text-[13px] font-bold text-white bg-[#4bb34b] hover:bg-[#43a143] rounded-[4px] transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-                >
-                  <Check size={16} />
-                  <span>{isSaving ? 'Сохранение...' : 'Сохранить'}</span>
-                </button>
-              </div>
+              <ul className="space-y-2 text-[14px]">
+                {wikiRules.map((rule, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#5181b8] mt-2 shrink-0" />
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          )}
-
+          </div>
+          <div className="mt-12 flex justify-between items-center border-t border-vk-separator pt-6">
+            <span className="text-vk-text-secondary text-[12px] italic">Последнее редактирование регламента доступно администраторам</span>
+            <button disabled className="text-vk-text-secondary text-[12.5px] flex items-center gap-2 bg-transparent border-none">
+              <FileText size={16} /> Чтение • {selectedWikiArticle.count || 1} стр.
+            </button>
+          </div>
         </div>
       </motion.div>
     );
   }
 
-  // =========================================================================
-  // VIEW: MAIN WIKI LIST & CATEGORIES
-  // =========================================================================
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6 text-left">
-      <div className="bg-white rounded-[4px] border border-vk-separator shadow-xs overflow-hidden">
-        
-        {/* Header Section: Light, Uncluttered, Direct */}
+      <div className="bg-vk-white rounded-[4px] border border-vk-separator overflow-hidden shadow-sm">
         <div className="p-6 border-b border-vk-separator bg-[#fafbfc]">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-[20px] font-bold text-vk-text">База знаний</h1>
-              <p className="text-[12.5px] text-vk-text-secondary mt-0.5">
-                Справочные материалы, инструкции и регламенты
-              </p>
-            </div>
-
-            {/* Top-Right Control Buttons: Pencil (New) & Gear (Edit categories) */}
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => navigate('/wiki_new')}
-                title="Создать статью"
-                className="p-2 text-[#2a5885] hover:bg-white hover:text-[#5181b8] bg-[#f0f2f5] rounded-[6px] border border-[#dce1e6] transition-all flex items-center justify-center cursor-pointer shadow-2xs"
-              >
-                <Pencil size={18} />
-              </button>
-              <button 
-                onClick={() => navigate('/wiki_edit')}
-                title="Управление категориями"
-                className="p-2 text-[#2a5885] hover:bg-white hover:text-[#5181b8] bg-[#f0f2f5] rounded-[6px] border border-[#dce1e6] transition-all flex items-center justify-center cursor-pointer shadow-2xs"
-              >
-                <Settings size={18} />
-              </button>
-            </div>
-          </div>
-
-          {/* Filters & Search Toolbar */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-5 pt-4 border-t border-vk-separator/60">
-            {/* Category Pills */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-              {['Все', ...availableCategories].map(cat => (
+           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-[#5181b8]/10 flex items-center justify-center text-[#5181b8]">
+                  <BookOpen size={24} />
+                </div>
+                <div>
+                  <h1 className="text-[19px] font-bold text-vk-text">База знаний (Wiki)</h1>
+                  <p className="text-[12px] text-vk-text-secondary">Единый центр инструкций, регламентов и документации</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-1.5 self-start md:self-auto bg-[#f0f2f5] p-0.5 rounded-[6px]">
                 <button 
-                  key={cat} 
-                  onClick={() => setActiveWikiCat(cat)}
-                  className={`px-3.5 py-1 rounded-full text-[12px] font-medium whitespace-nowrap transition-all border cursor-pointer ${
-                    cat === activeWikiCat 
-                      ? 'bg-[#5181b8] text-white border-[#5181b8] shadow-2xs font-semibold' 
-                      : 'bg-[#f0f2f5] text-[#55677d] border-transparent hover:bg-[#e4e6eb]'
+                  onClick={() => setWikiSubTab('articles')}
+                  className={`px-4 py-1.5 text-[12px] font-medium rounded-[5px] transition-all cursor-pointer ${
+                    wikiSubTab === 'articles' ? 'bg-white text-vk-text shadow-sm' : 'text-vk-text-secondary hover:text-vk-text'
                   }`}
                 >
-                  {cat}
+                  Статьи
                 </button>
-              ))}
-            </div>
-
-            {/* Quick Search Input */}
-            <div className="relative w-full md:w-64 shrink-0">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                <Search size={14} />
+                <button 
+                  onClick={() => setWikiSubTab('manage')}
+                  className={`px-4 py-1.5 text-[12px] font-medium rounded-[5px] transition-all flex items-center gap-1 cursor-pointer ${
+                    wikiSubTab === 'manage' ? 'bg-white text-vk-text shadow-sm' : 'text-vk-text-secondary hover:text-vk-text'
+                  }`}
+                >
+                  <Settings size={13} /> Управление разделами
+                </button>
               </div>
-              <input 
-                type="text" 
-                placeholder="Поиск по статьям..."
-                value={wikiSearchQuery}
-                onChange={(e) => setWikiSearchQuery(e.target.value)}
-                className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[6px] pl-9 pr-3 py-1.5 text-[12.5px] focus:outline-none focus:bg-white focus:border-[#5181b8] transition-colors"
-              />
-            </div>
-          </div>
-        </div>
+           </div>
 
-        {/* Articles List */}
-        <div className="p-6 space-y-3">
-          {filteredArticles.length > 0 ? (
-            filteredArticles.map((art) => (
-              <div 
-                key={art.id}
-                onClick={() => handleOpenArticle(art)}
-                className="p-4 border border-vk-separator rounded-[4px] bg-white hover:border-[#5181b8]/50 hover:shadow-xs transition-all cursor-pointer group"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-[#5181b8]/15 text-[#2a5885] text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-[2px] border border-[#5181b8]/20">
-                        {art.cat}
-                      </span>
-                      <span className="text-[11px] text-vk-text-secondary">
-                        {art.id}
-                      </span>
-                    </div>
-                    <h3 className="text-[15px] font-semibold text-vk-text group-hover:text-[#2a5885] transition-colors">
-                      {art.title}
-                    </h3>
-                    <p className="text-[12.5px] text-vk-text-secondary line-clamp-2 leading-relaxed">
-                      {art.content}
-                    </p>
+           {wikiSubTab === 'manage' && (
+             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="mt-6 p-4 bg-white border border-vk-separator rounded-[4px] space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-[#e7e8ec]">
+                   <Settings size={15} className="text-[#5181b8]" />
+                   <h3 className="text-[13px] font-bold text-vk-text-secondary uppercase tracking-wider">Панель управления разделами и статьями (В строчку)</h3>
+                </div>
+
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-[#f5f7f8] rounded-[4px] border border-vk-separator/60">
+                  <div className="flex flex-col">
+                    <span className="text-[12.5px] font-bold text-vk-text">Добавить новый раздел</span>
+                    <span className="text-[11px] text-vk-text-secondary">Будет создан новый подраздел в каталоге Базы знаний</span>
                   </div>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="py-16 text-center">
-              <div className="w-12 h-12 rounded-full bg-[#f0f2f5] flex items-center justify-center mx-auto mb-3 text-vk-text-secondary">
-                <FileText size={22} />
-              </div>
-              <h4 className="text-[15px] font-semibold text-vk-text">В базе знаний пока нет статей</h4>
-              <p className="text-[12.5px] text-vk-text-secondary mt-1 max-w-sm mx-auto">
-                {wikiSearchQuery || activeWikiCat !== 'Все' 
-                  ? 'По вашему запросу ничего не найдено. Попробуйте сбросить фильтры.' 
-                  : 'Нажмите на кнопку карандаша в правом верхнем углу, чтобы добавить первую статью.'}
-              </p>
-              {!(wikiSearchQuery || activeWikiCat !== 'Все') && (
-                <button
-                  onClick={() => navigate('/wiki_new')}
-                  className="mt-4 px-4 py-2 bg-[#5181b8] hover:bg-[#4672a3] text-white text-[12.5px] font-semibold rounded-[4px] transition-colors cursor-pointer shadow-xs inline-flex items-center gap-1.5"
-                >
-                  <Pencil size={14} /> Создать статью
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      {/* ========================================================================= */}
-      {/* MODAL: CREATE NEW ARTICLE (/wiki_new) */}
-      {/* ========================================================================= */}
-      <AnimatePresence>
-        {isNewModalOpen && (
-          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/45 backdrop-blur-xs">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              className="bg-white rounded-[8px] border border-vk-separator shadow-xl w-full max-w-lg overflow-hidden text-left"
-            >
-              {/* Modal Header */}
-              <div className="p-4 px-6 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
-                <div className="flex items-center gap-2">
-                  <Pencil size={16} className="text-[#2a5885]" />
-                  <h3 className="text-[15px] font-bold text-vk-text">Создание статьи</h3>
-                </div>
-                <button 
-                  onClick={() => navigate('/wiki')}
-                  className="p-1 text-vk-text-secondary hover:text-vk-text hover:bg-[#f0f2f5] rounded-full transition-colors cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6 space-y-4">
-                {/* Title */}
-                <div className="space-y-1">
-                  <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                    Название статьи *
-                  </label>
-                  <input 
-                    type="text"
-                    placeholder="Например: Инструкция по работе с жалобами"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] text-vk-text focus:outline-none focus:border-[#5181b8]"
-                  />
-                </div>
-
-                {/* Badge / Category */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                      Бейдж / Категория *
-                    </label>
-                    <button 
-                      type="button"
-                      onClick={() => setIsCustomBadge(!isCustomBadge)}
-                      className="text-[11px] text-[#2a5885] hover:underline font-medium cursor-pointer"
-                    >
-                      {isCustomBadge ? 'Выбрать из существующих' : 'Ввести свой бейдж'}
-                    </button>
-                  </div>
-
-                  {!isCustomBadge ? (
-                    <select
-                      value={newCat}
-                      onChange={(e) => setNewCat(e.target.value)}
-                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] text-vk-text focus:outline-none focus:border-[#5181b8]"
-                    >
-                      {availableCategories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input 
-                      type="text"
-                      placeholder="Например: Регламент, Поддержка, Безопасность..."
-                      value={customBadge}
-                      onChange={(e) => setCustomBadge(e.target.value)}
-                      className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-2 text-[13px] text-vk-text focus:outline-none focus:border-[#5181b8]"
-                    />
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="space-y-1">
-                  <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                    Текст статьи *
-                  </label>
-                  <textarea 
-                    placeholder="Опишите подробно все пункты и регламенты..."
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    rows={8}
-                    className="w-full bg-white border border-[#dce1e6] rounded-[4px] p-3 text-[13px] leading-relaxed text-vk-text focus:outline-none focus:border-[#5181b8] resize-y"
-                  />
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="p-4 px-6 border-t border-vk-separator bg-[#fafbfc] flex items-center justify-end gap-2">
-                <button 
-                  onClick={() => navigate('/wiki')}
-                  disabled={isCreating}
-                  className="px-4 py-2 text-[12.5px] font-medium text-vk-text-secondary hover:text-vk-text bg-[#f0f2f5] hover:bg-[#e4e6eb] rounded-[4px] transition-colors cursor-pointer"
-                >
-                  Отмена
-                </button>
-                <button 
-                  onClick={handleCreateNewArticle}
-                  disabled={isCreating}
-                  className="px-5 py-2 text-[12.5px] font-bold text-white bg-[#4bb34b] hover:bg-[#43a143] rounded-[4px] transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                >
-                  {isCreating ? 'Сохранение...' : 'Создать статью'}
-                </button>
-              </div>
-
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ========================================================================= */}
-      {/* MODAL: EDIT CATEGORIES ADMIN PANEL (/wiki_edit) */}
-      {/* ========================================================================= */}
-      <AnimatePresence>
-        {isEditCategoriesModalOpen && (
-          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/45 backdrop-blur-xs">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              className="bg-white rounded-[8px] border border-vk-separator shadow-xl w-full max-w-md overflow-hidden text-left"
-            >
-              {/* Modal Header */}
-              <div className="p-4 px-6 border-b border-vk-separator flex items-center justify-between bg-[#fafbfc]">
-                <div className="flex items-center gap-2">
-                  <Settings size={16} className="text-[#2a5885]" />
-                  <h3 className="text-[15px] font-bold text-vk-text">Управление категориями</h3>
-                </div>
-                <button 
-                  onClick={() => navigate('/wiki')}
-                  className="p-1 text-vk-text-secondary hover:text-vk-text hover:bg-[#f0f2f5] rounded-full transition-colors cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6 space-y-4">
-                {/* Add Category Section */}
-                <div className="space-y-1.5">
-                  <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                    Добавить новую категорию
-                  </label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      placeholder="Название категории..."
-                      value={newCatInput}
-                      onChange={(e) => setNewCatInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddCategory(); }}
-                      className="grow bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] text-vk-text focus:outline-none focus:border-[#5181b8]"
-                    />
-                    <button 
-                      onClick={handleAddCategory}
-                      disabled={isUpdatingCats || !newCatInput.trim()}
-                      className="px-3 py-1.5 bg-[#4bb34b] hover:bg-[#43a143] text-white text-[12px] font-bold rounded-[4px] transition-colors cursor-pointer shrink-0 disabled:opacity-50 flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Добавить
-                    </button>
+                  <div className="flex gap-2 w-full md:w-auto">
+                     <input 
+                       type="text" 
+                       placeholder="Название раздела (например: Работа с жалобами)"
+                       value={newWikiCatName}
+                       onChange={(e) => setNewWikiCatName(e.target.value)}
+                       className="grow bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1 text-[12px] w-full md:w-64 focus:outline-none focus:border-[#5181b8]"
+                     />
+                     <button 
+                       onClick={handleAddCategory}
+                       className="bg-[#4bb34b] hover:bg-[#52c152] text-white px-4 py-1 rounded-[4px] text-[12px] font-medium shrink-0 transition-all cursor-pointer"
+                     >
+                       Создать
+                     </button>
                   </div>
                 </div>
 
-                {/* Categories List */}
-                <div className="space-y-1 pt-2">
-                  <label className="text-[11.5px] font-bold uppercase tracking-wider text-vk-text-secondary">
-                    Список активных категорий
-                  </label>
-                  <div className="border border-vk-separator rounded-[4px] divide-y divide-vk-separator max-h-60 overflow-y-auto">
-                    {availableCategories.map(cat => {
-                      const articleCount = wikiArticles.filter(a => a.cat === cat).length;
-                      const isDefault = cat === 'Общее';
-                      return (
-                        <div key={cat} className="p-2.5 px-3.5 flex items-center justify-between text-[13px] hover:bg-[#fafbfc] transition-colors">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-vk-text">{cat}</span>
-                            <span className="text-[11px] text-vk-text-secondary">({articleCount})</span>
-                          </div>
-                          {!isDefault ? (
-                            <button 
-                              onClick={() => handleDeleteCategory(cat)}
-                              disabled={isUpdatingCats}
-                              className="text-[#e64646] hover:underline text-[11.5px] font-medium cursor-pointer"
-                            >
-                              Удалить
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-vk-text-secondary italic">Базовая</span>
-                          )}
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-vk-text-secondary mb-1">Список активных разделов:</h4>
+                  <div className="border border-vk-separator rounded-[4px] overflow-hidden bg-white divide-y divide-vk-separator">
+                    {categories.map(cat => (
+                      <div key={cat} className="flex items-center justify-between p-2.5 px-4 text-[13px] hover:bg-[#fafbfc] transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-[#2a5885]">{cat}</span>
+                          <span className="text-[11px] text-vk-text-secondary">({wikiArticles.filter(a => a.cat === cat).length} статей)</span>
                         </div>
-                      );
-                    })}
+                        {cat !== 'Все' ? (
+                          <button 
+                            onClick={() => handleDeleteCategory(cat)}
+                            className="text-[#e64646] hover:underline text-[11.5px] font-medium cursor-pointer"
+                          >
+                            Удалить раздел
+                          </button>
+                        ) : (
+                          <span className="text-vk-text-secondary text-[11px] italic font-medium">Системный и обязательный</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
 
-              {/* Modal Footer */}
-              <div className="p-4 px-6 border-t border-vk-separator bg-[#fafbfc] flex items-center justify-end">
-                <button 
-                  onClick={() => navigate('/wiki')}
-                  className="px-4 py-1.5 text-[12.5px] font-semibold text-white bg-[#5181b8] hover:bg-[#4672a3] rounded-[4px] transition-colors cursor-pointer"
-                >
-                  Готово
-                </button>
-              </div>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-vk-text-secondary mb-1">Список опубликованных статей:</h4>
+                  <div className="border border-vk-separator rounded-[4px] overflow-hidden bg-white divide-y divide-vk-separator">
+                    {wikiArticles.map(art => (
+                      <div key={art.id} className="flex items-center justify-between p-2.5 px-4 text-[13px] hover:bg-[#fafbfc] transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium text-vk-text">{art.title}</span>
+                          <span className="bg-[#5181b8]/10 text-[#2a5885] text-[10px] font-bold px-1.5 py-0.2 rounded-[2px]">{art.cat}</span>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteArticle(art.id, art.title)}
+                          className="text-[#e64646] hover:underline text-[11.5px] font-medium cursor-pointer"
+                        >
+                          Удалить статью
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+             </motion.div>
+           )}
 
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+           {wikiSubTab === 'articles' && (
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-6">
+               <div className="flex gap-2 overflow-x-auto no-scrollbar py-0.5">
+                  {categories.map(cat => (
+                    <button 
+                      key={cat} 
+                      onClick={() => setActiveWikiCat(cat)}
+                      className={`px-4 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all border cursor-pointer ${
+                        cat === activeWikiCat ? 'bg-[#5181b8] text-white border-[#5181b8] shadow-sm' : 'bg-[#f0f2f5] text-[#55677d] border-transparent hover:bg-[#e1e5eb]'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+               </div>
+               
+               <div className="flex items-center gap-2 self-start md:self-auto w-full md:w-auto">
+                 <div className="relative grow md:w-64">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#5181b8] transition-colors"><Search size={14} /></div>
+                    <input 
+                      type="text" 
+                      placeholder="Быстрый поиск в статьях..."
+                      value={wikiSearchQuery}
+                      onChange={(e) => setWikiSearchQuery(e.target.value)}
+                      className="w-full bg-[#f2f3f5] border border-[#dce1e6] rounded-[6px] pl-9 pr-4 py-1.5 text-[13px] focus:outline-none focus:bg-white focus:border-[#5181b8]"
+                    />
+                 </div>
+                 <button 
+                   onClick={() => {
+                     setShowAddArticleForm(!showAddArticleForm);
+                     if (!newWikiArticle.cat) {
+                       const firstCat = categories.find(c => c !== 'Все') || 'Модератор';
+                       setNewWikiArticle({ ...newWikiArticle, cat: firstCat });
+                     }
+                   }}
+                   className="px-4 py-1.5 bg-[#4bb34b] hover:bg-[#52c152] text-white text-[12.5px] rounded-[6px] font-semibold flex items-center gap-1.5 shadow-sm transition-all whitespace-nowrap cursor-pointer"
+                 >
+                   <PenLine size={14} /> Создать статью
+                 </button>
+               </div>
+             </div>
+           )}
 
+           {wikiSubTab === 'articles' && showAddArticleForm && (
+             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-[#fafbfc] border border-vk-separator rounded-[4px] shadow-inner mt-4 space-y-4">
+               <div className="flex items-center justify-between pb-2 border-b border-vk-separator/50">
+                 <div className="flex items-center gap-1.5">
+                   <PenLine size={15} className="text-[#2a5885]" />
+                   <h3 className="text-[13px] font-bold text-vk-text">Новая статья в Базу знаний</h3>
+                 </div>
+                 <button onClick={() => setShowAddArticleForm(false)} className="text-xs text-[#2a5885] hover:underline font-medium cursor-pointer">Закрыть форму</button>
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[11.5px] text-vk-text-secondary ml-1 font-bold">Название регламента</label>
+                   <input 
+                     type="text"
+                     placeholder="Например: Инструкция по работе с жалобами"
+                     value={newWikiArticle.title}
+                     onChange={(e) => setNewWikiArticle({ ...newWikiArticle, title: e.target.value })}
+                     className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                   />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Раздел базы знаний</label>
+                   <select 
+                     value={newWikiArticle.cat}
+                     onChange={(e) => setNewWikiArticle({ ...newWikiArticle, cat: e.target.value })}
+                     className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                   >
+                     {categories.filter(c => c !== 'Все').map(cat => (
+                       <option key={cat} value={cat}>{cat}</option>
+                     ))}
+                   </select>
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Количество страниц</label>
+                   <input 
+                     type="number"
+                     min={1}
+                     value={newWikiArticle.pageCount}
+                     onChange={(e) => setNewWikiArticle({ ...newWikiArticle, pageCount: parseInt(e.target.value) || 1 })}
+                     className="w-full bg-white border border-[#dce1e6] rounded-[4px] px-3 py-1.5 text-[12.5px] focus:outline-none focus:border-[#5181b8]"
+                   />
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11.5px] text-vk-text-secondary ml-1 font-semibold">Содержание статьи</label>
+                 <textarea 
+                   placeholder="Опишите подробно все пункты и регламенты..."
+                   value={newWikiArticle.content}
+                   onChange={(e) => setNewWikiArticle({ ...newWikiArticle, content: e.target.value })}
+                   className="w-full h-36 bg-white border border-[#dce1e6] rounded-[4px] p-3 text-[12.5px] focus:outline-none focus:border-[#5181b8] resize-none"
+                 />
+               </div>
+               <button 
+                 onClick={handleCreateArticle}
+                 className="px-5 py-2 bg-[#4bb34b] hover:bg-[#52c152] text-white rounded-[4px] text-[12.5px] font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+               >
+                 Опубликовать статью <ArrowUpRight size={14} />
+               </button>
+             </motion.div>
+           )}
+
+        </div>
+
+
+           {wikiSubTab === 'articles' && (
+             <div className="p-6 space-y-3">
+               {filteredArticles.map((item) => (
+                 <div 
+                   key={item.id} 
+                   onClick={() => setSelectedWikiArticle(item)}
+                   className="p-4 border border-vk-separator rounded-[4px] bg-white hover:border-[#5181b8]/40 hover:shadow-sm cursor-pointer transition-all flex items-center justify-between gap-6 group w-full"
+                 >
+                   <div className="flex items-center gap-4 min-w-0">
+                     <div className="w-10 h-10 rounded-full bg-[#5181b8]/5 flex items-center justify-center text-[#5181b8] shrink-0">
+                       <FileText size={18} />
+                     </div>
+                     <div className="min-w-0">
+                       <div className="flex items-center gap-2 mb-0.5">
+                         <span className="bg-[#5181b8]/15 text-[#2a5885] text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-[2px]">{item.cat}</span>
+                         <span className="text-[11px] text-vk-text-secondary">• {item.count || 1} стр.</span>
+                       </div>
+                       <h3 className="text-[14.5px] font-semibold text-[#2a5885] group-hover:underline truncate">{item.title}</h3>
+                       <p className="text-[12px] text-vk-text-secondary line-clamp-1 mt-0.5">{item.content}</p>
+                     </div>
+                   </div>
+                   <div className="shrink-0 flex items-center gap-1.5 text-[12px] text-[#2a5885] font-semibold">
+                     <span>Читать</span>
+                     <ArrowUpRight size={13} className="transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                   </div>
+                 </div>
+               ))}
+               {filteredArticles.length === 0 && (
+                 <div className="py-24 text-center bg-white border border-vk-separator rounded-[6px]">
+                   <div className="w-16 h-16 bg-[#f0f2f5] rounded-full flex items-center justify-center mx-auto mb-4 text-[#dce1e6]">
+                     <FileSearch size={32} />
+                   </div>
+                   <h4 className="text-[16px] font-medium text-[#2a5885]">Ничего не найдено</h4>
+                   <p className="text-[13px] text-vk-text-secondary mt-1">Отредактируйте параметры поиска или выберите другую категорию в базе знаний.</p>
+                 </div>
+               )}
+             </div>
+           )}
+      </div>
     </motion.div>
   );
 };

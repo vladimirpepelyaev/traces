@@ -142,7 +142,9 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
       });
 
     // 3. Dialog complaints
-    dialogComplaints.forEach(d => {
+    dialogComplaints
+      .filter((d: any) => d.status !== 'resolved' && d.status !== 'closed' && !d.moderatedBy)
+      .forEach(d => {
       const previewText =
         d.previewMessages?.map((m: any) => m.text).join(' ') ||
         d.fullDialogueMessages?.filter((m: any) => m.isViolation).map((m: any) => m.text).join(' ') ||
@@ -220,18 +222,7 @@ export const ModerationSection: React.FC<ModerationSectionProps> = ({
   const itemBadgesMap = useMemo<Record<string, UserBadges>>(() => {
     const map: Record<string, UserBadges> = {};
     feedList.forEach(item => {
-      // Default approved badge distribution for demo presentation
-      if (item.id === 'kb-comp-1' || item.userName === 'Дмитрий Мельников' || item.userName === 'Владимир') {
-        map[item.id] = {
-          passwordChanged: true,
-          isStaff: false,
-          isVerified: true,
-          hasBlockHistory: true,
-          isNewUser: true
-        };
-      } else {
-        map[item.id] = calculateUserBadges(item.userId, item.userName, badgeContext);
-      }
+      map[item.id] = calculateUserBadges(item.userId, item.userName, badgeContext);
     });
     return map;
   }, [feedList, badgeContext]);

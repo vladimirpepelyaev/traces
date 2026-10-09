@@ -18,14 +18,16 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   SpamDecision, Complaint, Ticket, FeedPost, ComplaintHistoryItem, AppUser, 
-  VerificationRequest, ModeratorAction, ToastNotification, DialogMessage, DialogComplaint,
-  getUserReadableId
+  VerificationRequest, ModeratorAction, ToastNotification, DialogMessage, DialogComplaint, WikiArticle 
 } from './types';
 import { Wiki } from './components/Wiki';
 import { Statistics } from './components/Statistics';
 import { TestpoolDashboard } from './components/TestpoolDashboard';
 import { Onboarding, getPostTopic } from './components/Onboarding';
 import { ModerationSection } from './components/moderation/ModerationSection';
+import {
+  OFFICIAL_KNOWLEDGE_BASE_ARTICLES
+} from './features/moderation/knowledgeBaseRules';
 import { FeedModeSelector, FeedMode } from './features/feed-modes/FeedModeSelector';
 import { PostComposer } from './features/post-context/PostComposer';
 import { QuietReactionsBar } from './features/quiet-reactions/QuietReactionsBar';
@@ -158,13 +160,13 @@ import {
   History as HistoryIcon,
   CreditCard,
   Sparkles,
-  Footprints,
   Gift,
   AlertTriangle,
   Flag,
   Flame,
   Palette,
 } from 'lucide-react';
+import { ItdLogo } from './components/ItdLogo';
 import { testpoolService, isFeatureEnabled } from './services/testpool/TestpoolService';
 
 import { 
@@ -801,11 +803,7 @@ export default function App() {
     });
   };
 
-  const [selectedDialogMessageIds, setSelectedDialogMessageIds] = useState<Record<string, string[]>>({
-    'dc-1': ['m1-4', 'm1-5'],
-    'dc-2': ['m2-4', 'm2-5'],
-    'dc-3': ['m3-4', 'm3-5'],
-  });
+  const [selectedDialogMessageIds, setSelectedDialogMessageIds] = useState<Record<string, string[]>>({});
   const [expandedContextComplaintIds, setExpandedContextComplaintIds] = useState<string[]>([]);
   const [activeFullDialogueComplaint, setActiveFullDialogueComplaint] = useState<DialogComplaint | null>(null);
   const [expandedViolationHistoryIds, setExpandedViolationHistoryIds] = useState<string[]>([]);
@@ -908,24 +906,7 @@ export default function App() {
     setComplaintActionsLog(prev => [logItem, ...prev]);
   };
 
-  const [spamDecisions, setSpamDecisions] = useState<SpamDecision[]>([
-    {
-      id: 'sd-1',
-      postText: 'Предлагаем легкий заработок онлайн без опыта. До 5000 рублей в час!',
-      authorName: 'Дмитрий Смирнов',
-      moderatorName: 'Агент Поддержки #2',
-      timestamp: 'Вчера, 14:20',
-      source: 'Spam'
-    },
-    {
-      id: 'sd-2',
-      postText: 'Пройди опрос и получи гарантированный приз 50 000 рублей прямо сейчас',
-      authorName: 'Опрос2026_Бот',
-      moderatorName: 'Агент Поддержки #1',
-      timestamp: 'Сегодня, 09:15',
-      source: 'Модерация ленты'
-    }
-  ]);
+  const [spamDecisions, setSpamDecisions] = useState<SpamDecision[]>([]);
   const [spamActiveSubTab, setSpamActiveSubTab] = useState<'content-complaints' | 'profile-complaints' | 'complaints' | 'actions' | 'search' | 'decisions' | 'triggers' | 'settings'>('content-complaints');
   const [ignoredTriggerPostIds, setIgnoredTriggerPostIds] = useState<string[]>([]);
   const [spamSearchQuery, setSpamSearchQuery] = useState('');
@@ -1437,8 +1418,7 @@ export default function App() {
       if (dbDialogs && dbDialogs.length > 0) {
         _setDialogComplaintsOriginal(dbDialogs);
       } else {
-        console.log('[Migration] Loading dialog_complaints default memory state...');
-        _setDialogComplaintsOriginal(dialogComplaints);
+        _setDialogComplaintsOriginal([]);
       }
 
       // Also load/hydrate companion messenger messages
@@ -1446,8 +1426,7 @@ export default function App() {
       if (dbMsgs && dbMsgs.length > 0) {
         _setMessengerMessagesOriginal(dbMsgs);
       } else {
-        console.log('[Migration] Loading messenger_messages default memory state...');
-        _setMessengerMessagesOriginal(messengerMessages);
+        _setMessengerMessagesOriginal([]);
       }
     } catch (e) {
       console.error('[Boot] loadDialogs/messages failed:', e);
@@ -1567,8 +1546,17 @@ export default function App() {
         }
       }
 
-      // Only use articles created in the database
-      setWikiArticles(articles || []);
+      // Purge any previously auto-seeded mock articles from DB
+      const seededIds = new Set(OFFICIAL_KNOWLEDGE_BASE_ARTICLES.map(a => a.id));
+      for (const a of (dbAlerts || [])) {
+        if (seededIds.has(a.id)) {
+          await alertRepository.delete(a.id).catch(() => {});
+        }
+      }
+
+      // Only display genuine user/db created articles
+      const realArticles = articles.filter(a => !seededIds.has(a.id));
+      setWikiArticles(realArticles);
     } catch (e) {
       console.error('[Boot] loadWiki failed:', e);
     }
@@ -1594,15 +1582,17 @@ export default function App() {
         _setComplaintActionsLogOriginal(dbLogs.map(mapDbActionToLoggedComplaintAction));
       }
 
-      // Load main report complaints from DB
+      // Load main report complaints
       const dbComplaints = await reportRepository.getAll();
-      _setComplaintsOriginal((dbComplaints || []).filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
-      _setSpamComplaintsOriginal((dbComplaints || []).filter(c => c.dept === 'Spam'));
-      _setPageComplaintsOriginal((dbComplaints || []).filter(c => c.dept === 'Модерация страниц'));
-
-      // Load dialog complaints from DB
-      const dbDialogComplaints = await dialogRepository.getAll();
-      _setDialogComplaintsOriginal(dbDialogComplaints || []);
+      if (dbComplaints && dbComplaints.length > 0) {
+        _setComplaintsOriginal(dbComplaints.filter(c => c.dept !== 'Spam' && c.dept !== 'Модерация страниц'));
+        _setSpamComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Spam'));
+        _setPageComplaintsOriginal(dbComplaints.filter(c => c.dept === 'Модерация страниц'));
+      } else {
+        _setComplaintsOriginal([]);
+        _setSpamComplaintsOriginal([]);
+        _setPageComplaintsOriginal([]);
+      }
     } catch (e) {
       console.error('[Boot] loadHistory failed:', e);
     }
@@ -2057,21 +2047,10 @@ export default function App() {
   const [blockingSource, setBlockingSource] = useState<'main' | 'spam' | 'pro'>('main');
 
   // --- New Sections State ---
-  const [announcements, setAnnouncements] = useState([
-    { id: '1', tag: 'Важно', title: 'Обновление регламента модерации v2.4', text: 'С 15 числа вводятся новые правила обработки жалоб на спам. Мы сократили время удержания тикетов в очереди "Spam" с 24 до 12 часов. Ознакомьтесь с полным текстом изменений в Wiki.', date: 'Сегодня, 10:45', author: 'Александр (Admin)', isPinned: true },
-    { id: '2', tag: 'Инфо', title: 'Технические работы на серверах API', text: 'В воскресенье с 02:00 до 04:00 (МСК) возможны кратковременные перебои в работе административной панели в связи с обновлением ядра базы данных.', date: 'Вчера, 18:20', author: 'Тех. отдел', isPinned: false },
-    { id: '3', tag: 'Событие', title: 'Еженедельный созвон модераторов', text: 'Традиционное обсуждение итогов недели и разбор сложных кейсов пройдет в Discord (канал #staff-hangout) в 19:00. Присутствие обязательно для всех, кто не на смене.', date: '12 мая, 14:00', author: 'Мария (Lead Mod)', isPinned: false },
-    { id: '4', tag: 'Техническое', title: 'Новый инструмент: Массовая склейка профилей', text: 'В раздел Management добавлен инструмент для объединения дублирующихся аккаунтов. Используйте с осторожностью, действие необратимо.', date: '10 мая, 11:15', author: 'Admin (System)', isPinned: false }
-  ]);
-  const [wikiArticles, setWikiArticles] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [wikiArticles, setWikiArticles] = useState<WikiArticle[]>([]);
   const [selectedWikiArticleId, setSelectedWikiArticleId] = useState<string | null>(null);
-  const [securityLogs, setSecurityLogs] = useState([
-    { id: '1', event: 'Вход в панель', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:45:12', status: 'success', device: 'Chrome / Windows 11' },
-    { id: '2', event: 'Массовая блокировка', ip: '192.168.1.1', user: 'Admin (ID 1)', time: '10:30:05', status: 'warning', device: 'Chrome / Windows 11' },
-    { id: '3', event: 'Ошибка авторизации', ip: '45.12.8.23', user: 'Unknown', time: '09:12:44', status: 'error', device: 'Safari / iPhone' },
-    { id: '4', event: 'Смена пароля оператора', ip: '192.168.1.42', user: 'Mod_Ivan (ID 4)', time: '08:55:01', status: 'success', device: 'Firefox / Linux' },
-    { id: '5', event: 'Экспорт базы данных', ip: '192.168.1.42', user: 'Mod_Ivan (ID 4)', time: '08:40:22', status: 'critical', device: 'Postman Runtime' }
-  ]);
+  const [securityLogs, setSecurityLogs] = useState<any[]>([]);
   interface MessengerMessage {
     id: string;
     senderId: string;
@@ -2084,38 +2063,7 @@ export default function App() {
     supportTicketId?: string;
   }
 
-  const [messengerMessages, _setMessengerMessagesOriginal] = useState<MessengerMessage[]>([
-    {
-      id: 'mm-1',
-      senderId: '2',
-      senderName: 'Агент Поддержки',
-      senderAvatar: 'dog2.jpeg',
-      receiverId: '1',
-      text: 'Приветствую! Как ваши дела с модерацией жалоб сегодня?',
-      timestamp: '10:45',
-      unread: true
-    },
-    {
-      id: 'mm-2',
-      senderId: '1',
-      senderName: 'admin',
-      senderAvatar: 'dog1.png',
-      receiverId: '2',
-      text: 'Привет! Всё под контролем, разгребаем понемногу.',
-      timestamp: '10:46',
-      unread: false
-    },
-    {
-      id: 'mm-3',
-      senderId: '3',
-      senderName: 'Ольга Модератор',
-      senderAvatar: 'images.png',
-      receiverId: '1',
-      text: 'Александр, привет! Подскажи по поводу обращения #2441, подтверждаем верификацию?',
-      timestamp: 'Вчера',
-      unread: false
-    }
-  ]);
+  const [messengerMessages, _setMessengerMessagesOriginal] = useState<MessengerMessage[]>([]);
   const setMessengerMessages = (updateValue: any) => {
     _setMessengerMessagesOriginal(prev => {
       const next = typeof updateValue === 'function' ? updateValue(prev) : updateValue;
@@ -2244,14 +2192,36 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Helper to format readable display ID for a user
+  const getUserDisplayId = (user?: AppUser | null): string => {
+    if (!user) return '';
+    if (user.public_id !== undefined && user.public_id !== null) {
+      return String(user.public_id);
+    }
+    return user.id;
+  };
+
+  // Helper to get profile path for a user (/@id{public_id})
+  const getUserProfilePath = (user?: AppUser | null): string => {
+    if (!user) return '/profile';
+    const displayId = getUserDisplayId(user);
+    return displayId ? `/@id${displayId}` : '/profile';
+  };
+
+  // Helper to get info card path for a user (/info_{public_id})
+  const getUserCardPath = (user?: AppUser | null): string => {
+    if (!user) return '/admin/users';
+    const displayId = getUserDisplayId(user);
+    return displayId ? `/info_${displayId}` : '/admin/users';
+  };
+
   // Handle automatic routing redirects based on authentication status and path
   useEffect(() => {
     if (bootCompleted && !authLoading) {
       if (isRegistered && currentUser) {
-        const myId = getUserReadableId(currentUser);
-        const myProfilePath = myId ? `/@id${myId}` : '/profile';
         if (location.pathname === '/' || location.pathname === '' || location.pathname === '/profile') {
-          navigate(myProfilePath, { replace: true });
+          const profilePath = getUserProfilePath(currentUser);
+          navigate(profilePath, { replace: true });
         }
       } else {
         if (location.pathname !== '/' && location.pathname !== '') {
@@ -2261,12 +2231,14 @@ export default function App() {
     }
   }, [bootCompleted, authLoading, isRegistered, currentUser, location.pathname, navigate]);
 
-  // Directly parse userId, profileId, infoId and postId from the pathname
-  const matchProfilePath = location.pathname.match(/^\/(?:@id|id|u\/|user\/)([^/]+)/);
-  const routeProfileId = matchProfilePath ? matchProfilePath[1] : undefined;
+  // Directly parse userId/publicId and postId from the pathname to avoid empty useParams() outside Routes
+  const matchUserPath = location.pathname.match(/^\/(?:u|user)\/([^/]+)/);
+  const matchIdProfilePath = location.pathname.match(/^\/@id([^/]+)/);
+  const matchInfoCardPath = location.pathname.match(/^\/info_([^/]+)/);
 
-  const matchInfoPath = location.pathname.match(/^\/info[_-]([^/]+)/);
-  const routeInfoId = matchInfoPath ? matchInfoPath[1] : undefined;
+  const parsedProfileParam = matchIdProfilePath ? matchIdProfilePath[1] : (matchUserPath ? matchUserPath[1] : undefined);
+  const parsedCardParam = matchInfoCardPath ? matchInfoCardPath[1] : undefined;
+  const userId = parsedProfileParam;
 
   const matchPostPath = location.pathname.match(/^\/post\/([^/]+)/);
   const postId = matchPostPath ? matchPostPath[1] : undefined;
@@ -2275,16 +2247,14 @@ export default function App() {
   const activeTab = useMemo(() => {
     const path = location.pathname;
     if (path === '/' || path === '' || path === '/profile') return 'profile';
-    if (path.startsWith('/@id') || path.startsWith('/id')) return 'profile';
-    if (path.startsWith('/u/') || path.startsWith('/user/')) return 'profile';
-    if (path === '/user') return 'profile';
-    if (path.startsWith('/info_') || path.startsWith('/info-') || path.startsWith('/info/')) return 'info_user';
+    if (path.startsWith('/@id')) return 'profile';
+    if (path.startsWith('/info_')) return 'users';
     if (path === '/feed') return 'feed';
     if (path === '/messages') return 'internal-mail';
+    if (path.startsWith('/u/') || path.startsWith('/user/')) return 'profile';
+    if (path === '/user') return 'profile';
     if (path === '/settings') return 'settings';
-    if (path === '/wiki' || path === '/wiki_new' || path === '/wiki_edit' || path.startsWith('/wiki-') || path.startsWith('/wiki/')) return 'wiki';
     if (path === '/admin') return 'admin';
-    if (path.startsWith('/admin/wiki')) return 'wiki';
     if (path.startsWith('/admin/')) {
       return path.replace('/admin/', '');
     }
@@ -2294,13 +2264,7 @@ export default function App() {
   }, [location.pathname]);
 
   const getPathForTab = (tabId: string): string => {
-    if (tabId === 'profile') {
-      const myId = getUserReadableId(currentUser);
-      return myId ? `/@id${myId}` : '/profile';
-    }
-    if (tabId === 'info_user' && infoUser) {
-      return `/info_${getUserReadableId(infoUser)}`;
-    }
+    if (tabId === 'profile') return getUserProfilePath(currentUser);
     if (tabId === 'feed') return '/feed';
     if (tabId === 'settings') return '/settings';
     if (tabId === 'admin') return '/admin';
@@ -2323,38 +2287,10 @@ export default function App() {
   const setActiveTab = (tab: string) => {
     if (tab === 'profile') {
       setSelectedUserData(null);
-      const myId = getUserReadableId(currentUser);
-      navigate(myId ? `/@id${myId}` : '/profile');
+      navigate(getUserProfilePath(currentUser));
     } else {
       navigate(getPathForTab(tab));
     }
-  };
-
-  const navigateToUserProfile = (targetUser: AppUser | null | undefined) => {
-    if (!targetUser) return;
-    if (currentUser && targetUser.id === currentUser.id) {
-      setSelectedUserData(null);
-      const myId = getUserReadableId(currentUser);
-      navigate(myId ? `/@id${myId}` : '/profile');
-    } else {
-      setSelectedUserData(targetUser);
-      const targetId = getUserReadableId(targetUser);
-      navigate(`/@id${targetId}`);
-    }
-  };
-
-  const navigateToUserCard = (targetUser: AppUser | null | undefined) => {
-    if (!targetUser) return;
-    const [first, ...lastParts] = targetUser.name.split(' ');
-    setEditFirstName(first);
-    setEditLastName(lastParts.join(' '));
-    setEditStatus(targetUser.status || '');
-    setEditLogin(targetUser.login || '');
-    setEditPassword('');
-    setIsEditingInfo(true);
-    setInfoUser(targetUser);
-    const targetId = getUserReadableId(targetUser);
-    navigate(`/info_${targetId}`);
   };
 
   // Redirect legacy /moderation or /admin/moderation paths to /admin/spam
@@ -2364,56 +2300,48 @@ export default function App() {
     }
   }, [location.pathname, navigate]);
 
-  // Synchronize URL /@id:profileId, /id:profileId, /u/:userId or /user/:userId parameter with selectedUserData state
+  // Synchronize URL /@id:id, /u/:userId or /user/:userId parameter with selectedUserData state
   useEffect(() => {
     const path = location.pathname;
-    if (path.startsWith('/@id') || path.startsWith('/id') || path.startsWith('/u/') || path.startsWith('/user/')) {
-      if (routeProfileId) {
-        // Check if this route target is the current logged-in user
-        const isSelf = Boolean(
-          currentUser && (
-            String(currentUser.public_id) === String(routeProfileId) ||
-            currentUser.id === routeProfileId ||
-            getUserReadableId(currentUser) === String(routeProfileId) ||
-            (currentUser.login && currentUser.login.toLowerCase() === routeProfileId.toLowerCase())
-          )
-        );
+    if (path.startsWith('/@id') && parsedProfileParam) {
+      const param = parsedProfileParam.trim();
+      const numParam = Number(param);
+      const isNum = !isNaN(numParam);
 
-        if (isSelf) {
-          if (selectedUserData !== null) {
-            setSelectedUserData(null);
+      // Check if this matches current user's profile
+      const isCurrent = currentUser && (
+        currentUser.id === param ||
+        (isNum && currentUser.public_id === numParam) ||
+        (currentUser.public_id !== undefined && String(currentUser.public_id) === param)
+      );
+
+      if (isCurrent) {
+        // Logged-in user is viewing their own profile -> show as own profile (not third-person)
+        if (selectedUserData !== null) {
+          setSelectedUserData(null);
+        }
+      } else {
+        const found = users.find(u => 
+          u.id === param || 
+          (isNum && u.public_id === numParam) ||
+          (u.public_id !== undefined && String(u.public_id) === param)
+        );
+        if (found) {
+          if (!selectedUserData || selectedUserData.id !== found.id) {
+            setSelectedUserData(found);
           }
-        } else {
-          // Viewing someone else's profile
-          const found = users.find(u => 
-            String(u.public_id) === String(routeProfileId) ||
-            u.id === routeProfileId ||
-            getUserReadableId(u) === String(routeProfileId) ||
-            (u.login && u.login.toLowerCase() === routeProfileId.toLowerCase())
-          );
+        }
+      }
+    } else if ((path.startsWith('/u/') || path.startsWith('/user/')) && userId) {
+      if (currentUser && currentUser.id === userId) {
+        if (selectedUserData !== null) {
+          setSelectedUserData(null);
+        }
+      } else {
+        if (!selectedUserData || selectedUserData.id !== userId) {
+          const found = users.find(u => u.id === userId || (u.public_id !== undefined && String(u.public_id) === userId));
           if (found) {
-            if (!selectedUserData || selectedUserData.id !== found.id) {
-              setSelectedUserData(found);
-            }
-          } else if (isSupabaseConfigured) {
-            // Fetch directly from DB if not yet in memory
-            const isNum = /^\d+$/.test(routeProfileId);
-            const query = isNum 
-              ? supabase.from('profiles').select('*').or(`public_id.eq.${routeProfileId},id.eq.${routeProfileId}`)
-              : supabase.from('profiles').select('*').or(`id.eq.${routeProfileId},username.ilike.${routeProfileId}`);
-            query.then(
-              ({ data }) => {
-                if (data && data.length > 0) {
-                  const fetched = profileToAppUser(data[0]);
-                  if (currentUser && fetched.id === currentUser.id) {
-                    setSelectedUserData(null);
-                  } else {
-                    setSelectedUserData(fetched);
-                  }
-                }
-              },
-              (err: unknown) => console.error('[ProfileRoute] Error loading profile:', err)
-            );
+            setSelectedUserData(found);
           }
         }
       }
@@ -2422,65 +2350,47 @@ export default function App() {
         setSelectedUserData(null);
       }
     }
-  }, [location.pathname, routeProfileId, users, selectedUserData, currentUser, isSupabaseConfigured]);
+  }, [location.pathname, parsedProfileParam, userId, users, selectedUserData, currentUser]);
 
-  // Synchronize /info_{public_id} URL with infoUser state
+  // Synchronize URL /info_:id parameter with infoUser card state
   useEffect(() => {
-    if (routeInfoId) {
-      const found = users.find(u => 
-        String(u.public_id) === String(routeInfoId) ||
-        u.id === routeInfoId ||
-        getUserReadableId(u) === String(routeInfoId)
+    const path = location.pathname;
+    if (path.startsWith('/info_') && parsedCardParam) {
+      const param = parsedCardParam.trim();
+      const numParam = Number(param);
+      const isNum = !isNaN(numParam);
+
+      const target = users.find(u => 
+        u.id === param || 
+        (isNum && u.public_id === numParam) ||
+        (u.public_id !== undefined && String(u.public_id) === param)
       );
-      if (found) {
-        if (!infoUser || infoUser.id !== found.id) {
-          const [first, ...lastParts] = found.name.split(' ');
+
+      if (target) {
+        if (!infoUser || infoUser.id !== target.id) {
+          const [first, ...lastParts] = target.name.split(' ');
           setEditFirstName(first);
           setEditLastName(lastParts.join(' '));
-          setEditStatus(found.status || '');
-          setEditLogin(found.login || '');
+          setEditStatus(target.status || '');
+          setEditLogin(target.login || '');
           setEditPassword('');
           setIsEditingInfo(false);
-          setInfoUser(found);
+          setInfoUser(target);
         }
-      } else if (isSupabaseConfigured) {
-        const isNum = /^\d+$/.test(routeInfoId);
-        const query = isNum 
-          ? supabase.from('profiles').select('*').or(`public_id.eq.${routeInfoId},id.eq.${routeInfoId}`)
-          : supabase.from('profiles').select('*').eq('id', routeInfoId);
-        query.then(
-          ({ data }) => {
-            if (data && data.length > 0) {
-              const fetched = profileToAppUser(data[0]);
-              const [first, ...lastParts] = fetched.name.split(' ');
-              setEditFirstName(first);
-              setEditLastName(lastParts.join(' '));
-              setEditStatus(fetched.status || '');
-              setEditLogin(fetched.login || '');
-              setEditPassword('');
-              setIsEditingInfo(false);
-              setInfoUser(fetched);
-            }
-          },
-          (err: unknown) => console.error('[InfoUserRoute] Error loading user card:', err)
-        );
       }
-    } else if (!routeInfoId && infoUser && activeTab !== 'info_user' && activeTab !== 'users') {
-      setInfoUser(null);
     }
-  }, [routeInfoId, users, isSupabaseConfigured, infoUser, activeTab]);
+  }, [location.pathname, parsedCardParam, users, infoUser]);
 
   // Valid route checker for 404 page content inclusion
   const isPathValid = (path: string): boolean => {
     const cleanPath = path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
     if (cleanPath === '/' || cleanPath === '' || cleanPath === '/profile' || cleanPath === '/messages' || cleanPath === '/user') return true;
-    if (cleanPath.startsWith('/@id') || cleanPath.startsWith('/id')) return true;
-    if (cleanPath.startsWith('/info_') || cleanPath.startsWith('/info-') || cleanPath.startsWith('/info/')) return true;
+    if (cleanPath.startsWith('/@id')) return true;
+    if (cleanPath.startsWith('/info_')) return true;
     if (cleanPath === '/feed') return true;
     if (cleanPath.startsWith('/u/')) return true;
     if (cleanPath.startsWith('/user/')) return true;
     if (cleanPath.startsWith('/post/')) return true;
-    if (cleanPath === '/wiki_new' || cleanPath === '/wiki_edit' || cleanPath.startsWith('/wiki-') || cleanPath.startsWith('/wiki/')) return true;
     if (cleanPath === '/settings') return true;
     if (cleanPath === '/admin') return true;
     if (cleanPath.startsWith('/admin/')) return true;
@@ -2872,18 +2782,15 @@ export default function App() {
       }
     });
 
-    const userShortcuts = users.map(u => {
-      const readId = getUserReadableId(u);
-      return {
-        id: `user-${u.id}`,
-        icon: User,
-        label: `ID ${readId}`,
-        onClick: () => {
-          setSelectedUserData(u);
-          navigate(`/@id${readId}`);
-        }
-      };
-    });
+    const userShortcuts = users.map(u => ({
+      id: `user-${u.id}`,
+      icon: User,
+      label: `ID ${u.id}`,
+      onClick: () => {
+        setSelectedUserData(u);
+        navigate('/user/' + u.id);
+      }
+    }));
 
     return [...baseItems, ...userShortcuts];
   }, [MENU_ITEMS, users, currentUser, tickets, translations, navigate]);
@@ -4613,7 +4520,10 @@ export default function App() {
                 <div className="flex justify-between items-start border-b pb-3 border-vk-separator/50">
                   <div className="flex items-center gap-3">
                     <div 
-                      onClick={() => navigateToUserProfile(targetUser)} 
+                      onClick={() => {
+                        setSelectedUserData(targetUser);
+                        navigate('/user/' + targetUser.id);
+                      }} 
                       className="w-12 h-12 rounded-full overflow-hidden border border-vk-separator cursor-pointer hover:opacity-85 transition-opacity"
                     >
                       <img src={targetUser.avatar} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -4625,7 +4535,8 @@ export default function App() {
                             if (e.altKey) {
                               handlePostCardClickWithAlt(e, targetUser.name, 'name');
                             } else {
-                              navigateToUserProfile(targetUser);
+                              setSelectedUserData(targetUser);
+                              navigate('/user/' + targetUser.id);
                             }
                           }} 
                           className="text-[13.5px] font-bold text-[#2a5885] hover:underline cursor-pointer font-sans"
@@ -4785,12 +4696,7 @@ export default function App() {
           >
             <ChevronLeft size={16} /> Назад к списку пользователей
           </button>
-          <div className="text-[12px] text-vk-text-secondary flex items-center gap-2">
-            <span>Просмотр карточки</span>
-            <span className="bg-[#e5ebf1] text-[#2a5885] px-2 py-0.5 rounded font-mono font-bold text-xs">
-              ID: {getUserReadableId(user)}
-            </span>
-          </div>
+          <div className="text-[12px] text-vk-text-secondary">Просмотр профиля</div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
@@ -4971,8 +4877,7 @@ export default function App() {
                     <span 
                       onClick={() => {
                         setSelectedUserData(user);
-                        const targetId = getUserReadableId(user);
-                        navigate(`/@id${targetId}`);
+                        navigate('/user/' + user.id);
                       }}
                       className="text-[#2a5885] hover:underline cursor-pointer"
                     >
@@ -6592,8 +6497,7 @@ export default function App() {
                           onClick={(e) => {
                             e.preventDefault();
                             setSelectedUserData(user);
-                            const readId = getUserReadableId(user);
-                            navigate(`/@id${readId}`);
+                            navigate('/user/' + user.id);
                           }} 
                           className="text-[13px] font-semibold text-[#285473] hover:underline cursor-pointer"
                         >
@@ -6603,7 +6507,7 @@ export default function App() {
                         {user.isBlocked && <span className="bg-red-100 text-red-600 text-[9px] uppercase font-bold px-1 rounded-[2px]">Забанен</span>}
                         {user.isSpamBadge && <span className="bg-[#faeaea] text-[#e64646] text-[9px] uppercase font-bold px-1 rounded-[2px]">SPAM</span>}
                       </div>
-                      <div className="text-[11px] text-vk-text-secondary">ID: {getUserReadableId(user)} • Регистрация: {user.regDate}</div>
+                      <div className="text-[11px] text-vk-text-secondary">ID: {user.id} • Регистрация: {user.regDate}</div>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {permissionService.hasRole(user, 'support') && <span className="bg-[#5181b8]/10 text-[#5181b8] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Поддержка</span>}
                         {permissionService.hasRole(user, 'moderation') && <span className="bg-[#656565]/10 text-[#656565] text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] uppercase">Модерация</span>}
@@ -6631,8 +6535,7 @@ export default function App() {
                         setEditPassword('');
                         setIsEditingInfo(true);
                         setInfoUser(user);
-                        const targetId = getUserReadableId(user);
-                        navigate(`/info_${targetId}`);
+                        navigate(getUserCardPath(user));
                       }} className="p-1.5 rounded-[4px] text-[#55677d] hover:bg-[#e5ebf1] hover:text-[#5181b8] transition-all"><Info size={16} /></button>
 
                       <button title="Настроить роли" onClick={() => {
@@ -7284,11 +7187,11 @@ export default function App() {
                 ...u,
                 isBlocked: true,
                 profileBlockInfo: {
-                  reason: `Служба автоконтроля [Следы-Guard]: сработало правило «${activeName}»`,
+                  reason: `Служба автоконтроля [ИТД-Guard]: сработало правило «${activeName}»`,
                   duration: 'Навсегда',
                   comment: `Триггеры нарушений: ${kwList.join(', ')}`,
                   timestamp: new Date(),
-                  moderator: operatorName ? `${operatorName} #${operatorId}` : 'Следы-Guard Автомат'
+                  moderator: operatorName ? `${operatorName} #${operatorId}` : 'ИТД-Guard Автомат'
                 }
               };
             }
@@ -7315,7 +7218,7 @@ export default function App() {
             userName: u.name,
             userAvatar: u.avatar || 'images.png',
             type: 'content',
-            content: `[Следы-Guard Автожалоба] Найдено нарушение в имени/статусе по правилу «${activeName}»`,
+            content: `[ИТД-Guard Автожалоба] Найдено нарушение в имени/статусе по правилу «${activeName}»`,
             rating: '0.94',
             reason: `Автоматическое выявление спама. Ключевые слова: ${kwList.join(', ')}`,
             dept: 'Спам',
@@ -7332,7 +7235,7 @@ export default function App() {
             userName: post.authorName,
             userAvatar: 'images.png',
             type: 'content',
-            content: `[Следы-Guard Автожалоба] Подозрительный пост «${post.text}»`,
+            content: `[ИТД-Guard Автожалоба] Подозрительный пост «${post.text}»`,
             rating: '0.97',
             reason: `Найдено автоправилом спам-контроля по триггерам: ${kwList.join(', ')}`,
             dept: 'Офтоп',
@@ -7450,8 +7353,8 @@ export default function App() {
                 secs: ['status', 'name']
               },
               {
-                name: 'Следы Валюта и Голоса',
-                triggers: 'продам голоса, куплю софт, голоса следы, инвайтер',
+                name: 'ИТД Валюта и Голоса',
+                triggers: 'продам голоса, куплю софт, голоса итд, инвайтер',
                 action: 'flag_pro',
                 secs: ['posts', 'status']
               }
@@ -10464,8 +10367,9 @@ export default function App() {
                          
                          <button onClick={() => { 
                            const u = targetUser || { id: ticket.userId, name: ticket.userName, avatar: ticket.userAvatar, trustLevel: 0.85, isVerified: false, isBlocked: false, regDate: 'сегодня' };
+                           setSelectedUserData(u);
                            setOpenUserMenuId(null); 
-                           navigateToUserProfile(u);
+                           navigate('/user/' + u.id);
                          }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">Просмотреть Профиль</button>
                          
                          <div className="border-t border-[#f0f2f5] my-1" />
@@ -10480,8 +10384,7 @@ export default function App() {
                              setEditPassword('');
                              setIsEditingInfo(true);
                              setInfoUser(targetUser);
-                             const targetId = getUserReadableId(targetUser);
-                             navigate(`/info_${targetId}`);
+                             navigate(getUserCardPath(targetUser));
                            }
                            setOpenUserMenuId(null);
                          }} className="w-full text-left px-3.5 py-2 text-[12.5px] text-[#2a5885] hover:bg-[#f0f2f5] transition-colors">
@@ -10572,7 +10475,8 @@ export default function App() {
                     <div 
                       onClick={() => {
                         if (isAgentView && targetUser) {
-                          navigateToUserProfile(targetUser);
+                          setSelectedUserData(targetUser);
+                          navigate('/user/' + targetUser.id);
                         }
                       }}
                       className={`w-[44px] h-[44px] shrink-0 rounded-full overflow-hidden border border-[#e7e8ec] bg-gray-100 ${isAgentView ? 'cursor-pointer hover:opacity-85 transition-opacity' : ''}`}
@@ -10593,7 +10497,8 @@ export default function App() {
                           <span 
                             onClick={() => {
                               if (targetUser) {
-                                navigateToUserProfile(targetUser);
+                                setSelectedUserData(targetUser);
+                                navigate('/user/' + targetUser.id);
                               }
                             }}
                             className="text-[13px] font-bold text-[#2a5885] hover:underline cursor-pointer"
@@ -11871,9 +11776,9 @@ export default function App() {
 
       <div className="bg-vk-white p-4 rounded-xl border border-zinc-200/60 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <div>
-          <h1 className="text-[15px] font-bold text-zinc-900">
+          <h1 className="text-[15px] font-bold text-zinc-900 font-display">
             {enableFeedModes ? (
-              feedMode === 'all' ? 'Следы' :
+              feedMode === 'all' ? 'Лента' :
               feedMode === 'discussing' ? 'Обсуждают' :
               feedMode === 'studying' ? 'Изучают' :
               'Рекомендуют'
@@ -11970,7 +11875,7 @@ export default function App() {
         <div className="border-b border-[#f0f2f5] pb-4 flex justify-between items-center">
           <div>
             <h2 className="text-sm font-bold text-[#2a5885] uppercase tracking-wider">Параметры приватности и профиля</h2>
-            <p className="text-[11.5px] text-zinc-500 mt-1">Настройте свои публичные личные данные и видимость на Следы</p>
+            <p className="text-[11.5px] text-zinc-500 mt-1">Настройте свои публичные личные данные и видимость в ИТД</p>
           </div>
           <button
             onClick={() => {
@@ -12167,12 +12072,12 @@ export default function App() {
         className="bg-white border border-[#e7e8ec] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-6 min-h-[400px] select-none"
       >
         <div className="p-4 bg-zinc-50 rounded-full border border-zinc-150 animate-bounce">
-          <Footprints size={48} className="text-[#4F7DF3] transform -rotate-12 animate-pulse" />
+          <ItdLogo width={48} height={24} className="text-[#1a1a1a]" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-xl font-black text-zinc-900 tracking-tight">404 — След растерялся</h1>
+          <h1 className="text-xl font-black text-zinc-900 tracking-tight font-display">404 — Страница не найдена</h1>
           <p className="text-zinc-500 text-[12px] max-w-sm mx-auto">
-            К сожалению, след засыпало листьями, запрашиваемый вами раздел был перемещен или удален из системы.
+            К сожалению, запрашиваемый вами раздел был перемещен или удален из ИТД.
           </p>
         </div>
         <button
@@ -16774,7 +16679,6 @@ export default function App() {
         return renderAppeals();
       case 'requests':
         return renderRequests();
-      case 'info_user':
       case 'users':
         return renderUsers();
       case 'management':
@@ -16792,8 +16696,8 @@ export default function App() {
 
       case 'profile':
       default: {
-        const currentDisplayUser = (selectedUserData && selectedUserData.id !== currentUser?.id) ? selectedUserData : currentUser;
-        const isOwnProfile = !selectedUserData || selectedUserData.id === currentUser?.id || currentDisplayUser?.id === currentUser?.id;
+        const currentDisplayUser = selectedUserData || currentUser;
+        const isOwnProfile = currentDisplayUser?.id === currentUser?.id;
         const isViewingServiceProfile = isServiceProfileUser(currentDisplayUser);
         const renderedUser = isOwnProfile
           ? (isPreviewMode && currentUser ? getRenderedUser(currentUser, publicSettings) : currentUser)
@@ -17190,9 +17094,7 @@ export default function App() {
                       <div className="space-y-2">
                         {hasRightMenuAccess('id') && (
                           <div className="bg-[#f0f2f5] rounded-[2px] p-2 border border-vk-separator">
-                             <p className="text-sm font-medium text-vk-text-secondary text-center font-mono">
-                               ID: {getUserReadableId(currentDisplayUser)}
-                             </p>
+                             <p className="text-sm font-medium text-vk-text-secondary text-center">ID: {getUserDisplayId(currentDisplayUser)}</p>
                           </div>
                         )}
                         {selectedUserData?.isPornMarked && (
@@ -17231,8 +17133,7 @@ export default function App() {
                                 setEditPassword('');
                                 setIsEditingInfo(true);
                                 setInfoUser(currentDisplayUser);
-                                const targetId = getUserReadableId(currentDisplayUser);
-                                navigate(`/info_${targetId}`);
+                                navigate(getUserCardPath(currentDisplayUser));
                               }
                             }}
                             className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
@@ -17309,10 +17210,10 @@ export default function App() {
 
   if (authLoading || !bootCompleted || isStateOutOfSync) {
     return (
-      <div className="min-h-screen bg-[#f0f2f5] flex flex-col items-center justify-center font-sans select-none">
+      <div className="min-h-screen bg-[#f5f5f5] flex flex-col items-center justify-center font-sans select-none">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-[#5181b8] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase">Следы — Загрузка данных...</span>
+          <div className="w-10 h-10 border-4 border-[#1a1a1a] border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase font-display">ИТД — Загрузка данных...</span>
         </div>
       </div>
     );
@@ -17335,12 +17236,16 @@ export default function App() {
         <div className="max-w-[1240px] w-full mx-auto flex items-center justify-between font-sans">
           <div className="flex items-center">
             <div 
-              onClick={() => { setSelectedUserData(null); setActiveTab('profile'); }} 
-              className="flex items-center cursor-pointer hover:opacity-85 select-none transition-opacity"
+              onClick={() => { 
+                setSelectedUserData(null); 
+                setActiveTab('profile'); 
+                navigate(getUserProfilePath(currentUser));
+              }} 
+              className="flex items-center gap-2.5 cursor-pointer hover:opacity-85 select-none transition-opacity"
             >
-              <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight flex items-center gap-2">
-                <Footprints size={15} strokeWidth={2.4} className="text-zinc-950 transform -rotate-12" />
-                <span>Следы</span>
+              <ItdLogo width={36} height={18} className="text-[#1a1a1a]" />
+              <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight font-display">
+                ИТД
               </span>
             </div>
           </div>
@@ -17444,7 +17349,11 @@ export default function App() {
                         navigate('/');
                         return;
                       }
-                      if (item.id === 'profile') setSelectedUserData(null);
+                      if (item.id === 'profile') {
+                        setSelectedUserData(null);
+                        navigate(getUserProfilePath(currentUser));
+                        return;
+                      }
                       if (item.id === 'support') {
                         setSupportCategoryFilter('all');
                       }
@@ -17484,9 +17393,6 @@ export default function App() {
                  <Routes>
                    <Route path="/" element={renderContent()} />
                    <Route path="/profile" element={renderContent()} />
-                   <Route path="/@id:profileId" element={renderContent()} />
-                   <Route path="/id:profileId" element={renderContent()} />
-                   <Route path="/info_:infoId" element={renderContent()} />
                    <Route path="/feed" element={renderContent()} />
                    <Route path="/messages" element={renderContent()} />
                    <Route path="/u/:userId" element={renderContent()} />
@@ -17533,11 +17439,11 @@ export default function App() {
       {isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked) && (
         <div className="fixed bottom-0 left-0 right-0 z-[1000] bg-white/95 backdrop-blur-md border-t border-zinc-200/80 md:hidden flex justify-around items-center py-2 px-3 pb-[calc(8px+env(safe-area-inset-bottom))] shadow-[0_-2px_12px_rgba(0,0,0,0.04)] select-none">
           {[
-            { id: 'feed', icon: LayoutGrid, label: 'Следы', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
+            { id: 'feed', icon: LayoutGrid, label: 'Лента', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
             { id: 'discussed-now', icon: Flame, label: 'Обсуждают', action: () => { setFeedMode('discussing'); setActiveTab('feed'); navigate('/feed'); } },
             { id: 'internal-mail', icon: MessageSquare, label: 'Сообщения', action: () => { setActiveTab('internal-mail'); navigate('/internal-mail'); }, count: messengerMessages.filter(m => m.receiverId === currentUser?.id && m.unread).length },
             { id: 'notifications', icon: Bell, label: 'Уведомления', action: () => { setActiveTab('notifications'); navigate('/notifications'); }, count: currentUser?.id ? NotificationService.getUnreadCount(userNotifications, currentUser.id) : 0 },
-            { id: 'profile', icon: User, label: 'Профиль', action: () => { setSelectedUserData(null); setActiveTab('profile'); } }
+            { id: 'profile', icon: User, label: 'Профиль', action: () => { setSelectedUserData(null); setActiveTab('profile'); navigate(getUserProfilePath(currentUser)); } }
           ].map((item) => {
             let isActive = activeTab === item.id;
             if (item.id === 'discussed-now') {

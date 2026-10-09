@@ -16,7 +16,7 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
   onToggleEnabled
 }) => {
   const options: { id: FeedMode; label: string }[] = [
-    { id: 'all', label: 'Следы' },
+    { id: 'all', label: 'Лента' },
     { id: 'discussing', label: 'Обсуждают' },
     { id: 'studying', label: 'Изучают' },
     { id: 'recommending', label: 'Рекомендуют' },
@@ -48,7 +48,7 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
 
         {/* Humanized, elegant explanation text */}
         <p className="text-[12px] text-zinc-500 leading-relaxed text-left font-normal px-0.5">
-          Следы сообщества помогают находить интересные мысли, вопросы и выводы других людей. Формат показывает, каким способом автор раскрывает свою мысль.
+          Публикации сообщества ИТД помогают находить интересные мысли, новости и обсуждения других людей.
         </p>
       </div>
     </div>

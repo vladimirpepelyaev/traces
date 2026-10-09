@@ -73,7 +73,7 @@ export class UserRepository {
 
       return {
         id: data.id,
-        public_id: data.public_id != null ? Number(data.public_id) : undefined,
+        public_id: data.public_id ? Number(data.public_id) : undefined,
         username: data.username,
         display_name: data.display_name,
         avatar_url: data.avatar_url,

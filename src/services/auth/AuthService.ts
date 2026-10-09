@@ -63,7 +63,7 @@ export function profileToAppUser(profile: any): AppUser {
 
   const appUser: AppUser = {
     id: profile.id,
-    public_id: profile.public_id != null ? Number(profile.public_id) : undefined,
+    public_id: profile.public_id ? Number(profile.public_id) : undefined,
     name: profile.display_name || profile.username || 'Пользователь',
     login: profile.username || '',
     avatar: profile.avatar_url || '',

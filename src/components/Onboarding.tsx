@@ -15,11 +15,11 @@ import {
   Lightbulb,
   FileSearch,
   BookOpen,
-  Compass,
-  Footprints
+  Compass
 } from 'lucide-react';
 import { AppUser, FeedPost } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { ItdLogo } from './ItdLogo';
 
 export const ONBOARDING_TOPICS = [
   'Технологии',
@@ -257,11 +257,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({
         
         {/* Modern minimal header */}
         <div className="px-8 py-3 w-full border-b border-zinc-100 flex items-center justify-between bg-white shrink-0">
-          <div className="flex items-center select-none">
-            <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight flex items-center gap-2">
-              <Footprints size={15} strokeWidth={2.4} className="text-zinc-950 transform -rotate-12" />
-              <span>Следы</span>
-            </span>
+          <div className="flex items-center select-none gap-2">
+            <ItdLogo width={32} height={16} className="text-[#1a1a1a]" />
+            <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight">ИТД</span>
           </div>
           {step <= 5 && (
             <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-400 font-medium select-none">
@@ -290,13 +288,13 @@ export const Onboarding: React.FC<OnboardingProps> = ({
                   <div className="space-y-3.5 text-center sm:text-left">
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#f4f4f5] border border-zinc-200 text-zinc-650 text-[10.5px] font-bold self-center sm:self-start leading-none tracking-wide select-none">
                       <Sparkles size={11} className="text-zinc-600" />
-                      <span>Платформа качественных обсуждений</span>
+                      <span>Социальная сеть нового поколения</span>
                     </div>
-                    <h2 className="text-3xl sm:text-[42px] lg:text-[50px] font-black text-zinc-950 tracking-tight leading-[1.06] sm:leading-[1.06]">
-                      Следы, которые оставляют мысли.
+                    <h2 className="text-3xl sm:text-[42px] lg:text-[50px] font-black text-zinc-950 tracking-tight leading-[1.06] sm:leading-[1.06] font-display">
+                      Добро пожаловать в ИТД.
                     </h2>
                     <p className="text-[14px] text-zinc-500 max-w-xl leading-relaxed font-medium">
-                      Следы помогают сохранять наблюдения, вопросы, идеи и выводы — чтобы другие люди могли их найти, продолжить или переосмыслить.
+                      ИТД помогает делиться публикациями, общаться, находить единомышленников и открывать новое.
                     </p>
                   </div>
 
@@ -555,8 +553,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({
               {step === 5 && (
                 <div className="space-y-4">
                   <div className="text-center sm:text-left space-y-2">
-                    <h2 className="text-3xl sm:text-[42px] lg:text-[48px] font-black text-zinc-950 tracking-tight leading-[1.06] sm:leading-[1.06]">Начните с лучших авторов</h2>
-                    <p className="text-[13px] text-zinc-500 font-medium mt-1">Их следы «цепляют» и запускают качественную полемику.</p>
+                    <h2 className="text-3xl sm:text-[42px] lg:text-[48px] font-black text-zinc-950 tracking-tight leading-[1.06] sm:leading-[1.06] font-display">Начните с лучших авторов</h2>
+                    <p className="text-[13px] text-zinc-500 font-medium mt-1">Их публикации запускают интересные обсуждения.</p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[260px] overflow-y-auto pr-1 select-text scrollbar-thin">

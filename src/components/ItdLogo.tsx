@@ -19,7 +19,7 @@ export const ItdLogo: React.FC<ItdLogoProps> = ({
       viewBox="0 0 36 18"
       fill="none"
       className={className}
-      aria-label="ИТД"
+      aria-label="Следы"
     >
       <path fill="currentColor" d="M12 3V0h12v3h-4v11h-4V3h-4Z" />
       <path fill="currentColor" d="M12 3V0h12v3h-4v11h-4V3h-4ZM9 0 3 9V0H0v14h3l6-9v9h3V0H9Z" />

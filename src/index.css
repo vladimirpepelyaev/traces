@@ -91,165 +91,127 @@ div[class*="shadow-2xl"], div[class*="shadow-xl"], .fixed.inset-0 > div {
   background-color: #ffffff !important;
 }
 
-/* 2. Global buttons override - premium clean modern buttons */
-/* Primary Action Buttons */
+/* --- Global ITD Design System: Buttons & Tabs --- */
+
+/* 1. Global Buttons Override matching itd.com */
+button {
+  border-radius: 9999px;
+  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Force all square-styled buttons into itd.com sleek pill buttons */
+button.rounded-\[2px\], button.rounded-\[4px\], button[class*="rounded-\[2px\]"], button[class*="rounded-\[4px\]"],
+button.rounded-md, button.rounded-lg, button.rounded-xl, button.rounded-2xl {
+  border-radius: 9999px !important;
+}
+
+/* Primary Buttons (itd.com: black / --btn-primary-bg: #1a1a1a, white text, pill radius 9999px / 20px) */
 button.bg-[#5181b8], button.bg-[#5f83aa], button.bg-[#4a76a8], button.bg-[#2a5885],
 button[class*="bg-vk-blue"], button[class*="bg-vk-header"],
-button.bg-blue-600, button.bg-indigo-600, button.bg-blue-500 {
-  background-color: #1c1c1a !important; /* Black/Dark Slate */
+button.bg-blue-600, button.bg-indigo-600, button.bg-blue-500,
+button.bg-\[\#4F7DF3\], button[class*="bg-\[\#4F7DF3\]"] {
+  background-color: #1a1a1a !important;
   color: #ffffff !important;
-  border-radius: 12px !important;
-  border: 1px solid #1c1c1a !important;
-  font-size: 13px !important;
+  border-radius: 9999px !important;
+  border: 1px solid #1a1a1a !important;
+  font-size: 13.5px !important;
   font-weight: 500 !important;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04) !important;
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-  padding-top: 8px !important;
-  padding-bottom: 8px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  padding: 8px 18px !important;
   cursor: pointer !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
-button.bg-[#5181b8]:hover, button.bg-[#5f83aa]:hover, button.bg-blue-600:hover, button.bg-blue-500:hover {
-  background-color: #2e2e2b !important;
-  border-color: #2e2e2b !important;
+button.bg-[#5181b8]:hover, button.bg-[#5f83aa]:hover, button.bg-blue-600:hover, button.bg-blue-500:hover,
+button.bg-\[\#4F7DF3\]:hover, button[class*="bg-\[\#4F7DF3\]"]:hover {
+  background-color: #000000 !important;
+  border-color: #000000 !important;
+  opacity: 0.9 !important;
   transform: translateY(-0.5px);
 }
 
-/* Green Buttons (Confirmations) */
-button.bg-[#4bb34b], button.bg-[#5cf25c], button.bg-green-600, button[class*="bg-green-"] {
-  background-color: #10b981 !important; /* Emerald */
+/* Green Buttons (Confirmations / Unblock / Accept) */
+button.bg-[#4bb34b], button.bg-[#52c152], button.bg-[#5cf25c], button.bg-green-600, button[class*="bg-green-"] {
+  background-color: #10b981 !important;
   color: #ffffff !important;
-  border-radius: 12px !important;
+  border-radius: 9999px !important;
   border: 1px solid #10b981 !important;
   font-size: 13px !important;
   font-weight: 500 !important;
-  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.05) !important;
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-  padding-top: 8px !important;
-  padding-bottom: 8px !important;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1) !important;
+  padding: 8px 16px !important;
   cursor: pointer !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
-button.bg-[#4bb34b]:hover, button.bg-[#5cf25c]:hover, button.bg-green-600:hover {
+button.bg-[#4bb34b]:hover, button.bg-[#52c152]:hover, button.bg-green-600:hover {
   background-color: #059669 !important;
   border-color: #059669 !important;
+  opacity: 0.9 !important;
 }
 
-/* Red Buttons (Action and Warnings) */
-button.bg-[#e64646], button.bg-[#ff3347], button.bg-red-600, button[class*="bg-red-"] {
-  background-color: #ef4444 !important; /* Rose Red */
+/* Red / Danger Buttons (Block / Delete / Ban) */
+button.bg-[#e64646], button.bg-[#f05050], button.bg-[#ff3347], button.bg-red-600, button[class*="bg-red-"] {
+  background-color: #ef4444 !important;
   color: #ffffff !important;
-  border-radius: 12px !important;
+  border-radius: 9999px !important;
   border: 1px solid #ef4444 !important;
   font-size: 13px !important;
   font-weight: 500 !important;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.05) !important;
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-  padding-top: 8px !important;
-  padding-bottom: 8px !important;
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1) !important;
+  padding: 8px 16px !important;
   cursor: pointer !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
-button.bg-[#e64646]:hover, button.bg-[#ff3347]:hover, button.bg-red-600:hover {
+button.bg-[#e64646]:hover, button.bg-[#f05050]:hover, button.bg-red-600:hover {
   background-color: #dc2626 !important;
   border-color: #dc2626 !important;
+  opacity: 0.9 !important;
 }
 
-/* Gray / Secondary Buttons */
-button.bg-slate-100, button.bg-gray-100, button.bg-[#f2f3f5], button.bg-[#eaeef2], button.bg-[#e5ebf1] {
-  background-color: #f5f5f4 !important; /* Warm Gray */
-  color: #1c1c1a !important;
-  border: 1px solid #e4e4e0 !important;
-  border-radius: 12px !important;
+/* Gray / Secondary Buttons (itd.com: background: var(--bg-secondary) #ebebeb, pill radius) */
+button.bg-slate-100, button.bg-gray-100, button.bg-[#f2f3f5], button.bg-[#eaeef2], button.bg-[#e5ebf1], button.bg-[#dfe6ed] {
+  background-color: #ebebeb !important;
+  color: #1a1a1a !important;
+  border: none !important;
+  border-radius: 9999px !important;
   font-size: 13px !important;
   font-weight: 500 !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.01) !important;
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-  padding-top: 8px !important;
-  padding-bottom: 8px !important;
+  padding: 8px 16px !important;
   cursor: pointer !important;
-  font-family: "Inter", sans-serif !important;
+  font-family: inherit !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
-button.bg-slate-100:hover, button.bg-gray-100:hover, button.bg-[#f2f3f5]:hover, button.bg-[#eaeef2]:hover {
-  background-color: #eaeae6 !important;
-  border-color: #d8d8d4 !important;
+button.bg-slate-100:hover, button.bg-gray-100:hover, button.bg-[#f2f3f5]:hover, button.bg-[#eaeef2]:hover, button.bg-[#e5ebf1]:hover, button.bg-[#dfe6ed]:hover {
+  background-color: #e0e0e0 !important;
+  color: #000000 !important;
 }
 
-/* 3. Inputs and Textareas */
-input[type="text"], input[type="password"], textarea, select {
-  background-color: #ffffff !important;
-  color: #1c1c1a !important;
-  border: 1px solid #e4e4e0 !important;
-  border-radius: 12px !important;
-  font-size: 13px !important;
-  padding: 8px 12px !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.01) !important;
-  font-family: inherit !important;
-  transition: all 0.15s ease !important;
-}
-
-input[type="text"]:focus, input[type="password"]:focus, textarea:focus, select:focus {
-  border-color: #1c1c1a !important;
-  outline: none !important;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05) !important;
-}
-
-/* 4. Left Sidebar Menu buttons overrides */
+/* 2. Left Sidebar Menu Items (itd.com: .gS94 - border-radius: 12px, font-size: 14px, font-weight: 500, color: var(--text-secondary), hover: var(--block-bg)) */
 aside button, aside a {
   padding: 10px 14px !important;
-  border-radius: 14px !important;
+  border-radius: 12px !important;
   background-color: transparent !important;
-  color: #555550 !important;
+  color: #7a7a7a !important;
   font-weight: 500 !important;
-  font-size: 13px !important;
+  font-size: 14px !important;
   font-family: inherit !important;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 aside button:hover, aside a:hover {
-  background-color: #f4f4f3 !important;
-  color: #1c1c1a !important;
-  text-decoration: none !important;
+  background-color: #ffffff !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* 5. Headings */
-h1, h2, h3, h4, h5 {
-  color: #1c1c1a !important;
-  font-weight: 600 !important;
-  font-family: "Space Grotesk", sans-serif !important;
-  letter-spacing: -0.015em !important;
-}
-
-h1 {
-  font-size: 18px !important;
-  border-bottom: none !important;
-  padding-bottom: 0px !important;
-  margin-bottom: 8px !important;
-}
-
-h2 {
-  font-size: 15px !important;
-  border-bottom: none !important;
-  padding-bottom: 0px !important;
-  margin-bottom: 10px !important;
-}
-
-h3 {
-  font-size: 13.5px !important;
-}
-
-/* 6. Tabs styling */
+/* 3. Segmented Switch / Tab Bars (itd.com: .yZad - rounded-full/pill, blur, white pill for active tab) */
 .flex.gap-2 button, [class*="flex gap-"] button, [class*="flex space-x-"] button {
-  border-radius: 12px !important;
-  box-shadow: none !important;
+  border-radius: 9999px !important;
+  transition: all 0.2s ease !important;
 }
 
 /* Yellow status notes */
 .bg-[#fff9cc], [class*="bg-[#fff9cc]"] {
   background-color: #fafaf6 !important;
   border: 1px solid #e4e4e0 !important;
+  border-radius: 12px !important;
 }

@@ -7187,11 +7187,11 @@ export default function App() {
                 ...u,
                 isBlocked: true,
                 profileBlockInfo: {
-                  reason: `Служба автоконтроля [ИТД-Guard]: сработало правило «${activeName}»`,
+                  reason: `Служба автоконтроля [Следы-Guard]: сработало правило «${activeName}»`,
                   duration: 'Навсегда',
                   comment: `Триггеры нарушений: ${kwList.join(', ')}`,
                   timestamp: new Date(),
-                  moderator: operatorName ? `${operatorName} #${operatorId}` : 'ИТД-Guard Автомат'
+                  moderator: operatorName ? `${operatorName} #${operatorId}` : 'Следы-Guard Автомат'
                 }
               };
             }
@@ -7218,7 +7218,7 @@ export default function App() {
             userName: u.name,
             userAvatar: u.avatar || 'images.png',
             type: 'content',
-            content: `[ИТД-Guard Автожалоба] Найдено нарушение в имени/статусе по правилу «${activeName}»`,
+            content: `[Следы-Guard Автожалоба] Найдено нарушение в имени/статусе по правилу «${activeName}»`,
             rating: '0.94',
             reason: `Автоматическое выявление спама. Ключевые слова: ${kwList.join(', ')}`,
             dept: 'Спам',
@@ -7235,7 +7235,7 @@ export default function App() {
             userName: post.authorName,
             userAvatar: 'images.png',
             type: 'content',
-            content: `[ИТД-Guard Автожалоба] Подозрительный пост «${post.text}»`,
+            content: `[Следы-Guard Автожалоба] Подозрительный пост «${post.text}»`,
             rating: '0.97',
             reason: `Найдено автоправилом спам-контроля по триггерам: ${kwList.join(', ')}`,
             dept: 'Офтоп',
@@ -7353,8 +7353,8 @@ export default function App() {
                 secs: ['status', 'name']
               },
               {
-                name: 'ИТД Валюта и Голоса',
-                triggers: 'продам голоса, куплю софт, голоса итд, инвайтер',
+                name: 'Следы Валюта и Голоса',
+                triggers: 'продам голоса, куплю софт, голоса следы, инвайтер',
                 action: 'flag_pro',
                 secs: ['posts', 'status']
               }
@@ -11875,7 +11875,7 @@ export default function App() {
         <div className="border-b border-[#f0f2f5] pb-4 flex justify-between items-center">
           <div>
             <h2 className="text-sm font-bold text-[#2a5885] uppercase tracking-wider">Параметры приватности и профиля</h2>
-            <p className="text-[11.5px] text-zinc-500 mt-1">Настройте свои публичные личные данные и видимость в ИТД</p>
+            <p className="text-[11.5px] text-zinc-500 mt-1">Настройте свои публичные личные данные и видимость на Следы</p>
           </div>
           <button
             onClick={() => {
@@ -12077,7 +12077,7 @@ export default function App() {
         <div className="space-y-2">
           <h1 className="text-xl font-black text-zinc-900 tracking-tight font-display">404 — Страница не найдена</h1>
           <p className="text-zinc-500 text-[12px] max-w-sm mx-auto">
-            К сожалению, запрашиваемый вами раздел был перемещен или удален из ИТД.
+            К сожалению, запрашиваемый вами раздел был перемещен или удален из Следов.
           </p>
         </div>
         <button
@@ -16830,18 +16830,18 @@ export default function App() {
                     <div className="flex flex-wrap gap-2 items-center sm:self-start">
                       <button 
                         onClick={() => setIsPrivacyModalOpen(true)}
-                        className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border border-zinc-200/50 hover:border-zinc-300 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                        className="px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a] rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                       >
-                        <Shield size={13} className="text-[#6B7280]" />
+                        <Shield size={13} className="text-[#7a7a7a]" />
                         <span>Настройки видимости</span>
                       </button>
 
                       <button 
                         onClick={() => setIsPreviewMode(!isPreviewMode)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                        className={`px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                           isPreviewMode 
-                            ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border-amber-200' 
-                            : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border-zinc-200/50 hover:border-zinc-300'
+                            ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200' 
+                            : 'bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a]'
                         }`}
                       >
                         {isPreviewMode ? (
@@ -16851,7 +16851,7 @@ export default function App() {
                           </>
                         ) : (
                           <>
-                            <User size={13} className="text-[#6B7280]" />
+                            <User size={13} className="text-[#7a7a7a]" />
                             <span>Как видят мой профиль?</span>
                           </>
                         )}
@@ -16893,12 +16893,12 @@ export default function App() {
                         <>
                           <button 
                             onClick={() => handleToggleSubscribe(currentDisplayUser.id)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                            className={`px-4 py-2 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                               myFriends.includes(currentDisplayUser.id) 
-                                ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200' 
+                                ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200' 
                                 : mySubscriptions.includes(currentDisplayUser.id)
-                                  ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border-zinc-200/50'
-                                  : 'bg-[#4F7DF3] text-white hover:bg-[#3465DF] border-transparent'
+                                  ? 'bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a]'
+                                  : 'bg-[#1a1a1a] text-white hover:bg-black'
                             }`}
                           >
                             {myFriends.includes(currentDisplayUser.id) ? (
@@ -16923,9 +16923,9 @@ export default function App() {
                                 setActiveTab('internal-mail');
                               }
                             }}
-                            className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 border border-zinc-200/50 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                            className="px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a] rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                           >
-                            <MessageSquare size={13} className="text-[#6B7280]" />
+                            <MessageSquare size={13} className="text-[#7a7a7a]" />
                             <span>Написать сообщение</span>
                           </button>
 
@@ -16934,7 +16934,7 @@ export default function App() {
                               console.log('REPORT_CLICK', 'profile', currentDisplayUser);
                               handleComplainAboutProfile(currentDisplayUser);
                             }}
-                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-[#EF4444] border border-rose-100 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                            className="px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#ef4444] rounded-full text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
                           >
                             <ShieldAlert size={13} />
                             <span>Пожаловаться</span>
@@ -17107,14 +17107,14 @@ export default function App() {
                           (selectedUserData?.isBlocked || (isProfileBlocked && !selectedUserData)) ? (
                             <button 
                               onClick={handleProfileUnblock}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#4bb34b] hover:bg-[#52c152] text-white rounded-[2px] text-xs font-medium transition-colors"
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#10b981] hover:bg-[#059669] text-white rounded-full text-[13px] font-medium transition-all"
                             >
                                Разблокировать
                             </button>
                           ) : (
                             <button 
                               onClick={openProfileBlockModal}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e64646] hover:bg-[#f05050] text-white rounded-[2px] text-xs font-medium transition-colors"
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#ef4444] hover:bg-[#dc2626] text-white rounded-full text-[13px] font-medium transition-all"
                             >
                                Заблокировать
                             </button>
@@ -17136,7 +17136,7 @@ export default function App() {
                                 navigate(getUserCardPath(currentDisplayUser));
                               }
                             }}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a] rounded-full text-[13px] font-medium transition-all"
                           >
                             Карточка
                           </button>
@@ -17145,8 +17145,8 @@ export default function App() {
                         {hasRightMenuAccess('verify') && (
                           <button 
                              onClick={toggleProfileVerification}
-                             className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-xs font-medium transition-colors border ${
-                                (selectedUserData?.isVerified || (isProfileVerified && !selectedUserData)) ? 'bg-[#5181b8] text-white border-[#5181b8]' : 'bg-[#e5ebf1] text-[#55677d] border-[#e5ebf1] hover:bg-[#dfe6ed]'
+                             className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-all ${
+                                (selectedUserData?.isVerified || (isProfileVerified && !selectedUserData)) ? 'bg-[#1a1a1a] text-white' : 'bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a]'
                              }`}
                           >
                              {(selectedUserData?.isVerified || (isProfileVerified && !selectedUserData)) ? 'Убрать верификацию' : 'Верифицировать'}
@@ -17156,7 +17156,7 @@ export default function App() {
                         {hasRightMenuAccess('info') && (
                           <button 
                             onClick={() => setIsProfileInfoModalOpen(true)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a] rounded-full text-[13px] font-medium transition-all"
                           >
                              Информация
                           </button>
@@ -17165,7 +17165,7 @@ export default function App() {
                         {hasRightMenuAccess('complaints') && (
                           <button 
                             onClick={() => setComplaintsModalUser(selectedUserData || currentUser)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#e5ebf1] hover:bg-[#dfe6ed] text-[#55677d] rounded-[2px] text-xs font-medium transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a] rounded-full text-[13px] font-medium transition-all"
                           >
                              Жалобы
                           </button>
@@ -17174,7 +17174,7 @@ export default function App() {
                         {hasRightMenuAccess('delete') && (
                           <button 
                             onClick={() => selectedUserData && handleDeleteProfile(selectedUserData)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-[#f0f2f5] hover:bg-[#ebedef] text-[#55677d] border border-vk-separator rounded-[2px] text-xs font-medium transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#ef4444] rounded-full text-[13px] font-medium transition-all"
                           >
                              Удалить профиль
                           </button>
@@ -17183,8 +17183,8 @@ export default function App() {
                         {hasRightMenuAccess('mark') && (
                           <button 
                             onClick={() => handleMarkAsPorn(selectedUserData)}
-                            className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-xs font-medium transition-colors border ${
-                              selectedUserData?.isPornMarked ? 'bg-[#ffcc00] text-black border-[#ffcc00]' : 'bg-[#f0f2f5] text-[#55677d] border-vk-separator hover:bg-[#ebedef]'
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium transition-all ${
+                              selectedUserData?.isPornMarked ? 'bg-[#ffcc00] text-black' : 'bg-[#ebebeb] hover:bg-[#e0e0e0] text-[#1a1a1a]'
                             }`}
                           >
                              Пометить
@@ -17213,7 +17213,7 @@ export default function App() {
       <div className="min-h-screen bg-[#f5f5f5] flex flex-col items-center justify-center font-sans select-none">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-[#1a1a1a] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase font-display">ИТД — Загрузка данных...</span>
+          <span className="text-xs font-bold text-zinc-500 tracking-wide uppercase font-display">Следы — Загрузка данных...</span>
         </div>
       </div>
     );
@@ -17243,9 +17243,9 @@ export default function App() {
               }} 
               className="flex items-center gap-2.5 cursor-pointer hover:opacity-85 select-none transition-opacity"
             >
-              <ItdLogo width={36} height={18} className="text-[#1a1a1a]" />
-              <span className="text-zinc-950 font-bold text-[14.5px] tracking-tight font-display">
-                ИТД
+              <ItdLogo width={32} height={16} className="text-[#1a1a1a]" />
+              <span className="text-zinc-950 font-bold text-[14px] tracking-tight font-display">
+                Следы
               </span>
             </div>
           </div>
@@ -17359,22 +17359,19 @@ export default function App() {
                       }
                       setActiveTab(item.id); 
                     }} 
-                    className={`w-full flex items-center gap-3 pl-4 pr-3.5 py-2.5 rounded-2xl text-left transition-all duration-150 group cursor-pointer relative overflow-hidden ${
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition-all duration-200 group cursor-pointer relative overflow-hidden ${
                       isTabActive 
-                        ? 'bg-[#4F7DF3]/8 text-[#111827] font-bold' 
-                        : 'text-[#6B7280] hover:bg-zinc-100 hover:text-[#111827] font-medium'
+                        ? 'bg-white text-[#1a1a1a] font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-black/5' 
+                        : 'text-[#7a7a7a] hover:bg-white/80 hover:text-[#1a1a1a] font-medium'
                     }`}
                   >
-                    {isTabActive && (
-                      <span className="absolute left-0 top-1/4 bottom-1/4 w-[3.5px] bg-[#4F7DF3] rounded-r-full" />
-                    )}
-                    <item.icon size={18} className={`transition-transform duration-150 group-hover:scale-105 ${isTabActive ? 'text-[#111827] stroke-[2.25px]' : 'text-[#6B7280]/80 group-hover:text-[#111827]'}`} />
-                    <span className="text-[13px] tracking-tight truncate grow">{item.label}</span>
+                    <item.icon size={18} className={`transition-transform duration-200 group-hover:scale-105 ${isTabActive ? 'text-[#1a1a1a] stroke-[2.2px]' : 'text-[#7a7a7a] group-hover:text-[#1a1a1a]'}`} />
+                    <span className="text-[13.5px] tracking-tight truncate grow">{item.label}</span>
                     {count > 0 && (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center leading-none transition-colors ${
+                      <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full min-w-[20px] text-center leading-none transition-colors ${
                         isTabActive 
-                          ? 'bg-[#4F7DF3]/20 text-[#111827]' 
-                          : 'bg-zinc-200 text-[#6B7280] group-hover:bg-zinc-300 group-hover:text-zinc-950'
+                          ? 'bg-[#1a1a1a] text-white' 
+                          : 'bg-[#ebebeb] text-[#7a7a7a] group-hover:bg-[#dfdfdf] group-hover:text-[#1a1a1a]'
                       }`}>
                         {count}
                       </span>
@@ -17435,9 +17432,9 @@ export default function App() {
         </div>
       </main>
 
-      {/* Persistent Mobile Bottom Navigation Bar */}
+      {/* Persistent Mobile Bottom Navigation Bar (itd.com style: floating glass bar, rounded-3xl, blur, pill active states) */}
       {isRegistered && currentUser && !(currentUser?.isBlocked || isProfileBlocked) && (
-        <div className="fixed bottom-0 left-0 right-0 z-[1000] bg-white/95 backdrop-blur-md border-t border-zinc-200/80 md:hidden flex justify-around items-center py-2 px-3 pb-[calc(8px+env(safe-area-inset-bottom))] shadow-[0_-2px_12px_rgba(0,0,0,0.04)] select-none">
+        <div className="fixed bottom-4 left-4 right-4 z-[1000] md:hidden flex items-center justify-around h-16 bg-white/85 backdrop-blur-xl border border-black/10 rounded-[32px] px-2 shadow-[0_4px_24px_rgba(0,0,0,0.08)] select-none">
           {[
             { id: 'feed', icon: LayoutGrid, label: 'Лента', action: () => { setFeedMode('all'); setActiveTab('feed'); navigate('/feed'); } },
             { id: 'discussed-now', icon: Flame, label: 'Обсуждают', action: () => { setFeedMode('discussing'); setActiveTab('feed'); navigate('/feed'); } },
@@ -17456,19 +17453,19 @@ export default function App() {
               <button
                 key={item.id}
                 onClick={item.action}
-                className={`flex flex-col items-center justify-center gap-0.5 min-w-[56px] text-center relative transition-all duration-150 cursor-pointer ${
-                  isActive ? 'text-[#4F7DF3] scale-105' : 'text-zinc-400 hover:text-zinc-800'
+                className={`flex flex-col items-center justify-center gap-1 flex-1 py-1 relative transition-all duration-200 cursor-pointer ${
+                  isActive ? 'text-[#1a1a1a]' : 'text-[#7a7a7a] hover:text-[#1a1a1a]'
                 }`}
               >
-                <div className="relative p-1">
-                  <item.icon size={21} className={isActive ? 'stroke-[2.25px]' : 'stroke-[1.8px]'} />
+                <div className={`relative p-1.5 rounded-full transition-colors ${isActive ? 'bg-[#ebebeb]' : 'bg-transparent'}`}>
+                  <item.icon size={20} className={isActive ? 'stroke-[2.2px] text-[#1a1a1a]' : 'stroke-[1.8px] text-[#7a7a7a]'} />
                   {item.count !== undefined && item.count > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] bg-rose-500 rounded-full text-white text-[8.5px] font-bold flex items-center justify-center px-1 font-mono leading-none shadow-[0_1px_3px_rgba(244,63,94,0.3)] border border-white">
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-[#f91880] rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1 font-mono leading-none border-2 border-white">
                       {item.count}
                     </span>
                   )}
                 </div>
-                <span className="text-[9.5px] font-medium leading-none tracking-tight">{item.label}</span>
+                <span className={`text-[10px] font-medium leading-none tracking-tight ${isActive ? 'font-semibold text-[#1a1a1a]' : 'text-[#7a7a7a]'}`}>{item.label}</span>
               </button>
             );
           })}

@@ -23,10 +23,10 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
   ];
 
   return (
-    <div className="bg-vk-white px-5 py-4 rounded-xl border border-zinc-200/60 shadow-xs flex flex-col gap-3 font-sans">
+    <div className="bg-white px-5 py-4 rounded-2xl border border-black/10 shadow-[0_2px_12px_rgba(0,0,0,0.03)] flex flex-col gap-3 font-sans">
       <div className="flex flex-col gap-2.5">
-        {/* iOS-style segmented switch */}
-        <div className="p-0.5 bg-zinc-100/95 rounded-lg border border-zinc-200/50 flex flex-wrap items-center gap-0.5 select-none w-full">
+        {/* itd.com pill segmented tab bar */}
+        <div className="p-1 bg-[#ebebeb] rounded-full flex flex-wrap items-center gap-1 select-none w-full">
           {options.map((opt) => {
             const isSelected = currentMode === opt.id;
             return (
@@ -34,10 +34,10 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => onModeChange(opt.id)}
-                className={`flex-1 min-w-[120px] px-3 py-2 text-[12.5px] font-medium rounded-md transition-all duration-150 whitespace-nowrap text-center cursor-pointer ${
+                className={`flex-1 min-w-[120px] px-3.5 py-2 text-[13px] font-medium rounded-full transition-all duration-200 whitespace-nowrap text-center cursor-pointer ${
                   isSelected
-                    ? 'bg-white text-zinc-900 font-semibold shadow-xs border border-zinc-200/20'
-                    : 'text-zinc-500 hover:text-zinc-800 hover:bg-white/40'
+                    ? 'bg-white text-[#1a1a1a] font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.06)]'
+                    : 'text-[#7a7a7a] hover:text-[#1a1a1a] hover:bg-white/40'
                 }`}
               >
                 {opt.label}
@@ -48,7 +48,7 @@ export const FeedModeSelector: React.FC<FeedModeSelectorProps> = ({
 
         {/* Humanized, elegant explanation text */}
         <p className="text-[12px] text-zinc-500 leading-relaxed text-left font-normal px-0.5">
-          Публикации сообщества ИТД помогают находить интересные мысли, новости и обсуждения других людей.
+          Публикации сообщества Следы помогают находить интересные мысли, новости и обсуждения других людей.
         </p>
       </div>
     </div>

@@ -22,7 +22,7 @@ export const PostFormatFilter: React.FC<PostFormatFilterProps> = ({
   ];
 
   return (
-    <div className={`p-0.5 bg-zinc-100/90 rounded-lg border border-zinc-200/50 flex items-center gap-0.5 select-none overflow-x-auto scrollbar-none max-w-full shrink-0 ${className}`}>
+    <div className={`p-1 bg-[#ebebeb] rounded-full flex items-center gap-1 select-none overflow-x-auto scrollbar-none max-w-full shrink-0 ${className}`}>
       {options.map((opt) => {
         const isSelected = selectedFormat === opt.id;
         return (
@@ -30,10 +30,10 @@ export const PostFormatFilter: React.FC<PostFormatFilterProps> = ({
             key={opt.id}
             type="button"
             onClick={() => onChange(opt.id)}
-            className={`px-3 py-1 text-[11.5px] font-medium rounded-md transition-all duration-150 whitespace-nowrap cursor-pointer ${
+            className={`px-3.5 py-1.5 text-[12px] font-medium rounded-full transition-all duration-200 whitespace-nowrap cursor-pointer ${
               isSelected
-                ? 'bg-white text-zinc-900 font-semibold shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-800 hover:bg-white/40'
+                ? 'bg-white text-[#1a1a1a] font-semibold shadow-[0_2px_6px_rgba(0,0,0,0.06)]'
+                : 'text-[#7a7a7a] hover:text-[#1a1a1a] hover:bg-white/40'
             }`}
           >
             {opt.label}
